@@ -1,8 +1,149 @@
 [build]
   command   = "npm run build"
   publish   = "dist"
+  functions = "netlify/functions"
 
-# SPA fallback — serve index.html for all non-asset routes
+[functions]
+  node_bundler = "esbuild"
+
+[dev]
+  command    = "vite"
+  port       = 8888
+  targetPort = 5173
+
+# ── Auth routes ────────────────────────────────────────────────────────────────
+[[redirects]]
+  from   = "/auth/google/callback"
+  to     = "/.netlify/functions/auth-google-callback"
+  status = 200
+
+[[redirects]]
+  from   = "/auth/google"
+  to     = "/.netlify/functions/auth-google"
+  status = 200
+
+[[redirects]]
+  from   = "/auth/logout"
+  to     = "/.netlify/functions/auth-logout"
+  status = 200
+
+[[redirects]]
+  from   = "/auth/me"
+  to     = "/.netlify/functions/auth-me"
+  status = 200
+
+# ── API routes ─────────────────────────────────────────────────────────────────
+[[redirects]]
+  from   = "/api/proxy-request"
+  to     = "/.netlify/functions/proxy-request"
+  status = 200
+
+[[redirects]]
+  from   = "/api/smart-route"
+  to     = "/.netlify/functions/smart-route"
+  status = 200
+
+[[redirects]]
+  from   = "/api/validate-provider"
+  to     = "/.netlify/functions/validate-provider"
+  status = 200
+
+[[redirects]]
+  from   = "/api/history/group/:id"
+  to     = "/.netlify/functions/history-group/:id"
+  status = 200
+
+[[redirects]]
+  from   = "/api/history"
+  to     = "/.netlify/functions/history"
+  status = 200
+
+[[redirects]]
+  from   = "/api/facts/cleanup"
+  to     = "/.netlify/functions/facts"
+  status = 200
+
+[[redirects]]
+  from   = "/api/facts/:id"
+  to     = "/.netlify/functions/facts"
+  status = 200
+
+[[redirects]]
+  from   = "/api/facts"
+  to     = "/.netlify/functions/facts"
+  status = 200
+
+[[redirects]]
+  from   = "/api/memory-files/:id"
+  to     = "/.netlify/functions/memory-files"
+  status = 200
+
+[[redirects]]
+  from   = "/api/memory-files"
+  to     = "/.netlify/functions/memory-files"
+  status = 200
+
+[[redirects]]
+  from   = "/api/memory-urls/:id"
+  to     = "/.netlify/functions/memory-urls"
+  status = 200
+
+[[redirects]]
+  from   = "/api/memory-urls"
+  to     = "/.netlify/functions/memory-urls"
+  status = 200
+
+[[redirects]]
+  from   = "/api/keys/:provider"
+  to     = "/.netlify/functions/keys"
+  status = 200
+
+[[redirects]]
+  from   = "/api/keys"
+  to     = "/.netlify/functions/keys"
+  status = 200
+
+[[redirects]]
+  from   = "/api/user-settings"
+  to     = "/.netlify/functions/user-settings"
+  status = 200
+
+[[redirects]]
+  from   = "/api/settings"
+  to     = "/.netlify/functions/settings"
+  status = 200
+
+[[redirects]]
+  from   = "/api/available-providers"
+  to     = "/.netlify/functions/available-providers"
+  status = 200
+
+[[redirects]]
+  from   = "/api/usage"
+  to     = "/.netlify/functions/usage"
+  status = 200
+
+[[redirects]]
+  from   = "/api/summarize"
+  to     = "/.netlify/functions/summarize"
+  status = 200
+
+[[redirects]]
+  from   = "/api/extract-facts"
+  to     = "/.netlify/functions/extract-facts"
+  status = 200
+
+[[redirects]]
+  from   = "/api/send-email"
+  to     = "/.netlify/functions/send-email"
+  status = 200
+
+[[redirects]]
+  from   = "/api/health"
+  to     = "/.netlify/functions/health"
+  status = 200
+
+# ── SPA fallback (must be last) ────────────────────────────────────────────────
 [[redirects]]
   from   = "/*"
   to     = "/index.html"
