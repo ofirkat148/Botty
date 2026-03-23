@@ -1,0 +1,121 @@
+{
+  "entities": {
+    "History": {
+      "title": "History",
+      "description": "LLM request and response history",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "prompt": { "type": "string", "description": "User prompt" },
+        "response": { "type": "string", "description": "LLM response" },
+        "model": { "type": "string", "description": "Model used" },
+        "tokens_used": { "type": "number", "description": "Tokens consumed" },
+        "status": { "type": "string", "description": "Request status" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Creation time" }
+      },
+      "required": ["uid", "prompt", "response", "model", "tokens_used", "status", "timestamp"]
+    },
+    "Fact": {
+      "title": "Fact",
+      "description": "User-defined facts for memory",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "content": { "type": "string", "description": "Fact content" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Creation time" }
+      },
+      "required": ["uid", "content", "timestamp"]
+    },
+    "ApiKey": {
+      "title": "ApiKey",
+      "description": "Stored API keys for different providers",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "provider": { "type": "string", "description": "Provider name (e.g., google, openai)" },
+        "key": { "type": "string", "description": "Encrypted or masked API key" }
+      },
+      "required": ["uid", "provider", "key"]
+    },
+    "MemoryFile": {
+      "title": "MemoryFile",
+      "description": "Uploaded files for context",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "name": { "type": "string", "description": "File name" },
+        "content": { "type": "string", "description": "File content" },
+        "type": { "type": "string", "description": "MIME type" },
+        "size": { "type": "number", "description": "File size in bytes" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Upload time" }
+      },
+      "required": ["uid", "name", "content", "type", "size", "timestamp"]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Global application settings",
+      "type": "object",
+      "properties": {
+        "telegram_token": { "type": "string", "description": "Telegram Bot Token" },
+        "localUrl": { "type": "string", "description": "Local LLM Endpoint URL" }
+      }
+    },
+    "DailyUsage": {
+      "title": "DailyUsage",
+      "description": "Token usage tracking per user per day",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "tokens": { "type": "number", "description": "Total tokens used" },
+        "date": { "type": "string", "format": "date", "description": "Date in YYYY-MM-DD" }
+      },
+      "required": ["uid", "tokens", "date"]
+    },
+    "User": {
+      "title": "User",
+      "description": "User profile information",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "email": { "type": "string", "format": "email", "description": "User email" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoURL": { "type": "string", "format": "uri", "description": "User photo URL" },
+        "lastLogin": { "type": "string", "format": "date-time", "description": "Last login time" }
+      },
+      "required": ["uid", "email"]
+    },
+    "TelegramSession": {
+      "title": "TelegramSession",
+      "description": "Telegram chat session tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "Session ID" },
+        "lastSeen": { "type": "number", "description": "Last activity timestamp" }
+      },
+      "required": ["id", "lastSeen"]
+    },
+    "TelegramLink": {
+      "title": "TelegramLink",
+      "description": "Link between Telegram chat and web user",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "Web User ID" },
+        "chatId": { "type": "string", "description": "Telegram Chat ID" },
+        "username": { "type": "string", "description": "Telegram Username" },
+        "timestamp": { "type": "string", "format": "date-time", "description": "Link time" }
+      },
+      "required": ["uid", "chatId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "history": { "schema": "History", "description": "Collection of LLM request history" },
+    "facts": { "schema": "Fact", "description": "Collection of user facts" },
+    "apiKeys": { "schema": "ApiKey", "description": "Collection of user API keys" },
+    "memoryFiles": { "schema": "MemoryFile", "description": "Collection of user uploaded files" },
+    "settings": { "schema": "Settings", "description": "Global settings collection" },
+    "dailyUsage": { "schema": "DailyUsage", "description": "Daily token usage tracking" },
+    "users": { "schema": "User", "description": "User profiles" },
+    "tg_sessions": { "schema": "TelegramSession", "description": "Telegram session tracking" },
+    "telegram_links": { "schema": "TelegramLink", "description": "Telegram to web user links" }
+  }
+}
