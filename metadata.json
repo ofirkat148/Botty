@@ -1,7 +1,0 @@
-{
-  "name": "Botty",
-  "description": "A unified interface for managing, routing, and tracking requests across multiple LLM models with smart routing and token usage monitoring.",
-  "requestFramePermissions": [
-    "microphone"
-  ]
-}
