@@ -3,1214 +3,2675 @@ import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createRequire } from "module";
-import session from "express-session";
-import passport from "passport";
-import { Strategy as GoogleStrategy } from "passport-google-oauth20";
-import Database from "better-sqlite3";
+import admin from "firebase-admin";
+import { getFirestore, FieldValue as AdminFieldValue, Timestamp as AdminTimestamp } from "firebase-admin/firestore";
+import { initializeApp, getApps, applicationDefault } from "firebase-admin/app";
+import { initializeApp as initializeClientApp, getApps as getClientApps } from 'firebase/app';
+import { 
+  getFirestore as getClientFirestore, 
+  collection as clientCollection, 
+  doc as clientDoc, 
+  getDoc as getClientDoc, 
+  getDocs as getClientDocs,
+  setDoc as clientSetDoc, 
+  updateDoc as clientUpdateDoc, 
+  deleteDoc as clientDeleteDoc, 
+  query as clientQuery, 
+  where as clientWhere, 
+  orderBy as clientOrderBy,
+  limit as clientLimit,
+  serverTimestamp as clientServerTimestamp,
+  Timestamp as clientTimestamp,
+  writeBatch as clientWriteBatch,
+  increment as clientIncrement,
+  arrayUnion as clientArrayUnion,
+  arrayRemove as clientArrayRemove
+} from 'firebase/firestore';
+import { getAuth as getClientAuth, signInAnonymously } from 'firebase/auth';
 import fs from "fs";
-import { randomUUID } from "crypto";
 
-// ─── Bootstrap ───────────────────────────────────────────────────────────────
+const logFile = "server-debug.log";
+const log = (msg: string) => {
+  const timestamp = new Date().toISOString();
+  const entry = `[${timestamp}] ${msg}\n`;
+  try {
+    fs.appendFileSync(logFile, entry);
+  } catch (e) {
+    console.error(`Failed to write to log file: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  console.log(msg);
+};
+
+log("Server script starting...");
 
 const require = createRequire(import.meta.url);
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const LOG_FILE = "server-debug.log";
-const log = (msg: string) => {
-  const entry = `[${new Date().toISOString()}] ${msg}\n`;
-  try { fs.appendFileSync(LOG_FILE, entry); } catch {}
-  console.log(msg);
-};
-
-log("Server starting…");
-
-// ─── SQLite DB init ──────────────────────────────────────────────────────────
-
-const DB_PATH = path.join(__dirname, "llm-router.db");
-const UPLOADS_DIR = path.join(__dirname, "uploads");
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-
-const db = new Database(DB_PATH);
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
-
-function initDb() {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS users (
-      uid          TEXT PRIMARY KEY,
-      email        TEXT NOT NULL,
-      display_name TEXT,
-      photo_url    TEXT,
-      last_login   TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS api_keys (
-      uid      TEXT NOT NULL,
-      provider TEXT NOT NULL,
-      key      TEXT NOT NULL,
-      PRIMARY KEY (uid, provider)
-    );
-
-    CREATE TABLE IF NOT EXISTS settings (
-      uid  TEXT PRIMARY KEY,
-      data TEXT NOT NULL DEFAULT '{}'
-    );
-
-    CREATE TABLE IF NOT EXISTS user_settings (
-      uid           TEXT PRIMARY KEY,
-      system_prompt TEXT NOT NULL DEFAULT '',
-      local_url     TEXT NOT NULL DEFAULT 'http://localhost:11434',
-      use_memory    INTEGER NOT NULL DEFAULT 1,
-      auto_memory   INTEGER NOT NULL DEFAULT 1
-    );
-
-    CREATE TABLE IF NOT EXISTS history (
-      id              TEXT PRIMARY KEY,
-      uid             TEXT NOT NULL,
-      prompt          TEXT NOT NULL,
-      response        TEXT NOT NULL,
-      model           TEXT,
-      tokens_used     INTEGER DEFAULT 0,
-      status          TEXT DEFAULT 'success',
-      conversation_id TEXT,
-      created_at      TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_history_uid    ON history(uid);
-    CREATE INDEX IF NOT EXISTS idx_history_convid ON history(conversation_id);
-
-    CREATE TABLE IF NOT EXISTS facts (
-      id         TEXT PRIMARY KEY,
-      uid        TEXT NOT NULL,
-      content    TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_facts_uid ON facts(uid);
-
-    CREATE TABLE IF NOT EXISTS memory_files (
-      id         TEXT PRIMARY KEY,
-      uid        TEXT NOT NULL,
-      name       TEXT NOT NULL,
-      file_path  TEXT NOT NULL,
-      mime_type  TEXT,
-      size       INTEGER DEFAULT 0,
-      is_skill   INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_memory_files_uid ON memory_files(uid);
-
-    CREATE TABLE IF NOT EXISTS memory_urls (
-      id         TEXT PRIMARY KEY,
-      uid        TEXT NOT NULL,
-      url        TEXT NOT NULL,
-      title      TEXT,
-      content    TEXT,
-      created_at TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS idx_memory_urls_uid ON memory_urls(uid);
-
-    CREATE TABLE IF NOT EXISTS daily_usage (
-      uid         TEXT NOT NULL,
-      date        TEXT NOT NULL,
-      tokens      INTEGER NOT NULL DEFAULT 0,
-      model_usage TEXT NOT NULL DEFAULT '{}',
-      PRIMARY KEY (uid, date)
-    );
-
-    CREATE TABLE IF NOT EXISTS telegram_links (
-      chat_id    TEXT PRIMARY KEY,
-      uid        TEXT NOT NULL,
-      username   TEXT,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS telegram_state (
-      chat_id           TEXT PRIMARY KEY,
-      session_id        TEXT,
-      last_seen         INTEGER DEFAULT 0,
-      selected_model    TEXT,
-      selected_provider TEXT,
-      system_prompt     TEXT,
-      sandbox_enabled   INTEGER DEFAULT 0
-    );
-
-    CREATE TABLE IF NOT EXISTS user_tokens (
-      uid                 TEXT PRIMARY KEY,
-      google_access_token TEXT,
-      updated_at          TEXT NOT NULL
-    );
-  `);
-  log("SQLite schema initialised.");
+let firebaseConfig: any = null;
+try {
+  log("Loading firebase-applet-config.json...");
+  firebaseConfig = require("./firebase-applet-config.json");
+  log("Firebase config loaded.");
+} catch (e: any) {
+  log(`CRITICAL: Failed to load firebase-applet-config.json: ${e.message}. Firestore will be unavailable.`);
 }
 
-initDb();
+// Initialize Firebase Admin for backend
+log("Initializing Firebase Admin...");
+let db: any = null;
+let FieldValue: any = AdminFieldValue;
+let Timestamp: any = AdminTimestamp;
 
-// ─── SQLite helpers ───────────────────────────────────────────────────────────
-
-const now = () => new Date().toISOString();
-
-function upsertUser(profile: { id: string; email: string; displayName?: string; photoURL?: string }) {
-  db.prepare(`
-    INSERT INTO users (uid, email, display_name, photo_url, last_login)
-    VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(uid) DO UPDATE SET
-      email        = excluded.email,
-      display_name = excluded.display_name,
-      photo_url    = excluded.photo_url,
-      last_login   = excluded.last_login
-  `).run(profile.id, profile.email, profile.displayName ?? null, profile.photoURL ?? null, now());
-}
-
-function getSettings(uid: string): Record<string, any> {
-  const row = db.prepare("SELECT data FROM settings WHERE uid = ?").get(uid) as any;
-  if (!row) return {};
-  try { return JSON.parse(row.data); } catch { return {}; }
-}
-
-function setSettings(uid: string, patch: Record<string, any>) {
-  const existing = getSettings(uid);
-  const merged = { ...existing, ...patch };
-  db.prepare(`
-    INSERT INTO settings (uid, data) VALUES (?, ?)
-    ON CONFLICT(uid) DO UPDATE SET data = excluded.data
-  `).run(uid, JSON.stringify(merged));
-}
-
-function incrementDailyUsage(uid: string, tokensUsed: number, modelKey: string) {
-  const date = new Date().toISOString().split("T")[0];
-  const row = db.prepare("SELECT tokens, model_usage FROM daily_usage WHERE uid=? AND date=?").get(uid, date) as any;
-  const modelUsage: Record<string, number> = row ? JSON.parse(row.model_usage) : {};
-  modelUsage[modelKey] = (modelUsage[modelKey] || 0) + tokensUsed;
-  db.prepare(`
-    INSERT INTO daily_usage (uid, date, tokens, model_usage) VALUES (?, ?, ?, ?)
-    ON CONFLICT(uid, date) DO UPDATE SET
-      tokens      = tokens + excluded.tokens,
-      model_usage = excluded.model_usage
-  `).run(uid, date, tokensUsed, JSON.stringify(modelUsage));
-}
-
-// ─── Passport / Auth setup ───────────────────────────────────────────────────
-
-const GOOGLE_CLIENT_ID     = process.env.GOOGLE_CLIENT_ID     ?? "";
-const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET ?? "";
-const SESSION_SECRET       = process.env.SESSION_SECRET       ?? "change-me-in-production";
-const BASE_URL             = process.env.BASE_URL             ?? "http://localhost:3000";
-
-passport.use(new GoogleStrategy(
-  {
-    clientID:     GOOGLE_CLIENT_ID,
-    clientSecret: GOOGLE_CLIENT_SECRET,
-    callbackURL:  `${BASE_URL}/auth/google/callback`,
-    scope:        ["profile", "email", "https://www.googleapis.com/auth/gmail.send"],
-  },
-  (_accessToken, _refreshToken, profile, done) => {
-    const email = profile.emails?.[0]?.value ?? "";
-    upsertUser({
-      id:          profile.id,
-      email,
-      displayName: profile.displayName,
-      photoURL:    profile.photos?.[0]?.value,
-    });
-    // Persist access token so Telegram bot can use Gmail on behalf of user
-    db.prepare(`
-      INSERT INTO user_tokens (uid, google_access_token, updated_at)
-      VALUES (?, ?, ?)
-      ON CONFLICT(uid) DO UPDATE SET
-        google_access_token = excluded.google_access_token,
-        updated_at          = excluded.updated_at
-    `).run(profile.id, _accessToken, now());
-
-    done(null, { uid: profile.id, email, displayName: profile.displayName, photoURL: profile.photos?.[0]?.value });
+async function initFirebase() {
+  if (!firebaseConfig) {
+    log("[INIT] Skipping Firebase initialization: config missing.");
+    return;
   }
-));
+  try {
+    const projectId = firebaseConfig.projectId;
+    const databaseId = firebaseConfig.firestoreDatabaseId;
+    const apiKey = firebaseConfig.apiKey;
 
-passport.serializeUser((user: any, done) => done(null, user.uid));
-passport.deserializeUser((uid: string, done) => {
-  const row = db.prepare("SELECT uid, email, display_name, photo_url FROM users WHERE uid=?").get(uid) as any;
-  if (!row) return done(null, false);
-  done(null, { uid: row.uid, email: row.email, displayName: row.display_name, photoURL: row.photo_url });
-});
+    log(`[INIT] Starting Firebase initialization...`);
+    log(`[INIT] Project ID: ${projectId}`);
+    log(`[INIT] Database ID: ${databaseId}`);
+    
+    // Force project ID in environment
+    process.env.GOOGLE_CLOUD_PROJECT = projectId;
+    process.env.GCLOUD_PROJECT = projectId;
 
-// ─── Provider / Model registry ────────────────────────────────────────────────
+    // Try Admin SDK first
+    try {
+      log(`[INIT] Attempting Admin SDK initialization for project: ${projectId}...`);
+      if (getApps().length === 0) {
+        initializeApp({
+          projectId: projectId
+        });
+      }
+      const adminApp = getApps()[0];
+      log(`[INIT] Admin SDK initialized.`);
+      
+      // If databaseId is (default), we can omit it or use it as is
+      // But some environments prefer it as an argument to getFirestore
+      db = getFirestore(adminApp, databaseId);
+      log(`[INIT] Connecting to database: ${databaseId}`);
+      
+      log("[INIT] Admin SDK assigned. Testing connection...");
+      // Use a timeout for the health check to avoid hanging
+      const healthCheck = db.collection("health").doc("check").get();
+      const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 5000));
+      
+      await Promise.race([healthCheck, timeout]);
+      log("[INIT] Admin SDK connection successful.");
+      return;
+    } catch (adminErr: any) {
+      // Use a more neutral log for expected fallback
+      log(`[INIT] Admin SDK connection test failed (expected in some environments): ${adminErr.message}`);
+      log(`[INIT] Falling back to Client SDK...`);
+    }
 
+    // Fallback to Client SDK on server
+    log(`[INIT] Attempting Client SDK fallback...`);
+    const clientAppName = 'llm-router-client';
+    let clientApp = getClientApps().find(app => app.name === clientAppName);
+    if (!clientApp) {
+      clientApp = initializeClientApp({
+        apiKey: apiKey,
+        authDomain: firebaseConfig.authDomain,
+        projectId: projectId,
+        appId: firebaseConfig.appId
+      }, clientAppName);
+    }
+    
+    const clientDb = getClientFirestore(clientApp, databaseId);
+    const clientAuth = getClientAuth(clientApp);
+    
+    log("[INIT] Client SDK initialized. Testing connection...");
+    
+    try {
+      log("[INIT] Signing in anonymously for Client SDK...");
+      await signInAnonymously(clientAuth);
+      log("[INIT] Anonymous sign-in successful.");
+    } catch (authErr: any) {
+      if (authErr.code === 'auth/admin-restricted-operation') {
+        log(`[INIT] Note: Anonymous sign-in is disabled in Firebase Console. This is normal if your rules allow public access.`);
+      } else {
+        log(`[INIT] Anonymous sign-in failed: ${authErr.message}`);
+      }
+    }
+    
+    // Test client connection
+    await getClientDoc(clientDoc(clientDb, "health", "check"));
+    log("[INIT] Client SDK connection successful.");
+    
+    // Wrap clientDb to look like admin db for basic operations
+    FieldValue = {
+      serverTimestamp: () => clientServerTimestamp(),
+      delete: () => { throw new Error("FieldValue.delete() not implemented in fallback"); },
+      increment: (n: number) => clientIncrement(n),
+      arrayUnion: (...args: any[]) => clientArrayUnion(...args),
+      arrayRemove: (...args: any[]) => clientArrayRemove(...args)
+    };
+    Timestamp = clientTimestamp;
+
+    const wrapQuery = (q: any) => ({
+      where: (field: string, op: any, value: any) => wrapQuery(clientQuery(q, clientWhere(field, op, value))),
+      orderBy: (field: string, dir: any) => wrapQuery(clientQuery(q, clientOrderBy(field, dir))),
+      limit: (n: number) => wrapQuery(clientQuery(q, clientLimit(n))),
+      get: async () => {
+        const snap = await getClientDocs(q);
+        return {
+          docs: snap.docs.map(d => ({
+            id: d.id,
+            data: () => d.data(),
+            exists: () => d.exists(),
+            ref: d.ref
+          })),
+          size: snap.size,
+          empty: snap.empty
+        };
+      }
+    });
+
+    db = {
+      collection: (colName: string) => {
+        const colRef = clientCollection(clientDb, colName);
+        return {
+          doc: (docId?: string) => {
+            const dRef = docId ? clientDoc(clientDb, colName, docId) : clientDoc(colRef);
+            return {
+              id: dRef.id,
+              ref: dRef,
+              get: () => getClientDoc(dRef).then(snap => ({
+                exists: () => snap.exists(),
+                data: () => snap.data(),
+                id: snap.id,
+                ref: snap.ref
+              })),
+              set: (data: any, options?: any) => clientSetDoc(dRef, data, options),
+              update: (data: any) => clientUpdateDoc(dRef, data),
+              delete: () => clientDeleteDoc(dRef)
+            };
+          },
+          where: (field: string, op: any, value: any) => wrapQuery(clientQuery(colRef, clientWhere(field, op, value))),
+          orderBy: (field: string, dir: any) => wrapQuery(clientQuery(colRef, clientOrderBy(field, dir))),
+          limit: (n: number) => wrapQuery(clientQuery(colRef, clientLimit(n))),
+          get: async () => {
+            const snap = await getClientDocs(colRef);
+            return {
+              docs: snap.docs.map(d => ({
+                id: d.id,
+                data: () => d.data(),
+                exists: () => d.exists(),
+                ref: d.ref
+              })),
+              size: snap.size,
+              empty: snap.empty
+            };
+          },
+          add: async (data: any) => {
+            const dRef = clientDoc(colRef);
+            await clientSetDoc(dRef, data);
+            return { id: dRef.id };
+          }
+        };
+      },
+      batch: () => {
+        const batch = clientWriteBatch(clientDb);
+        return {
+          set: (ref: any, data: any, options?: any) => batch.set(ref.ref || ref, data, options),
+          update: (ref: any, data: any) => batch.update(ref.ref || ref, data),
+          delete: (ref: any) => batch.delete(ref.ref || ref),
+          commit: () => batch.commit()
+        };
+      }
+    };
+
+    // Override FieldValue for client SDK
+    FieldValue = {
+      serverTimestamp: () => clientServerTimestamp(),
+      increment: (n: number) => clientIncrement(n),
+      arrayUnion: (...args: any[]) => clientArrayUnion(...args),
+      arrayRemove: (...args: any[]) => clientArrayRemove(...args)
+    };
+    Timestamp = clientTimestamp;
+    
+    (admin.firestore as any).FieldValue = FieldValue;
+    (admin.firestore as any).Timestamp = Timestamp;
+
+    log("[INIT] Client SDK shim assigned.");
+
+  } catch (e: any) {
+    log(`[INIT] FATAL: All Firebase initialization attempts failed: ${e.message}`);
+    if (e.stack) log(`[INIT] STACK: ${e.stack}`);
+  }
+}
+
+await initFirebase();
+
+let sqliteDb: any;
+/*
+try {
+  const Database = require("better-sqlite3");
+  sqliteDb = new Database("history.db");
+} catch (e: any) {
+  log(`Failed to load or open better-sqlite3/history.db: ${e.message}`);
+}
+*/
+
+async function getAvailableProviders(uid: string) {
+  const providers = new Set<string>();
+  
+  // Check environment variables
+  if (process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY) providers.add('google');
+  if (process.env.OPENAI_API_KEY) providers.add('openai');
+  if (process.env.ANTHROPIC_API_KEY) providers.add('anthropic');
+  if (process.env.GROQ_API_KEY) providers.add('groq');
+  if (process.env.DEEPSEEK_API_KEY) providers.add('deepseek');
+  if (process.env.MISTRAL_API_KEY) providers.add('mistral');
+  if (process.env.XAI_API_KEY) providers.add('xai');
+  if (process.env.HYPEREAL_API_KEY) providers.add('hypereal');
+  if (process.env.GITHUB_API_KEY || process.env.GITHUB_TOKEN) providers.add('github');
+
+  // Check Firestore keys
+  try {
+    const keysSnap = await db.collection("apiKeys").where("uid", "==", uid).get();
+    keysSnap.docs.forEach((doc: any) => {
+      const data = doc.data();
+      if (data.key && data.key.trim()) {
+        providers.add(data.provider);
+      }
+    });
+    
+    // Check if local URL is set
+    const settingsDoc = await db.collection("settings").doc(uid).get();
+    if (settingsDoc.exists() && settingsDoc.data()?.localUrl) {
+      providers.add('local');
+    }
+  } catch (e: any) {
+    log(`Error fetching available providers from Firestore: ${e.message}`);
+  }
+
+  const result = Array.from(providers);
+  console.log(`[AUTH] Available providers for ${uid}:`, result);
+  return result;
+}
+
+// Smart Routing Logic
 interface ModelMetrics {
-  id: string; provider: string;
-  costWeight: number; reasoningScore: number; speedScore: number;
-  creativeScore: number; codingScore: number; visionScore: number;
+  id: string;
+  provider: string;
+  costWeight: number; // 1-10 (1 is cheapest)
+  reasoningScore: number; // 1-10
+  speedScore: number; // 1-10
+  creativeScore: number; // 1-10
+  codingScore: number; // 1-10
+  visionScore: number; // 1-10
 }
 
 const MODEL_REGISTRY: ModelMetrics[] = [
-  { id: "gemini-3-flash-preview",        provider: "google",    costWeight: 1,   reasoningScore: 6,  speedScore: 10, creativeScore: 6,  codingScore: 6,  visionScore: 8  },
-  { id: "gemini-3.1-pro-preview",        provider: "google",    costWeight: 3,   reasoningScore: 9,  speedScore: 7,  creativeScore: 8,  codingScore: 8,  visionScore: 9  },
-  { id: "gemini-3.1-flash-lite-preview", provider: "google",    costWeight: 0.5, reasoningScore: 5,  speedScore: 10, creativeScore: 5,  codingScore: 4,  visionScore: 7  },
-  { id: "gemini-flash-latest",           provider: "google",    costWeight: 1,   reasoningScore: 6,  speedScore: 10, creativeScore: 6,  codingScore: 6,  visionScore: 8  },
-  { id: "gpt-4o",                        provider: "openai",    costWeight: 8,   reasoningScore: 9,  speedScore: 8,  creativeScore: 9,  codingScore: 8,  visionScore: 9  },
-  { id: "gpt-4o-mini",                   provider: "openai",    costWeight: 1,   reasoningScore: 7,  speedScore: 9,  creativeScore: 7,  codingScore: 7,  visionScore: 8  },
-  { id: "claude-3-5-sonnet-20240620",    provider: "anthropic", costWeight: 8,   reasoningScore: 9,  speedScore: 6,  creativeScore: 9,  codingScore: 10, visionScore: 9  },
-  { id: "claude-3-5-haiku-20241022",     provider: "anthropic", costWeight: 2,   reasoningScore: 7,  speedScore: 9,  creativeScore: 7,  codingScore: 7,  visionScore: 8  },
-  { id: "llama-3.3-70b-versatile",       provider: "groq",      costWeight: 1,   reasoningScore: 8,  speedScore: 10, creativeScore: 7,  codingScore: 8,  visionScore: 5  },
-  { id: "deepseek-chat",                 provider: "deepseek",  costWeight: 1,   reasoningScore: 9,  speedScore: 8,  creativeScore: 8,  codingScore: 9,  visionScore: 5  },
-  { id: "mistral-large-latest",          provider: "mistral",   costWeight: 6,   reasoningScore: 9,  speedScore: 7,  creativeScore: 8,  codingScore: 8,  visionScore: 8  },
-  { id: "grok-beta",                     provider: "xai",       costWeight: 6,   reasoningScore: 8,  speedScore: 8,  creativeScore: 7,  codingScore: 7,  visionScore: 7  },
-  { id: "hypereal",                      provider: "hypereal",  costWeight: 1,   reasoningScore: 8,  speedScore: 10, creativeScore: 9,  codingScore: 7,  visionScore: 5  },
-  { id: "gpt-4o",                        provider: "github",    costWeight: 1,   reasoningScore: 9,  speedScore: 8,  creativeScore: 8,  codingScore: 9,  visionScore: 8  },
-  { id: "claude-3-5-sonnet",             provider: "github",    costWeight: 1,   reasoningScore: 9,  speedScore: 7,  creativeScore: 9,  codingScore: 10, visionScore: 9  },
-  { id: "ollama",                        provider: "local",     costWeight: 0,   reasoningScore: 5,  speedScore: 5,  creativeScore: 5,  codingScore: 5,  visionScore: 5  },
+  { id: 'gemini-3-flash-preview', provider: 'google', costWeight: 1, reasoningScore: 6, speedScore: 10, creativeScore: 6, codingScore: 6, visionScore: 8 },
+  { id: 'gemini-3.1-pro-preview', provider: 'google', costWeight: 3, reasoningScore: 9, speedScore: 7, creativeScore: 8, codingScore: 8, visionScore: 9 },
+  { id: 'gemini-3.1-flash-lite-preview', provider: 'google', costWeight: 0.5, reasoningScore: 5, speedScore: 10, creativeScore: 5, codingScore: 4, visionScore: 7 },
+  { id: 'gemini-flash-latest', provider: 'google', costWeight: 1, reasoningScore: 6, speedScore: 10, creativeScore: 6, codingScore: 6, visionScore: 8 },
+  { id: 'gpt-4o', provider: 'openai', costWeight: 8, reasoningScore: 9, speedScore: 8, creativeScore: 9, codingScore: 8, visionScore: 9 },
+  { id: 'gpt-4o-mini', provider: 'openai', costWeight: 1, reasoningScore: 7, speedScore: 9, creativeScore: 7, codingScore: 7, visionScore: 8 },
+  { id: 'claude-3-5-sonnet-20240620', provider: 'anthropic', costWeight: 8, reasoningScore: 9, speedScore: 6, creativeScore: 9, codingScore: 10, visionScore: 9 },
+  { id: 'claude-3-5-haiku-20241022', provider: 'anthropic', costWeight: 2, reasoningScore: 7, speedScore: 9, creativeScore: 7, codingScore: 7, visionScore: 8 },
+  { id: 'llama-3.3-70b-versatile', provider: 'groq', costWeight: 1, reasoningScore: 8, speedScore: 10, creativeScore: 7, codingScore: 8, visionScore: 5 },
+  { id: 'deepseek-chat', provider: 'deepseek', costWeight: 1, reasoningScore: 9, speedScore: 8, creativeScore: 8, codingScore: 9, visionScore: 5 },
+  { id: 'mistral-large-latest', provider: 'mistral', costWeight: 6, reasoningScore: 9, speedScore: 7, creativeScore: 8, codingScore: 8, visionScore: 8 },
+  { id: 'grok-beta', provider: 'xai', costWeight: 6, reasoningScore: 8, speedScore: 8, creativeScore: 7, codingScore: 7, visionScore: 7 },
+  { id: 'hypereal', provider: 'hypereal', costWeight: 1, reasoningScore: 8, speedScore: 10, creativeScore: 9, codingScore: 7, visionScore: 5 },
+  { id: 'gpt-4o', provider: 'github', costWeight: 1, reasoningScore: 9, speedScore: 8, creativeScore: 8, codingScore: 9, visionScore: 8 },
+  { id: 'claude-3-5-sonnet', provider: 'github', costWeight: 1, reasoningScore: 9, speedScore: 7, creativeScore: 9, codingScore: 10, visionScore: 9 },
+  { id: 'ollama', provider: 'local', costWeight: 0, reasoningScore: 5, speedScore: 5, creativeScore: 5, codingScore: 5, visionScore: 5 },
 ];
 
-function getAvailableProviders(uid: string): string[] {
-  const providers = new Set<string>();
-  if (process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY) providers.add("google");
-  if (process.env.OPENAI_API_KEY)   providers.add("openai");
-  if (process.env.ANTHROPIC_API_KEY) providers.add("anthropic");
-  if (process.env.GROQ_API_KEY)     providers.add("groq");
-  if (process.env.DEEPSEEK_API_KEY) providers.add("deepseek");
-  if (process.env.MISTRAL_API_KEY)  providers.add("mistral");
-  if (process.env.XAI_API_KEY)      providers.add("xai");
-  if (process.env.HYPEREAL_API_KEY) providers.add("hypereal");
-  if (process.env.GITHUB_API_KEY || process.env.GITHUB_TOKEN) providers.add("github");
-
-  const rows = db.prepare("SELECT provider FROM api_keys WHERE uid=?").all(uid) as any[];
-  rows.forEach(r => providers.add(r.provider));
-
-  const s = getSettings(uid);
-  if (s.localUrl) providers.add("local");
-
-  log(`[AUTH] Available providers for ${uid}: ${[...providers].join(", ")}`);
-  return [...providers];
-}
-
-function getAPIKey(uid: string, provider: string): { apiKey: string; keySource: string } {
-  const row = db.prepare("SELECT key FROM api_keys WHERE uid=? AND provider=?").get(uid, provider) as any;
-  let apiKey = row?.key?.trim();
-  let keySource = "sqlite";
-
-  if (!apiKey) {
-    apiKey = process.env[`${provider.toUpperCase()}_API_KEY`]?.trim();
-    keySource = "env";
-  }
-  if (provider === "google" && (!apiKey || apiKey.startsWith("MY_"))) {
-    const sys = process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY;
-    if (sys) { apiKey = sys; keySource = "env-system"; }
-  }
-  return { apiKey: apiKey ?? "", keySource };
-}
-
-// ─── Smart Router ─────────────────────────────────────────────────────────────
-
-function getSmartRoute(
-  prompt: string, usagePct: number,
-  hasMedia = false, excludeModels: string[] = [], availableProviders: string[] = []
-) {
-  const lower = prompt.toLowerCase();
-  const isCoding   = /code|program|function|class|interface|api|sql|react|typescript|javascript|python|java|rust|golang|css|html|json/.test(lower) || (/[{}[\];]/.test(prompt) && prompt.length > 50);
-  const isCreative = /story|poem|creative|imagine|fiction|lyrics|song|script|novel|describe/.test(lower);
-  const isReasoning= /solve|math|logic|calculate|proof|theorem|physics|chemistry|complex|analyze|explain in detail|why|how does|compare/.test(lower) || /\d+[+\-*/]\d+/.test(prompt);
-
-  const scored = MODEL_REGISTRY
-    .filter(m => !excludeModels.includes(m.id))
-    .filter(m => availableProviders.length === 0 || availableProviders.includes(m.provider))
-    .map(m => {
-      let score = m.reasoningScore * 2;
-      if (isCoding)   score += m.codingScore   * 5;
-      if (isCreative) score += m.creativeScore  * 4;
-      if (isReasoning)score += m.reasoningScore * 5;
-      if (hasMedia)   score += m.visionScore    * 10;
-      if (prompt.length < 200) score += m.speedScore * 2;
-      const penaltyMult = usagePct > 80 ? 3 : 1;
-      score -= m.costWeight * penaltyMult * 2;
-      if (prompt.length > 10000 && m.id === "gemini-3-flash-preview") score -= 50;
-      return { ...m, score };
-    });
-
-  scored.sort((a, b) => b.score - a.score);
-  let winner = scored[0];
-  if (!winner && availableProviders.length > 0) {
-    const found = MODEL_REGISTRY.find(m => availableProviders.includes(m.provider));
-    if (found) winner = { ...found, score: 0 };
-  }
-  if (!winner) winner = { ...MODEL_REGISTRY[0], score: 0 };
-
-  log(`[ROUTER] "${prompt.substring(0, 30)}…" → ${winner.id} (score ${winner.score})`);
-  return {
-    model: winner.id, provider: winner.provider,
-    reason: `Optimised for ${isCoding ? "Coding" : isReasoning ? "Reasoning" : isCreative ? "Creativity" : "General"} with ${usagePct > 80 ? "Cost-Saving" : "Performance"} priority.`
-  };
-}
-
-// ─── Memory context ───────────────────────────────────────────────────────────
-
-function getLLMContext(uid: string): string {
+async function getLLMContext(uid: string) {
   let context = "";
   try {
-    const facts = db.prepare("SELECT content FROM facts WHERE uid=? LIMIT 20").all(uid) as any[];
-    if (facts.length > 0)
-      context += `\n\n[USER PERSONALIZATION DATA]\n${facts.map(f => `- ${f.content}`).join("\n")}`;
-
-    const files = db.prepare("SELECT name, file_path, is_skill FROM memory_files WHERE uid=? LIMIT 5").all(uid) as any[];
-    const skills  = files.filter(f => f.is_skill);
-    const regular = files.filter(f => !f.is_skill);
-
-    const readFile = (fp: string) => {
-      try { return fs.readFileSync(path.join(UPLOADS_DIR, fp), "utf-8").substring(0, 4000); } catch { return ""; }
-    };
-
-    if (skills.length > 0)
-      context += `\n\n[USER SKILLS/INSTRUCTIONS]\n${skills.map(f => `--- SKILL: ${f.name} ---\n${readFile(f.file_path)}`).join("\n\n")}`;
-    if (regular.length > 0)
-      context += `\n\n[USER FILES]\n${regular.map(f => `--- FILE: ${f.name} ---\n${readFile(f.file_path)}`).join("\n\n")}`;
-
-    const urls = db.prepare("SELECT url, content FROM memory_urls WHERE uid=? LIMIT 5").all(uid) as any[];
-    if (urls.length > 0)
-      context += `\n\n[USER SAVED URLS]\n${urls.map(u => `--- URL: ${u.url} ---\n${(u.content ?? "").substring(0, 4000)}`).join("\n\n")}`;
+    // Limit memory context to avoid token limits
+    const factsSnapshot = await db.collection("facts").where("uid", "==", uid).limit(20).get();
+    const filesSnapshot = await db.collection("memoryFiles").where("uid", "==", uid).limit(5).get();
+    const urlsSnapshot = await db.collection("memoryUrls").where("uid", "==", uid).limit(5).get();
+    
+    const facts = factsSnapshot.docs.map((d: any) => d.data());
+    const files = filesSnapshot.docs.map((d: any) => d.data());
+    const urls = urlsSnapshot.docs.map((d: any) => d.data());
+    
+    if (facts.length > 0) {
+      log(`[MEMORY] Found ${facts.length} facts for user ${uid}`);
+      context += `\n\n[USER PERSONALIZATION DATA]\nHere are some facts about the user to help you provide better responses:\n${facts.map((f: any) => `- ${f.content}`).join('\n')}`;
+    }
+    if (files.length > 0) {
+      log(`[MEMORY] Found ${files.length} files for user ${uid}`);
+      const skills = files.filter((f: any) => f.isSkill);
+      const regularFiles = files.filter((f: any) => !f.isSkill);
+      
+      if (skills.length > 0) {
+        context += `\n\n[USER SKILLS/INSTRUCTIONS]\n${skills.map((s: any) => `--- SKILL: ${s.name} ---\n${(s.content || '').substring(0, 4000)}`).join('\n\n')}`;
+      }
+      if (regularFiles.length > 0) {
+        context += `\n\n[USER FILES]\n${regularFiles.map((f: any) => `--- FILE: ${f.name} ---\n${(f.content || '').substring(0, 4000)}`).join('\n\n')}`;
+      }
+    }
+    if (urls.length > 0) {
+      log(`[MEMORY] Found ${urls.length} URLs for user ${uid}`);
+      context += `\n\n[USER SAVED URLS]\n${urls.map((u: any) => `--- URL: ${u.url} ---\n${(u.content || '').substring(0, 4000)}`).join('\n\n')}`;
+    }
   } catch (e: any) {
-    log(`[CONTEXT] Error: ${e.message}`);
+    log(`[CONTEXT] Error fetching context: ${e.message}`);
   }
   return context;
 }
 
-// ─── LLM caller ──────────────────────────────────────────────────────────────
+async function getAPIKey(uid: string, provider: string) {
+  const keyDoc = await db.collection("apiKeys").doc(`${uid}_${provider}`).get();
+  let apiKey = keyDoc.data()?.key?.trim();
+  let keySource = "firestore";
+
+  if (!apiKey) {
+    apiKey = process.env[`${provider.toUpperCase()}_API_KEY`]?.trim();
+    keySource = "environment variable";
+  }
+
+  if (provider === 'google' && (!apiKey || apiKey.startsWith("MY_"))) {
+    const systemKey = process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY;
+    if (systemKey && (!apiKey || apiKey === systemKey)) {
+      apiKey = systemKey;
+      keySource = "system default/env";
+    }
+  }
+  
+  return { apiKey, keySource };
+}
 
 async function callLLM(params: {
-  prompt: string; provider: string; model: string;
-  messages?: any[]; apiKey: string; systemPrompt: string;
-  media?: any[]; localUrl?: string; maxTokens?: number;
+  prompt: string;
+  provider: string;
+  model: string;
+  messages?: any[];
+  apiKey: string;
+  systemPrompt: string;
+  media?: any[];
+  localUrl?: string;
+  maxTokens?: number;
 }) {
   const { prompt, provider, model, messages, systemPrompt, media, localUrl, maxTokens = 2048 } = params;
   const apiKey = params.apiKey?.trim();
-  if (!apiKey && provider !== "local") throw new Error(`${provider.toUpperCase()} API Key is required.`);
-
+  if (!apiKey && provider !== 'local') throw new Error(`${provider.toUpperCase()} API Key is required.`);
+  
   const history = messages || [];
   let responseText = "";
-  let tokensUsed   = 0;
-  log(`[LLM] ${provider}:${model} prompt=${prompt.length}ch history=${history.length}`);
+  let tokensUsed = 0;
+
+  log(`[LLM] Calling ${provider}:${model} (Prompt length: ${prompt.length}, History: ${history.length})`);
 
   try {
-    if (provider === "google") {
+    if (provider === 'google') {
       const { GoogleGenAI } = await import("@google/genai");
       const ai = new GoogleGenAI({ apiKey });
+      
+      // Ensure alternating roles for Gemini (user -> model -> user)
       const contents: any[] = [];
       let lastRole: string | null = null;
 
       history.forEach((m: any) => {
-        const role = m.role === "assistant" ? "model" : "user";
+        const role = m.role === 'assistant' ? 'model' : 'user';
         if (role === lastRole && contents.length > 0) {
-          const lp = contents[contents.length - 1].parts[0];
-          if (lp && typeof lp.text === "string") lp.text += `\n\n${m.content}`;
-          else contents[contents.length - 1].parts.push({ text: m.content });
+          // Merge consecutive messages with the same role
+          const lastPart = contents[contents.length - 1].parts[0];
+          if (lastPart && typeof lastPart.text === 'string') {
+            lastPart.text += `\n\n${m.content}`;
+          } else if (lastPart && !lastPart.text) {
+            // If the last part was media, add a new text part
+            contents[contents.length - 1].parts.push({ text: m.content });
+          }
         } else {
-          contents.push({ role, parts: [{ text: m.content }] });
+          contents.push({
+            role,
+            parts: [{ text: m.content }]
+          });
           lastRole = role;
         }
       });
 
+      // Prepare current prompt and media
       const currentParts: any[] = [{ text: prompt }];
-      (media ?? []).forEach((m: any) => {
-        if (m.inlineData) currentParts.push({ inlineData: { mimeType: m.inlineData.mimeType, data: m.inlineData.data } });
-      });
+      if (media && Array.isArray(media)) {
+        media.forEach((m: any) => {
+          if (m.inlineData) {
+            currentParts.push({
+              inlineData: {
+                mimeType: m.inlineData.mimeType,
+                data: m.inlineData.data
+              }
+            });
+          }
+        });
+      }
 
-      if (lastRole === "user" && contents.length > 0)
+      // Add current prompt to contents, merging if necessary
+      if (lastRole === 'user' && contents.length > 0) {
         contents[contents.length - 1].parts.push(...currentParts);
-      else
-        contents.push({ role: "user", parts: currentParts });
+      } else {
+        contents.push({
+          role: 'user',
+          parts: currentParts
+        });
+      }
 
       const result = await ai.models.generateContent({
-        model, contents,
-        config: { systemInstruction: systemPrompt || "You are a helpful assistant.", maxOutputTokens: maxTokens }
+        model: model,
+        contents: contents,
+        config: {
+          systemInstruction: systemPrompt || "You are a helpful assistant.",
+          maxOutputTokens: maxTokens
+        }
       });
-      if (!result.candidates?.length) throw new Error("Gemini returned no candidates.");
-      responseText = result.text || "";
-      tokensUsed   = result.usageMetadata?.totalTokenCount ?? 0;
 
-    } else if (["openai","xai","groq","deepseek","mistral","hypereal","github"].includes(provider)) {
-      const baseUrls: Record<string,string> = {
-        openai:   "https://api.openai.com/v1/chat/completions",
-        xai:      "https://api.x.ai/v1/chat/completions",
-        groq:     "https://api.groq.com/openai/v1/chat/completions",
-        deepseek: "https://api.deepseek.com/chat/completions",
-        mistral:  "https://api.mistral.ai/v1/chat/completions",
-        hypereal: "https://api.hypereal.tech/api/v1/chat/completions",
-        github:   "https://models.inference.ai.azure.com/chat/completions",
-      };
+      // Safety check for response
+      if (!result.candidates || result.candidates.length === 0) {
+        throw new Error("Gemini returned no candidates. The response might have been blocked by safety filters.");
+      }
+
+      responseText = result.text || "";
+      
+      // Accurate token count from usageMetadata
+      if (result.usageMetadata) {
+        tokensUsed = result.usageMetadata.totalTokenCount || 0;
+      }
+    } else if (['openai', 'xai', 'groq', 'deepseek', 'mistral', 'hypereal', 'github'].includes(provider)) {
+      let baseUrl = "";
+      if (provider === 'openai') baseUrl = "https://api.openai.com/v1/chat/completions";
+      else if (provider === 'xai') baseUrl = "https://api.x.ai/v1/chat/completions";
+      else if (provider === 'groq') baseUrl = "https://api.groq.com/openai/v1/chat/completions";
+      else if (provider === 'deepseek') baseUrl = "https://api.deepseek.com/chat/completions";
+      else if (provider === 'mistral') baseUrl = "https://api.mistral.ai/v1/chat/completions";
+      else if (provider === 'hypereal') baseUrl = "https://api.hypereal.tech/api/v1/chat/completions";
+      else if (provider === 'github') baseUrl = "https://models.inference.ai.azure.com/chat/completions";
+      
       const apiMessages: any[] = [
         { role: "system", content: systemPrompt || "You are a helpful assistant." },
-        ...history.map((m: any) => ({ role: m.role === "model" || m.role === "assistant" ? "assistant" : "user", content: m.content }))
+        ...history.map((m: any) => ({ 
+          role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user', 
+          content: m.content 
+        }))
       ];
-      if (media?.length) {
+
+      if (media && Array.isArray(media) && media.length > 0) {
         const content: any[] = [{ type: "text", text: prompt }];
         media.forEach((m: any) => {
-          if (m.inlineData) content.push({ type: "image_url", image_url: { url: `data:${m.inlineData.mimeType};base64,${m.inlineData.data}` } });
+          if (m.inlineData) {
+            content.push({
+              type: "image_url",
+              image_url: {
+                url: `data:${m.inlineData.mimeType};base64,${m.inlineData.data}`
+              }
+            });
+          }
         });
         apiMessages.push({ role: "user", content });
       } else {
         apiMessages.push({ role: "user", content: prompt });
       }
 
-      const response = await fetch(baseUrls[provider], {
+      const response = await fetch(baseUrl, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({ model, messages: apiMessages, temperature: 0.7, max_tokens: maxTokens })
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({ 
+          model, 
+          messages: apiMessages,
+          temperature: 0.7,
+          max_tokens: maxTokens
+        })
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        if (response.status === 429) throw new Error(`QUOTA_EXCEEDED: ${provider.toUpperCase()} quota exceeded.`);
-        throw new Error(`${provider.toUpperCase()} API Error: ${(err as any).error?.message || response.statusText}`);
-      }
-      const data: any = await response.json();
-      responseText = data.choices?.[0]?.message?.content ?? "";
-      tokensUsed   = data.usage?.total_tokens ?? 0;
 
-    } else if (provider === "anthropic") {
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const message = errorData.error?.message || response.statusText;
+        if (response.status === 429) throw new Error(`QUOTA_EXCEEDED: ${provider.toUpperCase()} API quota exceeded.`);
+        throw new Error(`${provider.toUpperCase()} API Error: ${message}`);
+      }
+
+      const data = await response.json();
+      if (!data.choices || data.choices.length === 0) {
+        throw new Error(`${provider.toUpperCase()} returned no choices.`);
+      }
+      responseText = data.choices[0].message.content || "";
+      tokensUsed = data.usage?.total_tokens || 0;
+    } else if (provider === 'anthropic') {
+      // Anthropic requires alternating roles and starting with user
       const apiMessages: any[] = [];
       let lastRole: string | null = null;
+      
       history.forEach((m: any) => {
-        const role = m.role === "model" || m.role === "assistant" ? "assistant" : "user";
+        const role = m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user';
         if (role === lastRole && apiMessages.length > 0) {
-          const last = apiMessages[apiMessages.length - 1];
-          if (typeof last.content === "string") last.content += `\n\n${m.content}`;
+          const lastMsg = apiMessages[apiMessages.length - 1];
+          if (typeof lastMsg.content === 'string') {
+            lastMsg.content += `\n\n${m.content}`;
+          }
         } else {
           apiMessages.push({ role, content: m.content });
           lastRole = role;
         }
       });
-      if (apiMessages[0]?.role === "assistant") apiMessages.shift();
 
-      if (media?.length) {
+      // Ensure first message is user
+      if (apiMessages.length > 0 && apiMessages[0].role === 'assistant') {
+        apiMessages.shift();
+      }
+
+      // Handle current prompt and media
+      if (media && Array.isArray(media) && media.length > 0) {
         const content: any[] = [];
         media.forEach((m: any) => {
-          if (m.inlineData) content.push({ type: "image", source: { type: "base64", media_type: m.inlineData.mimeType, data: m.inlineData.data } });
+          if (m.inlineData) {
+            content.push({
+              type: "image",
+              source: {
+                type: "base64",
+                media_type: m.inlineData.mimeType,
+                data: m.inlineData.data
+              }
+            });
+          }
         });
         content.push({ type: "text", text: prompt });
-        apiMessages.push({ role: "user", content });
+        
+        if (lastRole === 'user' && apiMessages.length > 0) {
+          // If last was user, we can't just append media easily in some versions, 
+          // but usually we just push a new user message if roles were alternating.
+          // For simplicity, we'll just push a new user message if the last was assistant.
+          apiMessages.push({ role: 'user', content });
+        } else {
+          apiMessages.push({ role: 'user', content });
+        }
       } else {
-        if (lastRole === "user" && apiMessages.length > 0 && typeof apiMessages[apiMessages.length - 1].content === "string")
-          apiMessages[apiMessages.length - 1].content += `\n\n${prompt}`;
-        else
-          apiMessages.push({ role: "user", content: prompt });
+        if (lastRole === 'user' && apiMessages.length > 0) {
+          const lastMsg = apiMessages[apiMessages.length - 1];
+          if (typeof lastMsg.content === 'string') {
+            lastMsg.content += `\n\n${prompt}`;
+          }
+        } else {
+          apiMessages.push({ role: 'user', content: prompt });
+        }
       }
 
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
-        body: JSON.stringify({ model, max_tokens: maxTokens, system: systemPrompt || "You are a helpful assistant.", messages: apiMessages })
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01"
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: maxTokens,
+          system: systemPrompt || "You are a helpful assistant.",
+          messages: apiMessages
+        })
       });
-      if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        if (response.status === 429) throw new Error("QUOTA_EXCEEDED: Anthropic quota exceeded.");
-        throw new Error(`Anthropic API Error: ${(err as any).error?.message || response.statusText}`);
-      }
-      const data: any = await response.json();
-      responseText = data.content?.[0]?.text ?? "";
-      tokensUsed   = (data.usage?.input_tokens ?? 0) + (data.usage?.output_tokens ?? 0);
 
-    } else if (provider === "local") {
-      const endpoint = `${(localUrl || "http://localhost:11434").replace(/\/$/, "")}/v1/chat/completions`;
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        const message = errorData.error?.message || response.statusText;
+        if (response.status === 429) throw new Error("QUOTA_EXCEEDED: Anthropic API quota exceeded.");
+        throw new Error(`Anthropic API Error: ${message}`);
+      }
+
+      const data = await response.json();
+      if (!data.content || data.content.length === 0) {
+        throw new Error("Anthropic returned no content.");
+      }
+      responseText = data.content[0].text || "";
+      tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
+    } else if (provider === 'local') {
+      const endpoint = `${(localUrl || "http://localhost:11434").replace(/\/$/, '')}/v1/chat/completions`;
       const apiMessages: any[] = [
         { role: "system", content: systemPrompt || "You are a helpful assistant." },
-        ...history.map((m: any) => ({ role: m.role === "model" || m.role === "assistant" ? "assistant" : "user", content: m.content }))
+        ...history.map((m: any) => ({ 
+          role: m.role === 'model' || m.role === 'assistant' ? 'assistant' : 'user', 
+          content: m.content 
+        }))
       ];
-      if (media?.length) {
+
+      if (media && Array.isArray(media) && media.length > 0) {
         const content: any[] = [{ type: "text", text: prompt }];
         media.forEach((m: any) => {
-          if (m.inlineData) content.push({ type: "image_url", image_url: { url: `data:${m.inlineData.mimeType};base64,${m.inlineData.data}` } });
+          if (m.inlineData) {
+            content.push({
+              type: "image_url",
+              image_url: {
+                url: `data:${m.inlineData.mimeType};base64,${m.inlineData.data}`
+              }
+            });
+          }
         });
         apiMessages.push({ role: "user", content });
       } else {
         apiMessages.push({ role: "user", content: prompt });
       }
+
       const response = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "local-model", messages: apiMessages, stream: false, temperature: 0.7, max_tokens: maxTokens })
+        body: JSON.stringify({ 
+          model: "local-model", 
+          messages: apiMessages, 
+          stream: false,
+          temperature: 0.7,
+          max_tokens: maxTokens
+        })
       });
+
       if (!response.ok) throw new Error(`Local LLM Error (${response.status}): ${response.statusText}`);
-      const data: any = await response.json();
-      responseText = data.choices?.[0]?.message?.content ?? "";
-      tokensUsed   = data.usage?.total_tokens ?? 0;
+      const data = await response.json();
+      if (!data.choices || data.choices.length === 0) {
+        throw new Error("Local LLM returned no choices.");
+      }
+      responseText = data.choices[0].message.content || "";
+      tokensUsed = data.usage?.total_tokens || 0;
     }
 
+    // Final fallback for tokensUsed if still 0
     if (!tokensUsed && responseText) {
-      const estIn  = Math.ceil((prompt.length + (systemPrompt?.length ?? 0) + history.reduce((a: number, m: any) => a + (m.content?.length ?? 0), 0)) / 4);
-      const estOut = Math.ceil(responseText.length / 4);
-      tokensUsed   = estIn + estOut;
+      // Rough estimation: 1 token ≈ 4 characters
+      const estimatedInput = Math.ceil((prompt.length + (systemPrompt?.length || 0) + history.reduce((acc: number, m: any) => acc + (m.content?.length || 0), 0)) / 4);
+      const estimatedOutput = Math.ceil(responseText.length / 4);
+      tokensUsed = estimatedInput + estimatedOutput;
+      log(`[LLM] Estimated tokens used: ${tokensUsed}`);
     }
 
     return { responseText, tokensUsed };
   } catch (err: any) {
-    let msg = err.message || String(err || "Unknown error");
+    let message = err.message || String(err || 'Unknown error');
+    
+    // Try to parse JSON error from SDKs (common in Gemini/OpenAI)
     try {
-      if (msg.startsWith("{") || msg.includes('{"error":')) {
-        const parsed = JSON.parse(msg.substring(msg.indexOf("{")));
-        msg = parsed.error?.message || parsed.message || msg;
+      if (message.startsWith('{') || message.includes('{"error":')) {
+        const jsonStart = message.indexOf('{');
+        const jsonStr = message.substring(jsonStart);
+        const parsed = JSON.parse(jsonStr);
+        if (parsed.error && parsed.error.message) {
+          message = parsed.error.message;
+        } else if (parsed.message) {
+          message = parsed.message;
+        }
       }
-    } catch {}
-    log(`[LLM] Error: ${msg}`);
-    throw new Error(msg);
+    } catch (e) {
+      // Not JSON or parse failed, keep original message
+    }
+
+    log(`[LLM] Error in callLLM: ${message}`);
+    throw new Error(message);
   }
 }
 
-// ─── Server ───────────────────────────────────────────────────────────────────
+function getSmartRoute(prompt: string, currentUsagePercent: number, hasMedia: boolean = false, excludeModels: string[] = [], availableProviders: string[] = []) {
+  const lower = prompt.toLowerCase();
+  
+  // 1. Detect Intent
+  const codingKeywords = ['code', 'program', 'function', 'class', 'interface', 'variable', 'api', 'database', 'sql', 'react', 'typescript', 'javascript', 'python', 'java', 'c++', 'rust', 'golang', 'css', 'html', 'json', 'yaml'];
+  const isCoding = codingKeywords.some(k => lower.includes(k)) || /[{}[\];]/.test(prompt) && prompt.length > 50;
+  
+  const creativeKeywords = ['story', 'poem', 'creative', 'imagine', 'fiction', 'lyrics', 'song', 'script', 'novel', 'describe', 'paint', 'art'];
+  const isCreative = creativeKeywords.some(k => lower.includes(k));
+  
+  const reasoningKeywords = ['solve', 'math', 'logic', 'calculate', 'proof', 'theorem', 'physics', 'chemistry', 'complex', 'analyze', 'deep dive', 'explain in detail', 'why', 'how does', 'compare'];
+  const isReasoning = reasoningKeywords.some(k => lower.includes(k)) || /\d+[\+\-\*\/]\d+/.test(prompt);
+
+  // 2. Calculate Scores for each model
+  const scoredModels = MODEL_REGISTRY
+    .filter(m => !excludeModels.includes(m.id))
+    .filter(m => availableProviders.length === 0 || availableProviders.includes(m.provider)) // Filter by available providers
+    .map(model => {
+      let score = 0;
+      
+      // Base reasoning score
+      score += model.reasoningScore * 2;
+      
+      // Domain specific boosts
+      if (isCoding) score += model.codingScore * 5;
+      if (isCreative) score += model.creativeScore * 4;
+      if (isReasoning) score += model.reasoningScore * 5;
+      if (hasMedia) score += model.visionScore * 10; // High boost for vision
+      
+      // Speed boost for short prompts
+      if (prompt.length < 200) score += model.speedScore * 2;
+      
+      // Cost penalty (increases as usage increases)
+      // If usage is high, penalize expensive models more
+      const costPenaltyMultiplier = currentUsagePercent > 80 ? 3 : 1;
+      score -= model.costWeight * costPenaltyMultiplier * 2;
+      
+      // Context length constraints
+      if (prompt.length > 10000 && model.id === 'gemini-3-flash-preview') {
+        score -= 50; // Flash is worse at very long context
+      }
+
+      return { ...model, score };
+    });
+
+  // 3. Sort and pick best
+  scoredModels.sort((a, b) => b.score - a.score);
+  
+  // If all models are excluded, pick a safe fallback from the registry
+  let winner: any = scoredModels[0];
+  
+  if (!winner && availableProviders.length > 0) {
+    // Try to find ANY available model if the filtered list was empty
+    const found = MODEL_REGISTRY.find(m => availableProviders.includes(m.provider));
+    if (found) winner = { ...found, score: 0 };
+  }
+
+  if (!winner) winner = { ...MODEL_REGISTRY[0], score: 0 };
+  
+  log(`[ROUTER] Prompt: "${prompt.substring(0, 30)}..." | Usage: ${currentUsagePercent.toFixed(1)}% | Winner: ${winner.id} (Score: ${winner.score || 0})`);
+  
+  return {
+    model: winner.id,
+    provider: winner.provider,
+    reason: `Optimized for ${isCoding ? 'Coding' : isReasoning ? 'Reasoning' : isCreative ? 'Creativity' : 'General Task'} with ${currentUsagePercent > 80 ? 'Cost-Saving' : 'Performance'} priority.`
+  };
+}
 
 async function startServer() {
+  log("startServer() called.");
+  // await initSqlite();
   const app = express();
   const PORT = 3000;
 
-  // ── Middleware ──────────────────────────────────────────────────────────────
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Session store backed by SQLite
-  const ConnectSQLite = (await import("connect-sqlite3")).default;
-  const SQLiteStore = ConnectSQLite(session);
-
-  app.use(session({
-    store: new SQLiteStore({ db: "sessions.db", dir: __dirname }) as any,
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production", httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 }
-  }));
-
-  app.use(passport.initialize());
-  app.use(passport.session());
-
-  // ── Auth guard helper ───────────────────────────────────────────────────────
-  const requireAuth = (req: any, res: any, next: any) => {
-    if (req.isAuthenticated()) return next();
-    res.status(401).json({ error: "Unauthorised. Please sign in." });
-  };
-
-  // ── Google OAuth routes ─────────────────────────────────────────────────────
-  app.get("/auth/google",
-    passport.authenticate("google", { scope: ["profile", "email", "https://www.googleapis.com/auth/gmail.send"] })
-  );
-
-  app.get("/auth/google/callback",
-    passport.authenticate("google", { failureRedirect: "/?auth=failed" }),
-    (req, res) => res.redirect("/?auth=success")
-  );
-
-  app.post("/auth/logout", (req: any, res) => {
-    req.logout(() => res.json({ success: true }));
-  });
-
-  app.get("/auth/me", (req: any, res) => {
-    if (!req.isAuthenticated()) return res.json({ user: null });
-    res.json({ user: req.user });
-  });
-
-  // ── Health ──────────────────────────────────────────────────────────────────
-  app.get("/api/health", (req, res) => res.json({ status: "ok", uptime: process.uptime(), bot: !!tgBot }));
-  app.get("/api/keep-alive", (req, res) => res.json({ status: "alive", timestamp: Date.now() }));
-  app.get("/api/debug-logs", (req, res) => {
-    try { res.send(`<pre>${fs.readFileSync(LOG_FILE, "utf-8")}</pre>`); } catch { res.send("No logs."); }
-  });
-
-  // ── Memory files ────────────────────────────────────────────────────────────
-  const multer = await import("multer");
-  const upload = multer.default({
-    storage: multer.diskStorage({
-      destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-      filename:    (_req, file,  cb) => cb(null, `${randomUUID()}-${file.originalname}`)
-    })
-  });
-
-  app.get("/api/memory-files", requireAuth, (req: any, res) => {
-    const uid = req.user.uid;
-    const rows = db.prepare("SELECT id, uid, name, mime_type AS type, size, is_skill AS isSkill, created_at AS timestamp FROM memory_files WHERE uid=? ORDER BY created_at DESC").all(uid);
-    res.json(rows);
-  });
-
-  app.post("/api/memory-files", requireAuth, upload.single("file"), (req: any, res) => {
-    const uid = req.user.uid;
-    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
-    const { originalname, mimetype, size, filename } = req.file;
-    const isSkill = req.body.isSkill === "true" || originalname.toLowerCase().endsWith(".md") ? 1 : 0;
-    const id = randomUUID();
-    db.prepare("INSERT INTO memory_files (id,uid,name,file_path,mime_type,size,is_skill,created_at) VALUES (?,?,?,?,?,?,?,?)").run(id, uid, originalname, filename, mimetype, size, isSkill, now());
-    res.json({ id, name: originalname });
-  });
-
-  app.delete("/api/memory-files/:id", requireAuth, (req: any, res) => {
-    const uid = req.user.uid;
-    const row = db.prepare("SELECT file_path FROM memory_files WHERE id=? AND uid=?").get(req.params.id, uid) as any;
-    if (row) {
-      try { fs.unlinkSync(path.join(UPLOADS_DIR, row.file_path)); } catch {}
-      db.prepare("DELETE FROM memory_files WHERE id=?").run(req.params.id);
+  // Middleware to check if Firestore is initialized
+  app.use("/api", (req: any, res: any, next: any) => {
+    // Skip check for health and debug endpoints
+    if (req.path === "/health" || req.path === "/debug-logs" || req.path === "/keep-alive") {
+      return next();
     }
-    res.json({ success: true });
+    if (!db) {
+      return res.status(503).json({ 
+        error: "Database not initialized. This usually means firebase-applet-config.json is missing or invalid. Please check server logs." 
+      });
+    }
+    next();
   });
 
-  app.patch("/api/memory-files/:id", requireAuth, (req: any, res) => {
-    db.prepare("UPDATE memory_files SET is_skill=? WHERE id=?").run(req.body.isSkill ? 1 : 0, req.params.id);
-    res.json({ success: true });
+  app.get("/api/health", (req, res) => {
+    res.json({ status: "ok", uptime: process.uptime(), bot: !!tgBot });
   });
 
-  // ── Memory URLs ─────────────────────────────────────────────────────────────
-  app.get("/api/memory-urls", requireAuth, (req: any, res) => {
-    const rows = db.prepare("SELECT id, uid, url, title, created_at AS timestamp FROM memory_urls WHERE uid=? ORDER BY created_at DESC").all(req.user.uid);
-    res.json(rows);
+  app.get("/api/keep-alive", (req, res) => {
+    res.json({ status: "alive", timestamp: Date.now() });
   });
 
-  app.post("/api/memory-urls", requireAuth, async (req: any, res) => {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ error: "URL required" });
+  app.get("/api/debug-logs", (req, res) => {
     try {
+      const logs = fs.readFileSync(logFile, "utf-8");
+      res.send(`<pre>${logs}</pre>`);
+    } catch (e) {
+      res.send("No logs found.");
+    }
+  });
+
+  app.post("/api/migrate", async (req, res) => {
+    const { uid, email } = req.body;
+    if (email !== "kofir2007@gmail.com") return res.status(403).json({ error: "Forbidden" });
+
+    try {
+      // Migrate History
+      const history = sqliteDb.prepare("SELECT * FROM requests").all() as any[];
+      const existingHistorySnap = await db.collection("history").where("uid", "==", uid).get();
+      const existingHistoryKeys = new Set(existingHistorySnap.docs.map((d: any) => `${d.data().prompt}_${d.data().response}`));
+      
+      let migratedHistory = 0;
+      for (const item of history) {
+        const key = `${item.prompt}_${item.response}`;
+        if (!existingHistoryKeys.has(key)) {
+          await db.collection("history").add({
+            uid,
+            prompt: item.prompt,
+            response: item.response,
+            model: item.model,
+            tokens_used: item.tokens_used,
+            status: item.status,
+            timestamp: item.timestamp ? Timestamp.fromDate(new Date(item.timestamp)) : FieldValue.serverTimestamp()
+          });
+          migratedHistory++;
+          existingHistoryKeys.add(key);
+        }
+      }
+
+      // Migrate Facts
+      const facts = sqliteDb.prepare("SELECT * FROM facts").all() as any[];
+      const existingFactsSnap = await db.collection("facts").where("uid", "==", uid).get();
+      const existingFactContents = new Set(existingFactsSnap.docs.map((d: any) => d.data().content.toLowerCase().trim()));
+      
+      let migratedFacts = 0;
+      for (const item of facts) {
+        if (!existingFactContents.has(item.content.toLowerCase().trim())) {
+          await db.collection("facts").add({
+            uid,
+            content: item.content,
+            timestamp: item.timestamp ? Timestamp.fromDate(new Date(item.timestamp)) : FieldValue.serverTimestamp()
+          });
+          migratedFacts++;
+          existingFactContents.add(item.content.toLowerCase().trim());
+        }
+      }
+
+      // Migrate Keys
+      const keys = sqliteDb.prepare("SELECT * FROM api_keys").all() as any[];
+      for (const item of keys) {
+        await db.collection("apiKeys").doc(`${uid}_${item.provider}`).set({
+          uid,
+          provider: item.provider,
+          key: item.key
+        }, { merge: true });
+      }
+
+      // Migrate Files
+      const files = sqliteDb.prepare("SELECT * FROM memory_files").all() as any[];
+      for (const item of files) {
+        await db.collection("memoryFiles").add({
+          uid,
+          name: item.name,
+          content: item.content,
+          type: item.type,
+          size: item.size,
+          timestamp: item.timestamp ? Timestamp.fromDate(new Date(item.timestamp)) : FieldValue.serverTimestamp()
+        });
+      }
+
+      res.json({ success: true, migrated: { history: migratedHistory, facts: migratedFacts, keys: keys.length, files: files.length } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  const multer = await import("multer");
+  const upload = multer.default({ storage: multer.memoryStorage() });
+
+  app.get("/api/memory-files", async (req, res) => {
+    const uid = req.query.uid as string;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+    try {
+      const snapshot = await db.collection("memoryFiles")
+        .where("uid", "==", uid)
+        .orderBy("timestamp", "desc")
+        .get();
+      const files = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(files);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/memory-files", upload.single("file"), async (req, res) => {
+    const uid = req.body.uid;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    if (!req.file) return res.status(400).json({ error: "No file uploaded" });
+    
+    const { originalname, mimetype, size, buffer } = req.file;
+    const content = buffer.toString("utf-8");
+    const isSkill = req.body.isSkill === 'true';
+    
+    try {
+      const docRef = await db.collection("memoryFiles").add({
+        uid,
+        name: originalname,
+        content,
+        type: mimetype,
+        size,
+        isSkill,
+        timestamp: FieldValue.serverTimestamp()
+      });
+      res.json({ id: docRef.id, name: originalname });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/memory-files/:id", async (req, res) => {
+    try {
+      await db.collection("memoryFiles").doc(req.params.id).delete();
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.patch("/api/memory-files/:id", async (req, res) => {
+    const { isSkill } = req.body;
+    try {
+      await db.collection("memoryFiles").doc(req.params.id).update({ isSkill });
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/memory-urls", async (req, res) => {
+    const uid = req.query.uid as string;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+    try {
+      const snapshot = await db.collection("memoryUrls")
+        .where("uid", "==", uid)
+        .orderBy("timestamp", "desc")
+        .get();
+      const urls = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(urls);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/memory-urls", async (req, res) => {
+    const { uid, url } = req.body;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    if (!url) return res.status(400).json({ error: "URL is required" });
+
+    try {
+      log(`[MEMORY-URL] Fetching content for: ${url}`);
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Failed to fetch URL: ${response.statusText}`);
       const html = await response.text();
+
       const TurndownService = (await import("turndown")).default;
-      const markdown = new TurndownService().turndown(html);
+      const turndownService = new TurndownService();
+      const markdown = turndownService.turndown(html);
+
+      // Extract title if possible
       const titleMatch = html.match(/<title>(.*?)<\/title>/i);
-      const title = titleMatch?.[1] ?? url;
-      const id = randomUUID();
-      db.prepare("INSERT INTO memory_urls (id,uid,url,title,content,created_at) VALUES (?,?,?,?,?,?)").run(id, req.user.uid, url, title, markdown, now());
-      res.json({ id, url, title });
+      const title = titleMatch ? titleMatch[1] : url;
+
+      const docRef = await db.collection("memoryUrls").add({
+        uid,
+        url,
+        title,
+        content: markdown,
+        timestamp: FieldValue.serverTimestamp()
+      });
+      res.json({ id: docRef.id, url, title });
+    } catch (err: any) {
+      log(`[MEMORY-URL] Error: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/memory-urls/:id", async (req, res) => {
+    try {
+      await db.collection("memoryUrls").doc(req.params.id).delete();
+      res.json({ success: true });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete("/api/memory-urls/:id", requireAuth, (req: any, res) => {
-    db.prepare("DELETE FROM memory_urls WHERE id=? AND uid=?").run(req.params.id, (req as any).user.uid);
-    res.json({ success: true });
-  });
-
-  // ── Facts ───────────────────────────────────────────────────────────────────
-  app.get("/api/facts", requireAuth, (req: any, res) => {
-    const rows = db.prepare("SELECT id, uid, content, created_at AS timestamp FROM facts WHERE uid=? ORDER BY created_at DESC").all(req.user.uid);
-    res.json(rows);
-  });
-
-  app.post("/api/facts", requireAuth, (req: any, res) => {
-    const { content } = req.body;
-    if (!content) return res.status(400).json({ error: "content required" });
-    const id = randomUUID();
-    db.prepare("INSERT INTO facts (id,uid,content,created_at) VALUES (?,?,?,?)").run(id, req.user.uid, content, now());
-    res.json({ id });
-  });
-
-  app.delete("/api/facts/:id", requireAuth, (req: any, res) => {
-    db.prepare("DELETE FROM facts WHERE id=? AND uid=?").run(req.params.id, (req as any).user.uid);
-    res.json({ success: true });
-  });
-
-  // ── Facts cleanup ───────────────────────────────────────────────────────────
-  app.post("/api/facts/cleanup", requireAuth, async (req: any, res) => {
-    const uid = req.user.uid;
-    const facts = db.prepare("SELECT id, content FROM facts WHERE uid=?").all(uid) as any[];
-    if (!facts.length) return res.json({ success: true, count: 0 });
-    try {
-      const { apiKey } = getAPIKey(uid, "google");
-      if (!apiKey) throw new Error("Missing Gemini API Key for cleanup");
-      const { GoogleGenAI } = await import("@google/genai");
-      const ai = new GoogleGenAI({ apiKey });
-      const cleanupPrompt = `You are a data cleaning assistant. Merge duplicate/similar facts.\nFACTS:\n${facts.map((f,i) => `${i}: ${f.content}`).join("\n")}\nReturn JSON: {"merged":["..."],"toDelete":[0,1,...]}`;
-      const result = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: cleanupPrompt, config: { responseMimeType: "application/json" } });
-      const data = JSON.parse(result.text ?? "{}");
-      if (Array.isArray(data.merged)) {
-        const del = db.prepare("DELETE FROM facts WHERE uid=?");
-        const ins = db.prepare("INSERT INTO facts (id,uid,content,created_at) VALUES (?,?,?,?)");
-        db.transaction(() => {
-          del.run(uid);
-          data.merged.forEach((c: string) => ins.run(randomUUID(), uid, c, now()));
-        })();
-        res.json({ success: true, originalCount: facts.length, newCount: data.merged.length });
-      } else {
-        res.json({ success: true, count: 0 });
+  // Telegram Bot Logic
+  let tgBot: any = null;
+  let tgBotInfo: any = null;
+  let isTgInitializing = false;
+  
+  const initTelegram = async (force = false) => {
+    if (isTgInitializing) return;
+    if (tgBot && !force) {
+      try {
+        const me = await tgBot.getMe();
+        if (me) return; // Already running and healthy
+      } catch (e) {
+        log("Telegram bot health check failed, restarting...");
       }
+    }
+
+    isTgInitializing = true;
+    
+    log("initTelegram() called.");
+    try {
+      log("Fetching settings for Telegram token...");
+      const settingsDoc = await db.collection("settings").doc("global").get();
+      const settingsData = settingsDoc.data();
+      const token = settingsData?.telegram_token || process.env.TELEGRAM_BOT_TOKEN;
+
+      if (token) {
+        log("Telegram token found, initializing bot...");
+        if (tgBot) {
+          try {
+            await tgBot.stopPolling();
+            log("Stopped old Telegram Bot polling");
+          } catch (e) {
+            log(`Error stopping Telegram Bot: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        }
+
+        // Add a delay to allow old instance to disconnect
+        await new Promise(resolve => setTimeout(resolve, 5000));
+
+        try {
+          const TelegramBot = require("node-telegram-bot-api");
+          tgBot = new TelegramBot(token, { polling: true });
+          
+          tgBotInfo = await tgBot.getMe();
+          log(`Telegram Bot initialized: ${tgBotInfo.username}`);
+
+          // Register commands for auto-complete
+          try {
+            await tgBot.setMyCommands([
+              { command: 'start', description: 'Start the bot and see help' },
+              { command: 'new', description: 'Start a new chat session' },
+              { command: 'link', description: 'Link to your web account (/link [UID])' },
+              { command: 'status', description: 'Check your link and authorization status' },
+              { command: 'model', description: 'Select a specific model or use auto' },
+              { command: 'system', description: 'Set or view your custom system prompt' },
+              { command: 'sandbox', description: 'Toggle Sandboxed Mode' },
+              { command: 'email', description: 'Send current chat history to your email' }
+            ]);
+            log("Telegram bot commands registered successfully");
+          } catch (cmdErr) {
+            log(`Error registering Telegram commands: ${cmdErr instanceof Error ? cmdErr.message : String(cmdErr)}`);
+          }
+
+          tgBot.on("polling_error", (error: any) => {
+            // Ignore 409 Conflict errors as they are common during restarts or multiple instances
+            if (error.message && error.message.includes("409 Conflict")) {
+              return;
+            }
+            console.error("Telegram Polling Error:", error.code || 'UNKNOWN', error.message);
+            
+            // If 401, the token is likely invalid
+            if (error.code === 'ETELEGRAM' && error.message && error.message.includes('401')) {
+               console.error("Invalid Telegram Token detected in polling");
+            }
+          });
+
+          tgBot.on("error", (error: any) => {
+            console.error("Telegram General Error:", error.message);
+            // On fatal error, clear tgBot so health check can restart it
+            tgBot = null;
+          });
+
+          tgBot.on("message", async (msg: any) => {
+            const chatId = msg.chat.id;
+            const text = msg.text;
+
+            if (!text) return;
+            if (text === "/start") {
+              tgBot.sendMessage(chatId, "🤖 LLM Router Bot is Active!\n\nI run 24/7 in the background, so you can message me anytime even if the web app is closed.\n\nCommands:\n/new - Start a new chat session\n/link [UID] - Link to your web account\n/status - Check your link and authorization status\n/model - Select a specific model or use 'auto'\n/sandbox - Toggle Sandboxed Mode (NotebookLM style)\n/email - Send current chat history to your email\n\nSend me any prompt to get started!");
+              return;
+            }
+
+            if (text.startsWith("/model")) {
+              const parts = text.split(" ");
+              if (parts.length === 1) {
+                try {
+                  const linkDoc = await db.collection("telegram_links").doc(chatId.toString()).get();
+                  let availableModels = MODEL_REGISTRY;
+                  
+                  if (linkDoc.exists()) {
+                    const uid = linkDoc.data().uid;
+                    const providers = await getAvailableProviders(uid);
+                    availableModels = MODEL_REGISTRY.filter(m => providers.includes(m.provider) || m.provider === 'auto');
+                  } else {
+                    // If not linked, only show models with environment keys (default behavior of getAvailableProviders with empty UID)
+                    const providers = await getAvailableProviders("");
+                    availableModels = MODEL_REGISTRY.filter(m => providers.includes(m.provider) || m.provider === 'auto');
+                  }
+
+                  const modelButtons = availableModels.map(m => ([{
+                    text: `🤖 ${m.id} (${m.provider})`,
+                    callback_data: `set_model:${m.id}`
+                  }]));
+                  
+                  modelButtons.push([{
+                    text: "✨ Smart Router (Auto)",
+                    callback_data: "set_model:auto"
+                  }]);
+
+                  tgBot.sendMessage(chatId, 
+                    `🎯 <b>Model Selection</b>\n\n` +
+                    `Choose a model from the list below or use the Smart Router to automatically pick the best one for your prompt.\n\n` +
+                    (linkDoc.exists() ? "<i>Showing models available for your linked account.</i>" : "<i>Account not linked. Showing default available models. Use /link [UID] to see more.</i>"),
+                    { 
+                      parse_mode: 'HTML',
+                      reply_markup: {
+                        inline_keyboard: modelButtons
+                      }
+                    }
+                  );
+                } catch (e: any) {
+                  tgBot.sendMessage(chatId, "❌ Error fetching available models: " + e.message);
+                }
+              } else {
+                const selectedId = parts[1].toLowerCase();
+                if (selectedId === 'auto') {
+                  await db.collection("tg_model_selection").doc(chatId.toString()).delete();
+                  tgBot.sendMessage(chatId, "✅ Smart Router enabled (Auto-selection).");
+                } else {
+                  const model = MODEL_REGISTRY.find(m => m.id.toLowerCase() === selectedId);
+                  if (model) {
+                    await db.collection("tg_model_selection").doc(chatId.toString()).set({ 
+                      modelId: model.id,
+                      provider: model.provider,
+                      timestamp: Date.now()
+                    });
+                    tgBot.sendMessage(chatId, `✅ Model set to: <b>${model.id}</b>`, { parse_mode: 'HTML' });
+                  } else {
+                    tgBot.sendMessage(chatId, "❌ Invalid model ID. Use `/model` to see the list of available models.", { parse_mode: 'HTML' });
+                  }
+                }
+              }
+              return;
+            }
+
+            if (text.startsWith("/system")) {
+              const parts = text.split(" ");
+              if (parts.length === 1) {
+                try {
+                  const tgSystemDoc = await db.collection("tg_system_prompts").doc(chatId.toString()).get();
+                  let currentPrompt = tgSystemDoc.exists() ? tgSystemDoc.data()?.prompt : null;
+                  let source = "Telegram-specific";
+
+                  if (!currentPrompt) {
+                    const linkDoc = await db.collection("telegram_links").doc(chatId.toString()).get();
+                    if (linkDoc.exists()) {
+                      const userSettingsDoc = await db.collection("user_settings").doc(linkDoc.data().uid).get();
+                      if (userSettingsDoc.exists() && userSettingsDoc.data()?.systemPrompt) {
+                        currentPrompt = userSettingsDoc.data().systemPrompt;
+                        source = "Web GUI (Linked Account)";
+                      }
+                    }
+                  }
+
+                  if (!currentPrompt) {
+                    currentPrompt = "Default (Helpful AI Assistant)";
+                    source = "Default";
+                  }
+
+                  tgBot.sendMessage(chatId, 
+                    `🧠 <b>System Prompt</b>\n\n` +
+                    `Source: <b>${source}</b>\n` +
+                    `Current prompt:\n<i>${currentPrompt}</i>\n\n` +
+                    `To set a new prompt for Telegram ONLY, use:\n<code>/system [your prompt]</code>\n\n` +
+                    `To reset to default (or use web GUI prompt), use:\n<code>/system reset</code>`,
+                    { parse_mode: 'HTML' }
+                  );
+                } catch (e: any) {
+                  tgBot.sendMessage(chatId, "❌ Error fetching system prompt: " + e.message);
+                }
+              } else {
+                const newPrompt = text.substring(8).trim();
+                try {
+                  if (newPrompt.toLowerCase() === 'reset') {
+                    await db.collection("tg_system_prompts").doc(chatId.toString()).delete();
+                    tgBot.sendMessage(chatId, "✅ System prompt reset to default.");
+                  } else {
+                    await db.collection("tg_system_prompts").doc(chatId.toString()).set({ 
+                      prompt: newPrompt,
+                      timestamp: Date.now()
+                    });
+                    tgBot.sendMessage(chatId, `✅ System prompt updated to:\n<i>${newPrompt}</i>`, { parse_mode: 'HTML' });
+                  }
+                } catch (e: any) {
+                  tgBot.sendMessage(chatId, "❌ Error updating system prompt: " + e.message);
+                }
+              }
+              return;
+            }
+
+            if (text === "/sandbox") {
+              try {
+                const sandboxDoc = await db.collection("tg_sandbox").doc(chatId.toString()).get();
+                const isCurrentlySandboxed = sandboxDoc.exists() ? sandboxDoc.data()?.enabled : false;
+                
+                tgBot.sendMessage(chatId, 
+                  `🛡️ <b>Sandboxed Mode</b>\n\n` +
+                  `Current status: <b>${isCurrentlySandboxed ? 'ENABLED' : 'DISABLED'}</b>\n\n` +
+                  `In Sandboxed Mode, I will ONLY answer based on your provided facts and files (NotebookLM style).`,
+                  {
+                    parse_mode: 'HTML',
+                    reply_markup: {
+                      inline_keyboard: [[
+                        { 
+                          text: isCurrentlySandboxed ? "🔓 Disable Sandbox" : "🛡️ Enable Sandbox", 
+                          callback_data: "toggle_sandbox" 
+                        }
+                      ]]
+                    }
+                  }
+                );
+              } catch (e: any) {
+                tgBot.sendMessage(chatId, "❌ Error checking sandbox status: " + e.message);
+              }
+              return;
+            }
+
+            if (text === "/status") {
+              try {
+                const linkDoc = await db.collection("telegram_links").doc(chatId.toString()).get();
+                if (!linkDoc.exists()) {
+                  tgBot.sendMessage(chatId, "❌ Your Telegram account is not linked to a web account. Use /link [UID] to connect.");
+                  return;
+                }
+                const uid = linkDoc.data().uid;
+                const tokenDoc = await db.collection("user_tokens").doc(uid).get();
+                const hasToken = tokenDoc.exists() && !!tokenDoc.data()?.google_access_token;
+                const userDoc = await db.collection("users").doc(uid).get();
+                const email = userDoc.data()?.email || "Unknown";
+
+                tgBot.sendMessage(chatId, 
+                  `✅ <b>Status Report</b>\n\n` +
+                  `👤 <b>Linked UID:</b> <code>${uid}</code>\n` +
+                  `📧 <b>Email:</b> ${email}\n` +
+                  `🔑 <b>Google Auth:</b> ${hasToken ? '✅ Authorized' : '❌ Missing'}\n\n` +
+                  `${!hasToken ? 'To fix Google Auth, open the web app, go to Settings, and click "Authorize Google".' : ''}`,
+                  { parse_mode: 'HTML' }
+                );
+              } catch (e: any) {
+                tgBot.sendMessage(chatId, "❌ Error checking status: " + e.message);
+              }
+              return;
+            }
+
+            if (text === "/email") {
+              // Get linked UID
+              let linkedUid = null;
+              try {
+                const linkDoc = await db.collection("telegram_links").doc(chatId.toString()).get();
+                if (linkDoc.exists()) {
+                  linkedUid = linkDoc.data().uid;
+                }
+              } catch (e) {}
+
+              if (!linkedUid) {
+                tgBot.sendMessage(chatId, "❌ Please link your account first using /link [UID]");
+                return;
+              }
+
+              try {
+                // Get Google token
+                const tokenDoc = await db.collection("user_tokens").doc(linkedUid).get();
+                const googleToken = tokenDoc.data()?.google_access_token;
+                
+                // Get user email
+                const userDoc = await db.collection("users").doc(linkedUid).get();
+                const userEmail = userDoc.data()?.email;
+
+                if (!googleToken) {
+                  tgBot.sendMessage(chatId, `❌ Google authorization token missing for account ${linkedUid}. Please open the web app, go to Settings, and click "Authorize Google".`);
+                  return;
+                }
+                
+                if (!userEmail) {
+                  tgBot.sendMessage(chatId, "❌ User email not found. Please open the web app to sync your profile.");
+                  return;
+                }
+
+                // Get current session history
+                const sessionDoc = await db.collection("tg_sessions").doc(chatId.toString()).get();
+                const sessionId = sessionDoc.exists() ? sessionDoc.data()?.id : null;
+                const conversationId = sessionId ? `tg_${chatId}_${sessionId}` : `tg_${chatId}`;
+
+                const historySnapshot = await db.collection("history")
+                  .where("conversationId", "==", conversationId)
+                  .orderBy("timestamp", "asc")
+                  .get();
+
+                const messages = historySnapshot.docs.map(d => d.data());
+                if (messages.length === 0) {
+                  tgBot.sendMessage(chatId, "❌ No messages in the current session to email.");
+                  return;
+                }
+
+                tgBot.sendMessage(chatId, "📧 Sending chat summary to " + userEmail + "...");
+
+                const chatContent = messages.map(m => `<b>${m.prompt ? 'USER' : 'AI'}:</b><br/>${(m.prompt || m.response).replace(/\n/g, '<br/>')}`).join('<br/><br/><hr/><br/>');
+                const body = `
+                  <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee; border-radius: 10px;">
+                    <h2 style="color: #333;">Telegram Chat Summary</h2>
+                    <p style="color: #666; font-size: 14px;">Sent from LLM Router Bot on ${new Date().toLocaleString()}</p>
+                    <div style="margin-top: 20px;">
+                      ${chatContent}
+                    </div>
+                  </div>
+                `;
+
+                const utf8Subject = `=?utf-8?B?${Buffer.from(`Telegram Chat Summary: ${messages[0].prompt?.substring(0, 30)}...`).toString('base64')}?=`;
+                const messageParts = [
+                  `To: ${userEmail}`,
+                  'Content-Type: text/html; charset=utf-8',
+                  'MIME-Version: 1.0',
+                  `Subject: ${utf8Subject}`,
+                  '',
+                  body,
+                ];
+                const rawMessage = Buffer.from(messageParts.join('\n'))
+                  .toString('base64')
+                  .replace(/\+/g, '-')
+                  .replace(/\//g, '_')
+                  .replace(/=+$/, '');
+
+                const gmailRes = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+                  method: 'POST',
+                  headers: {
+                    'Authorization': `Bearer ${googleToken}`,
+                    'Content-Type': 'application/json',
+                  },
+                  body: JSON.stringify({ raw: rawMessage }),
+                });
+
+                if (!gmailRes.ok) {
+                  const errData = await gmailRes.json().catch(() => ({}));
+                  if (gmailRes.status === 401) {
+                    throw new Error("Google authorization expired. Please sign out and sign in again on the web app.");
+                  }
+                  throw new Error(errData.error?.message || "Gmail API failed");
+                }
+
+                tgBot.sendMessage(chatId, "✅ Email sent successfully!");
+              } catch (e: any) {
+                tgBot.sendMessage(chatId, "❌ Error sending email: " + e.message);
+              }
+              return;
+            }
+
+            if (text === "/new") {
+              try {
+                const sessionId = Math.random().toString(36).substring(2, 10);
+                const now = Date.now();
+                await db.collection("tg_sessions").doc(chatId.toString()).set({ id: sessionId, lastSeen: now });
+                tgBot.sendMessage(chatId, "✨ New chat session started! Your messages will now be grouped separately in the history.");
+              } catch (e: any) {
+                tgBot.sendMessage(chatId, "❌ Error starting new session: " + e.message);
+              }
+              return;
+            }
+
+            if (text.startsWith("/link ")) {
+              const uid = text.split(" ")[1];
+              if (uid) {
+                try {
+                  await db.collection("telegram_links").doc(chatId.toString()).set({ 
+                    uid, 
+                    chatId: chatId.toString(),
+                    username: msg.from?.username || "unknown",
+                    timestamp: FieldValue.serverTimestamp() 
+                  });
+                  tgBot.sendMessage(chatId, "✅ Telegram account linked successfully! Your conversations will now show up in the web app history.");
+                } catch (linkErr: any) {
+                  console.error("Link Error:", linkErr);
+                  tgBot.sendMessage(chatId, "❌ Error linking account: " + linkErr.message);
+                }
+                return;
+              }
+            }
+
+            console.log(`Telegram message from ${chatId}: ${text.substring(0, 50)}...`);
+            
+            // Get linked UID if any
+            let linkedUid = 'telegram_bot';
+            try {
+              const linkDoc = await db.collection("telegram_links").doc(chatId.toString()).get();
+              if (linkDoc.exists()) {
+                linkedUid = linkDoc.data().uid;
+              }
+            } catch (linkFetchErr) {
+              console.error("Error fetching link:", linkFetchErr);
+            }
+            
+            // Show typing indicator
+            try {
+              await tgBot.sendChatAction(chatId, 'typing');
+            } catch (e) {
+              console.error("Error sending chat action:", e);
+            }
+
+            // Manage Telegram session
+            let conversationId = `tg_${chatId}`;
+            try {
+              log(`[TG_SESSION] Managing session for chatId: ${chatId}`);
+              const sessionDoc = await db.collection("tg_sessions").doc(chatId.toString()).get();
+              const now = Date.now();
+              let sessionData = sessionDoc.exists() ? sessionDoc.data() : null;
+              
+              let lastSeen = 0;
+              if (sessionData?.lastSeen) {
+                if (typeof sessionData.lastSeen === 'number') {
+                  lastSeen = sessionData.lastSeen;
+                } else if (typeof sessionData.lastSeen === 'object' && sessionData.lastSeen.toMillis) {
+                  lastSeen = sessionData.lastSeen.toMillis();
+                } else if (typeof sessionData.lastSeen === 'object' && sessionData.lastSeen._seconds) {
+                  lastSeen = sessionData.lastSeen._seconds * 1000;
+                }
+              }
+
+              if (!sessionData || (now - lastSeen > 3600000)) { // 1 hour session
+                const sessionId = Math.random().toString(36).substring(2, 10);
+                log(`[TG_SESSION] Creating new session: ${sessionId} (Reason: ${!sessionData ? 'No session' : 'Expired, last seen ' + new Date(lastSeen).toISOString()})`);
+                sessionData = { id: sessionId, lastSeen: now };
+                await db.collection("tg_sessions").doc(chatId.toString()).set(sessionData);
+              } else {
+                log(`[TG_SESSION] Continuing session: ${sessionData.id} (Last seen ${new Date(lastSeen).toISOString()})`);
+                sessionData.lastSeen = now;
+                await db.collection("tg_sessions").doc(chatId.toString()).update({ lastSeen: now });
+              }
+              conversationId = `tg_${chatId}_${sessionData.id}`;
+            } catch (sessionErr) {
+              console.error("Error managing TG session:", sessionErr);
+            }
+
+            // Sophisticated routing for Telegram
+            const today = new Date().toISOString().split('T')[0];
+            let usagePercent = 0;
+            try {
+              // Try to find a linked user to check usage
+              const linkDoc = await db.collection("telegram_links").doc(chatId.toString()).get();
+              if (linkDoc.exists()) {
+                const uid = linkDoc.data().uid;
+                const usageDoc = await db.collection("dailyUsage").doc(`${uid}_${today}`).get();
+                const tokens = usageDoc.data()?.tokens || 0;
+                usagePercent = (tokens / 500000) * 100;
+              }
+            } catch (e) {
+              log(`Error checking TG usage for routing: ${e}`);
+            }
+
+            let model = '';
+            let provider = '';
+
+            try {
+              const selectionDoc = await db.collection("tg_model_selection").doc(chatId.toString()).get();
+              if (selectionDoc.exists()) {
+                const selection = selectionDoc.data();
+                model = selection.modelId;
+                provider = selection.provider;
+                log(`[TG_ROUTING] Using manually selected model: ${model}`);
+              } else {
+                const route = getSmartRoute(text, usagePercent);
+                model = route.model;
+                provider = route.provider;
+                log(`[TG_ROUTING] Using smart router: ${model}`);
+              }
+            } catch (e) {
+              log(`Error checking TG model selection: ${e}`);
+              const route = getSmartRoute(text, usagePercent);
+              model = route.model;
+              provider = route.provider;
+            }
+
+            // Check if sandboxed
+            let isSandboxed = false;
+            try {
+              const sandboxDoc = await db.collection("tg_sandbox").doc(chatId.toString()).get();
+              isSandboxed = sandboxDoc.exists() ? sandboxDoc.data()?.enabled : false;
+            } catch (e) {}
+
+            let responseText = "";
+            let tokensUsed = 0;
+            let keySource = "unknown";
+
+            try {
+              // Get API Key
+              const { apiKey, keySource } = await getAPIKey(linkedUid, provider);
+              if (!apiKey) {
+                throw new Error(`API Key for ${provider} not found. Please add it in the Settings tab of the web app.`);
+              }
+
+              // Get Context
+              const context = await getLLMContext(linkedUid);
+              
+              // Check both Telegram-specific and User-specific system prompts
+              const tgSystemDoc = await db.collection("tg_system_prompts").doc(chatId.toString()).get();
+              const userSettingsDoc = await db.collection("user_settings").doc(linkedUid).get();
+              
+              // Priority: Telegram-specific > User-specific > Default
+              let customSystemPrompt = tgSystemDoc.exists() ? tgSystemDoc.data()?.prompt : "";
+              if (!customSystemPrompt && userSettingsDoc.exists()) {
+                customSystemPrompt = userSettingsDoc.data()?.systemPrompt || "";
+              }
+              
+              const baseInstruction = isSandboxed 
+                ? "You are in SANDBOXED MODE via Telegram. You MUST ONLY answer based on the provided context (facts and files). If the answer is not in the context, politely state that you don't have that information in your sandbox. DO NOT use your general knowledge about the outside world."
+                : "You are a helpful AI assistant with memory via Telegram. Use the provided context to enhance your answers, but you can also use your general knowledge.";
+
+              const systemInstruction = customSystemPrompt 
+                ? `${customSystemPrompt}\n\n${baseInstruction}`
+                : baseInstruction;
+
+              const fullSystemPrompt = `${systemInstruction}${context}`;
+              const localUrl = userSettingsDoc.exists() ? userSettingsDoc.data()?.localUrl : undefined;
+              
+              // Retry logic with model switching
+              let attempts = 0;
+              const maxAttempts = 2;
+              const triedModels: string[] = [];
+              let currentApiKey = apiKey;
+              let currentProvider = provider;
+              let currentModel = model;
+              
+              while (attempts < maxAttempts) {
+                try {
+                  // If it's a retry, we try to get a different model
+                  if (attempts > 0) {
+                    const route = getSmartRoute(text, 0, false, triedModels);
+                    currentModel = route.model;
+                    currentProvider = route.provider;
+                    
+                    // Get the key for the new provider
+                    const { apiKey: newKey } = await getAPIKey(linkedUid, currentProvider);
+                    if (!newKey && currentProvider !== 'local') {
+                      // If no key for the new model, try to find any model we have a key for
+                      const providers = ['google', 'openai', 'anthropic', 'groq', 'deepseek', 'mistral', 'xai', 'hypereal', 'local'];
+                      for (const p of providers) {
+                        if (p === currentProvider) continue;
+                        const { apiKey: pKey } = await getAPIKey(linkedUid, p);
+                        if (pKey || p === 'local') {
+                          currentProvider = p;
+                          currentApiKey = pKey;
+                          // Pick a model for this provider
+                          const registryModel = MODEL_REGISTRY.find(m => m.provider === p && !triedModels.includes(m.id));
+                          if (registryModel) {
+                            currentModel = registryModel.id;
+                            break;
+                          }
+                        }
+                      }
+                    } else {
+                      currentApiKey = newKey;
+                    }
+                  }
+
+                  triedModels.push(currentModel);
+                  log(`[TG_LLM] Attempt ${attempts + 1}: Using ${currentModel} (${currentProvider})`);
+
+                  const result = await callLLM({
+                    prompt: text,
+                    provider: currentProvider,
+                    model: currentModel,
+                    apiKey: currentApiKey,
+                    systemPrompt: fullSystemPrompt,
+                    localUrl
+                  });
+                  responseText = result.responseText;
+                  tokensUsed = result.tokensUsed;
+                  break;
+                } catch (llmErr: any) {
+                  attempts++;
+                  log(`[TG_LLM] Attempt ${attempts} failed: ${llmErr.message}`);
+                  if (attempts < maxAttempts) {
+                    log(`[TG_LLM] Retrying with different model...`);
+                    continue;
+                  }
+                  responseText = `Error: ${llmErr.message}. All retry attempts failed.`;
+                }
+              }
+
+              if (!responseText) {
+                responseText = "No response generated by the model.";
+              }
+              
+              // Telegram has a 4096 character limit per message
+              try {
+                if (responseText.length > 4000) {
+                  const chunks = responseText.match(/[\s\S]{1,4000}/g) || [];
+                  for (const chunk of chunks) {
+                    await tgBot.sendMessage(chatId, chunk);
+                  }
+                } else {
+                  await tgBot.sendMessage(chatId, responseText);
+                }
+              } catch (sendErr: any) {
+                console.error("Telegram Send Error:", sendErr);
+                await tgBot.sendMessage(chatId, "Error sending response to Telegram: " + (sendErr.message || "Unknown error"));
+              }
+
+              // Update Usage
+              const today = new Date().toISOString().split('T')[0];
+              const sanitizedModel = `${currentProvider}:${currentModel}`.replace(/\./g, '_');
+              await db.collection("dailyUsage").doc(`${linkedUid}_${today}`).set({
+                tokens: FieldValue.increment(tokensUsed),
+                [`modelUsage.${sanitizedModel}`]: FieldValue.increment(tokensUsed),
+                timestamp: FieldValue.serverTimestamp()
+              }, { merge: true });
+
+              await db.collection("history").add({
+                prompt: text,
+                response: responseText,
+                tokens_used: tokensUsed,
+                provider: currentProvider,
+                model: `${currentProvider}:${currentModel}`,
+                uid: linkedUid,
+                conversationId,
+                timestamp: FieldValue.serverTimestamp()
+              });
+
+            } catch (err: any) {
+              console.error("Telegram LLM Error:", err);
+              let errorMsg = err.message || "Unknown error";
+              
+              if (errorMsg.includes("QUOTA_EXCEEDED") || errorMsg.includes("quota") || errorMsg.includes("rate limit") || errorMsg.includes("429")) {
+                errorMsg = "⚠️ <b>Quota Exceeded</b>\n\nThe AI model is currently at its limit. Please try again in a few minutes, or use <code>/model</code> to switch to a different provider if you have your own API keys configured.";
+                await tgBot.sendMessage(chatId, errorMsg, { parse_mode: 'HTML' });
+              } else if (errorMsg.includes("Insufficient Balance") || errorMsg.includes("balance")) {
+                errorMsg = "⚠️ <b>Insufficient Balance</b>\n\nYour API provider (e.g., DeepSeek) reports that you have run out of credits. Please top up your account or switch to a different provider.";
+                await tgBot.sendMessage(chatId, errorMsg, { parse_mode: 'HTML' });
+              } else {
+                // Enhanced error reporting for Telegram
+                if (errorMsg.includes("API key not valid") || errorMsg.includes("401") || errorMsg.includes("invalid_api_key")) {
+                  errorMsg = `Authentication failed. The API Key (from ${keySource}) is invalid. Please update your API key in the web app's Settings tab.`;
+                }
+                await tgBot.sendMessage(chatId, "❌ Error: " + errorMsg);
+              }
+            }
+          });
+
+          // Handle callback queries (button clicks)
+          tgBot.on("callback_query", async (query: any) => {
+            const chatId = query.message.chat.id;
+            const messageId = query.message.message_id;
+            const data = query.data;
+
+            try {
+              if (data.startsWith("set_model:")) {
+                const selectedId = data.split(":")[1];
+                if (selectedId === 'auto') {
+                  await db.collection("tg_model_selection").doc(chatId.toString()).delete();
+                  await tgBot.answerCallbackQuery(query.id, { text: "Smart Router enabled" });
+                  await tgBot.editMessageText("✅ Smart Router enabled (Auto-selection).", {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'HTML'
+                  });
+                } else {
+                  const model = MODEL_REGISTRY.find(m => m.id === selectedId);
+                  if (model) {
+                    await db.collection("tg_model_selection").doc(chatId.toString()).set({ 
+                      modelId: model.id,
+                      provider: model.provider,
+                      timestamp: Date.now()
+                    });
+                    await tgBot.answerCallbackQuery(query.id, { text: `Model set to ${model.id}` });
+                    await tgBot.editMessageText(`✅ Model set to: <b>${model.id}</b>`, {
+                      chat_id: chatId,
+                      message_id: messageId,
+                      parse_mode: 'HTML'
+                    });
+                  }
+                }
+              } else if (data === "toggle_sandbox") {
+                const sandboxDoc = await db.collection("tg_sandbox").doc(chatId.toString()).get();
+                const isCurrentlySandboxed = sandboxDoc.exists() ? sandboxDoc.data()?.enabled : false;
+                const newState = !isCurrentlySandboxed;
+                await db.collection("tg_sandbox").doc(chatId.toString()).set({ enabled: newState });
+                
+                await tgBot.answerCallbackQuery(query.id, { text: newState ? "Sandbox Enabled" : "Sandbox Disabled" });
+                await tgBot.editMessageText(newState 
+                  ? "🛡️ Sandboxed Mode <b>ENABLED</b>. I will now only answer based on your provided facts and files." 
+                  : "🔓 Sandboxed Mode <b>DISABLED</b>. I will use my full knowledge base.", {
+                    chat_id: chatId,
+                    message_id: messageId,
+                    parse_mode: 'HTML'
+                  });
+              }
+            } catch (e: any) {
+              console.error("Callback Query Error:", e);
+              await tgBot.answerCallbackQuery(query.id, { text: "Error: " + e.message });
+            }
+          });
+
+        } catch (err) {
+          console.error("Failed to init Telegram Bot instance:", err);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to init Telegram Bot (settings fetch):", err);
+    } finally {
+      isTgInitializing = false;
+    }
+  };
+
+  try {
+    initTelegram();
+  } catch (e: any) {
+    log(`Failed to start Telegram Bot on startup: ${e.message}`);
+  }
+  
+  app.get("/api/user-settings", async (req, res) => {
+    try {
+      const { uid } = req.query;
+      if (!uid) return res.status(400).json({ error: "UID required" });
+      const settingsDoc = await db.collection("user_settings").doc(uid as string).get();
+      res.json(settingsDoc.data() || {});
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
   });
 
-  // ── History ─────────────────────────────────────────────────────────────────
-  app.get("/api/history", requireAuth, (req: any, res) => {
-    const rows = db.prepare(`
-      SELECT id, uid, prompt, response, model, tokens_used, status, conversation_id AS conversationId, created_at AS timestamp
-      FROM history WHERE uid=? ORDER BY created_at DESC LIMIT 50
-    `).all(req.user.uid);
-    res.json(rows);
-  });
-
-  app.post("/api/history", requireAuth, (req: any, res) => {
-    const uid = req.user.uid;
-    const { prompt, response, model, tokens_used = 0, status = "success", conversationId } = req.body;
-    const id = randomUUID();
-    db.prepare("INSERT INTO history (id,uid,prompt,response,model,tokens_used,status,conversation_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)").run(id, uid, prompt, response, model, tokens_used, status, conversationId ?? null, now());
-    const sanitizedModel = (model || "").replace(/\./g, "_");
-    incrementDailyUsage(uid, tokens_used, sanitizedModel);
-    res.json({ id });
-  });
-
-  app.delete("/api/history/group/:id", requireAuth, (req: any, res) => {
-    const uid = req.user.uid;
-    const { id } = req.params;
-    if (id.startsWith("legacy_")) return res.status(400).json({ error: "Deleting legacy groups is not supported." });
-    const result = db.prepare("DELETE FROM history WHERE conversation_id=? AND uid=?").run(id, uid);
-    res.json({ status: "ok", deleted: result.changes });
-  });
-
-  // ── Usage ────────────────────────────────────────────────────────────────────
-  app.get("/api/usage", requireAuth, (req: any, res) => {
-    const date = new Date().toISOString().split("T")[0];
-    const row = db.prepare("SELECT tokens, model_usage FROM daily_usage WHERE uid=? AND date=?").get(req.user.uid, date) as any;
-    res.json({ tokens: row?.tokens ?? 0, modelUsage: row ? JSON.parse(row.model_usage) : {}, date });
-  });
-
-  // ── Smart route ──────────────────────────────────────────────────────────────
-  app.post("/api/smart-route", requireAuth, (req: any, res) => {
-    const uid = req.user.uid;
-    const { prompt, hasMedia, excludeModels } = req.body;
-    const date = new Date().toISOString().split("T")[0];
-    const row = db.prepare("SELECT tokens FROM daily_usage WHERE uid=? AND date=?").get(uid, date) as any;
-    const usagePct = ((row?.tokens ?? 0) / 500000) * 100;
-    const providers = getAvailableProviders(uid);
-    res.json(getSmartRoute(prompt, usagePct, hasMedia, excludeModels ?? [], providers));
-  });
-
-  // ── Available providers ──────────────────────────────────────────────────────
-  app.get("/api/available-providers", requireAuth, (req: any, res) => {
-    res.json({ providers: getAvailableProviders(req.user.uid) });
-  });
-
-  // ── API Keys ─────────────────────────────────────────────────────────────────
-  app.get("/api/keys", requireAuth, (req: any, res) => {
-    const rows = db.prepare("SELECT provider, key FROM api_keys WHERE uid=?").all(req.user.uid) as any[];
-    res.json(rows.map(r => ({ provider: r.provider, key: r.key ? `${r.key.substring(0,4)}...${r.key.slice(-4)}` : "" })));
-  });
-
-  app.post("/api/keys", requireAuth, async (req: any, res) => {
-    const uid = req.user.uid;
-    const { provider } = req.body;
-    const key = req.body.key?.trim();
-    if (!key) return res.status(400).json({ error: "API key required" });
+  app.post("/api/user-settings", async (req, res) => {
     try {
-      // Validate key
-      if (provider === "google") {
+      const { uid, systemPrompt } = req.body;
+      if (!uid) return res.status(400).json({ error: "UID required" });
+      await db.collection("user_settings").doc(uid).set({ systemPrompt }, { merge: true });
+      res.json({ status: "ok" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/settings", async (req, res) => {
+    try {
+      const settingsDoc = await db.collection("settings").doc("global").get();
+      res.json({ settings: settingsDoc.data() || {}, bot: tgBotInfo });
+    } catch (err: any) {
+      log(`Error fetching settings: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/settings", async (req, res) => {
+    try {
+      const { key, value } = req.body;
+      
+      if (key === 'telegram_token' && value) {
+        const tokenRegex = /^\d+:[A-Za-z0-9_-]+$/;
+        if (!tokenRegex.test(value)) {
+          return res.status(400).json({ error: "Invalid Telegram Bot Token format." });
+        }
+        
+        // Validate token with Telegram API
+        try {
+          const response = await fetch(`https://api.telegram.org/bot${value}/getMe`);
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            throw new Error(data.description || "Invalid token");
+          }
+          const data = await response.json();
+          log(`Validated Telegram token for bot: @${data.result.username}`);
+        } catch (tgErr: any) {
+          return res.status(400).json({ error: `Telegram Token validation failed: ${tgErr.message}` });
+        }
+      }
+
+      await db.collection("settings").doc("global").set({ [key]: value }, { merge: true });
+      if (key === 'telegram_token') {
+        initTelegram();
+      }
+      res.json({ status: "ok" });
+    } catch (err: any) {
+      log(`Error saving settings: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/history", async (req, res) => {
+    const uid = req.query.uid as string;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+    try {
+      const snapshot = await db.collection("history")
+        .where("uid", "==", uid)
+        .orderBy("timestamp", "desc")
+        .limit(50)
+        .get();
+      const rows = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(rows);
+    } catch (err: any) {
+      log(`Error fetching history: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/history", async (req, res) => {
+    try {
+      const { prompt, response, model, tokens_used, status, uid, conversationId } = req.body;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      const docRef = await db.collection("history").add({
+        prompt, response, model, tokens_used, status, uid, conversationId,
+        timestamp: FieldValue.serverTimestamp()
+      });
+      
+      const today = new Date().toISOString().split('T')[0];
+      const usageRef = db.collection("dailyUsage").doc(`${uid}_${today}`);
+      
+      // Sanitize model name for Firestore field (no dots)
+      const sanitizedModel = model.replace(/\./g, '_');
+      
+      await usageRef.set({ 
+        tokens: FieldValue.increment(tokens_used),
+        [`modelUsage.${sanitizedModel}`]: FieldValue.increment(tokens_used),
+        date: today, 
+        uid,
+        timestamp: FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      res.json({ id: docRef.id });
+    } catch (err: any) {
+      log(`Error saving history: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/history/group/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { uid } = req.query;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      log(`Deleting history group: ${id} for user: ${uid}`);
+
+      if (id.startsWith('legacy_')) {
+        // For legacy groups, we don't have a conversationId, so we delete by proximity
+        // But it's safer to just delete the specific messages that were grouped.
+        // For now, let's just return an error or implement a simple version.
+        res.status(400).json({ error: "Deleting legacy groups is not supported. Please delete individual messages if available." });
+        return;
+      }
+
+      const snapshot = await db.collection("history")
+        .where("uid", "==", uid)
+        .where("conversationId", "==", id)
+        .get();
+      
+      if (snapshot.empty) {
+        return res.json({ status: "ok", deleted: 0 });
+      }
+
+      const batch = db.batch();
+      snapshot.docs.forEach(doc => {
+        batch.delete(doc.ref);
+      });
+      await batch.commit();
+      
+      res.json({ status: "ok", deleted: snapshot.size });
+    } catch (err: any) {
+      log(`Error deleting history group: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/usage", async (req, res) => {
+    try {
+      const uid = req.query.uid as string;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      const today = new Date().toISOString().split('T')[0];
+      const usageDoc = await db.collection("dailyUsage").doc(`${uid}_${today}`).get();
+      const data = usageDoc.data();
+      res.json({ 
+        tokens: data?.tokens || 0,
+        modelUsage: data?.modelUsage || {},
+        date: today
+      });
+    } catch (err: any) {
+      log(`Error fetching usage: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/smart-route", async (req, res) => {
+    try {
+      const { prompt, uid, hasMedia, excludeModels } = req.body;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      const today = new Date().toISOString().split('T')[0];
+      const usageDoc = await db.collection("dailyUsage").doc(`${uid}_${today}`).get();
+      const tokens = usageDoc.data()?.tokens || 0;
+      const usagePercent = (tokens / 500000) * 100; // Assuming 500k limit
+
+      const availableProviders = await getAvailableProviders(uid);
+      const route = getSmartRoute(prompt, usagePercent, hasMedia, excludeModels, availableProviders);
+      res.json(route);
+    } catch (err: any) {
+      log(`Error in smart route: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/summarize", async (req, res) => {
+    try {
+      const { messages, uid } = req.body;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+      if (!messages || messages.length === 0) return res.status(400).json({ error: "No messages to summarize" });
+
+      // Get Google API Key with robust fallback and placeholder check
+      let apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || process.env.GOOGLE_API_KEY;
+      let keySource = "environment variable";
+
+      // If env key is missing or is a placeholder, try Firestore
+      if (!apiKey || apiKey.startsWith("MY_")) {
+        const keyDoc = await db.collection("apiKeys").doc(`${uid}_google`).get();
+        if (keyDoc.exists) {
+          apiKey = keyDoc.data()?.key?.trim();
+          keySource = "firestore";
+        } else {
+          // Fallback to legacy collection query
+          const keySnap = await db.collection("apiKeys").where("uid", "==", uid).where("provider", "==", "google").get();
+          if (!keySnap.empty) {
+            apiKey = keySnap.docs[0].data().key?.trim();
+            keySource = "firestore (legacy)";
+          }
+        }
+      }
+
+      // Final check for valid key
+      if (!apiKey || apiKey.startsWith("MY_")) {
+        return res.status(400).json({ 
+          error: "Valid Google API Key not found. Please add your own Gemini API key in Settings to use the summarization feature." 
+        });
+      }
+
+      log(`[SUMMARIZE] Using API Key from ${keySource} for user ${uid}`);
+
+      // Format history into a single string to avoid Gemini role issues (alternating roles requirement)
+      // This is the most robust way to summarize a conversation history.
+      const historyText = messages.map((m: any) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
+      const prompt = `Please provide a concise summary of the following conversation history:\n\n${historyText}\n\nFocus on the main topics discussed and any key conclusions or requests. The summary should be suitable for quick review or for providing context to another LLM.`;
+      const systemPrompt = "You are a helpful assistant that specializes in summarizing conversations accurately and concisely.";
+      
+      const { responseText } = await callLLM({
+        prompt,
+        provider: 'google',
+        model: 'gemini-3-flash-preview',
+        messages: [], // Pass empty history to avoid role issues in callLLM
+        apiKey,
+        systemPrompt
+      });
+
+      res.json({ summary: responseText });
+    } catch (err: any) {
+      log(`Error in summarize: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // API Keys Management
+  app.get("/api/settings", async (req, res) => {
+    try {
+      const uid = req.query.uid as string;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+      const doc = await db.collection("settings").doc(uid).get();
+      res.json(doc.data() || {});
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/settings", async (req, res) => {
+    try {
+      const { uid, ...settings } = req.body;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+      await db.collection("settings").doc(uid).set(settings, { merge: true });
+      res.json({ status: "ok" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/available-providers", async (req, res) => {
+    try {
+      const uid = req.query.uid as string;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+      const providers = await getAvailableProviders(uid);
+      res.json({ providers });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get("/api/keys", async (req, res) => {
+    try {
+      const uid = req.query.uid as string;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      const snapshot = await db.collection("apiKeys").where("uid", "==", uid).get();
+      const rows = snapshot.docs.map(doc => doc.data());
+      
+      const masked = rows.map((r: any) => ({
+        provider: r.provider,
+        key: r.key ? `${r.key.substring(0, 4)}...${r.key.substring(r.key.length - 4)}` : ""
+      }));
+      res.json(masked);
+    } catch (err: any) {
+      log(`Error fetching keys: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/keys", async (req, res) => {
+    const { provider, uid } = req.body;
+    const key = req.body.key?.trim();
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+    if (!key) return res.status(400).json({ error: "API key is required" });
+
+    try {
+      // Validate key before saving
+      if (provider === 'google') {
         const { GoogleGenAI } = await import("@google/genai");
         const ai = new GoogleGenAI({ apiKey: key });
         await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: "hi" });
-      } else if (["openai","xai","groq","deepseek","mistral","hypereal","github"].includes(provider)) {
-        const testUrls: Record<string,string> = {
-          openai:   "https://api.openai.com/v1/models",
-          xai:      "https://api.x.ai/v1/models",
-          groq:     "https://api.groq.com/openai/v1/models",
-          deepseek: "https://api.deepseek.com/models",
-          mistral:  "https://api.mistral.ai/v1/models",
-          github:   "https://models.inference.ai.azure.com/models",
-          hypereal: "https://api.hypereal.tech/api/v1/models",
-        };
-        const r = await fetch(testUrls[provider], { headers: { Authorization: `Bearer ${key}` } });
-        if (!r.ok && r.status === 401) throw new Error(`Invalid ${provider.toUpperCase()} API Key.`);
-      } else if (provider === "anthropic") {
-        const r = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-api-key": key, "anthropic-version": "2023-06-01" },
-          body: JSON.stringify({ model: "claude-3-haiku-20240307", max_tokens: 5, messages: [{ role: "user", content: "hi" }] })
+      } else if (['openai', 'xai', 'groq', 'deepseek', 'mistral', 'hypereal', 'github'].includes(provider)) {
+        let testUrl = "";
+        let method = "GET";
+        let body: any = null;
+        
+        if (provider === 'openai') testUrl = "https://api.openai.com/v1/models";
+        else if (provider === 'xai') testUrl = "https://api.x.ai/v1/models";
+        else if (provider === 'groq') testUrl = "https://api.groq.com/openai/v1/models";
+        else if (provider === 'deepseek') testUrl = "https://api.deepseek.com/models";
+        else if (provider === 'mistral') testUrl = "https://api.mistral.ai/v1/models";
+        else if (provider === 'github') testUrl = "https://models.inference.ai.azure.com/models";
+        else if (provider === 'hypereal') {
+          testUrl = "https://api.hypereal.tech/api/v1/images/generate";
+          method = "POST";
+          body = {
+            prompt: "hi",
+            n: 1,
+            size: "1024x1024"
+          };
+        }
+
+        const response = await fetch(testUrl, {
+          method: method,
+          headers: {
+            "Authorization": `Bearer ${key}`,
+            "Accept": "application/json",
+            ...(method === "POST" ? { "Content-Type": "application/json" } : {})
+          },
+          ...(body ? { body: JSON.stringify(body) } : {})
         });
-        if (!r.ok) { const d: any = await r.json().catch(() => ({})); throw new Error(d.error?.message || `HTTP ${r.status}`); }
+        
+        if (!response.ok) {
+          let errorMessage = "";
+          try {
+            const errorData = await response.json();
+            errorMessage = errorData.error?.message || errorData.message || (typeof errorData === 'string' ? errorData : JSON.stringify(errorData));
+          } catch (e) {
+            // If not JSON, get the raw text
+            const rawText = await response.text().catch(() => "");
+            errorMessage = rawText || `HTTP ${response.status}: ${response.statusText}`;
+          }
+          
+          if (response.status === 401) {
+            throw new Error(`Invalid ${provider.toUpperCase()} API Key. Please verify it in your dashboard.`);
+          }
+
+          // If it's a balance issue, we still consider the key "valid" in terms of authentication
+          const isBalanceError = errorMessage.toLowerCase().includes("balance") || 
+                               errorMessage.toLowerCase().includes("credit") ||
+                               response.status === 402;
+                               
+          if (isBalanceError) {
+            console.warn(`API Key for ${provider} has insufficient balance, but the key is valid.`);
+          } else {
+            throw new Error(`${provider.toUpperCase()} Error: ${errorMessage}`);
+          }
+        }
+      } else if (provider === 'anthropic') {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01"
+          },
+          body: JSON.stringify({
+            model: "claude-3-haiku-20240307",
+            max_tokens: 5,
+            messages: [{ role: "user", content: "hi" }]
+          })
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error?.message || `HTTP ${response.status}: ${response.statusText}`);
+        }
       }
-      db.prepare("INSERT INTO api_keys (uid,provider,key) VALUES (?,?,?) ON CONFLICT(uid,provider) DO UPDATE SET key=excluded.key").run(uid, provider, key);
+
+      await db.collection("apiKeys").doc(`${uid}_${provider}`).set({ provider, key, uid }, { merge: true });
       res.json({ status: "ok" });
     } catch (err: any) {
       res.status(400).json({ error: `Validation failed: ${err.message}` });
     }
   });
 
-  app.delete("/api/keys/:provider", requireAuth, (req: any, res) => {
-    db.prepare("DELETE FROM api_keys WHERE uid=? AND provider=?").run((req as any).user.uid, req.params.provider);
-    res.json({ status: "ok" });
-  });
-
-  // ── User settings ────────────────────────────────────────────────────────────
-  app.get("/api/user-settings", requireAuth, (req: any, res) => {
-    const row = db.prepare("SELECT system_prompt, local_url, use_memory, auto_memory FROM user_settings WHERE uid=?").get(req.user.uid) as any;
-    if (!row) return res.json({});
-    res.json({ systemPrompt: row.system_prompt, localUrl: row.local_url, useMemory: !!row.use_memory, autoMemory: !!row.auto_memory });
-  });
-
-  app.post("/api/user-settings", requireAuth, (req: any, res) => {
-    const uid = req.user.uid;
-    const { systemPrompt, localUrl, useMemory, autoMemory } = req.body;
-    db.prepare(`
-      INSERT INTO user_settings (uid, system_prompt, local_url, use_memory, auto_memory) VALUES (?,?,?,?,?)
-      ON CONFLICT(uid) DO UPDATE SET
-        system_prompt = COALESCE(excluded.system_prompt, system_prompt),
-        local_url     = COALESCE(excluded.local_url,     local_url),
-        use_memory    = COALESCE(excluded.use_memory,    use_memory),
-        auto_memory   = COALESCE(excluded.auto_memory,   auto_memory)
-    `).run(uid, systemPrompt ?? null, localUrl ?? null, useMemory != null ? (useMemory ? 1 : 0) : null, autoMemory != null ? (autoMemory ? 1 : 0) : null);
-    res.json({ status: "ok" });
-  });
-
-  // ── Settings (global/Telegram) ───────────────────────────────────────────────
-  app.get("/api/settings", (req, res) => {
-    const s = getSettings("global");
-    res.json({ settings: s, bot: tgBotInfo });
-  });
-
-  app.post("/api/settings", async (req, res) => {
-    const { key, value } = req.body;
-    if (key === "telegram_token" && value) {
-      const tokenRegex = /^\d+:[A-Za-z0-9_-]+$/;
-      if (!tokenRegex.test(value)) return res.status(400).json({ error: "Invalid Telegram token format." });
-      try {
-        const r = await fetch(`https://api.telegram.org/bot${value}/getMe`);
-        if (!r.ok) { const d: any = await r.json().catch(() => ({})); throw new Error(d.description || "Invalid token"); }
-      } catch (e: any) {
-        return res.status(400).json({ error: `Token validation failed: ${e.message}` });
-      }
-    }
-    setSettings("global", { [key]: value });
-    if (key === "telegram_token") initTelegram();
-    res.json({ status: "ok" });
-  });
-
-  // ── Validate provider ────────────────────────────────────────────────────────
-  app.post("/api/validate-provider", requireAuth, async (req: any, res) => {
-    const uid = req.user.uid;
-    const { provider, model } = req.body;
-    const { apiKey } = getAPIKey(uid, provider);
-    if (!apiKey && provider !== "local") return res.status(400).json({ error: `API Key for ${provider} not found.` });
+  app.delete("/api/keys/:provider", async (req, res) => {
     try {
-      if (provider === "google") {
-        const { GoogleGenAI } = await import("@google/genai");
-        await new GoogleGenAI({ apiKey }).models.generateContent({ model, contents: [{ role: "user", parts: [{ text: "ping" }] }], config: { maxOutputTokens: 1 } });
-      } else if (["openai","xai","groq","deepseek","mistral","hypereal"].includes(provider)) {
-        const baseUrls: Record<string,string> = { openai:"https://api.openai.com/v1/chat/completions", xai:"https://api.x.ai/v1/chat/completions", groq:"https://api.groq.com/openai/v1/chat/completions", deepseek:"https://api.deepseek.com/chat/completions", mistral:"https://api.mistral.ai/v1/chat/completions", hypereal:"https://api.hypereal.tech/api/v1/chat/completions" };
-        const r = await fetch(baseUrls[provider], { method:"POST", headers:{"Content-Type":"application/json",Authorization:`Bearer ${apiKey}`}, body: JSON.stringify({ model, messages:[{role:"user",content:"ping"}], max_tokens:1 }) });
-        if (!r.ok) { const d:any=await r.json().catch(()=>({})); throw new Error(d.error?.message||r.statusText); }
-      } else if (provider === "anthropic") {
-        const r = await fetch("https://api.anthropic.com/v1/messages", { method:"POST", headers:{"Content-Type":"application/json","x-api-key":apiKey,"anthropic-version":"2023-06-01"}, body: JSON.stringify({ model, max_tokens:1, messages:[{role:"user",content:"ping"}] }) });
-        if (!r.ok) { const d:any=await r.json().catch(()=>({})); throw new Error(d.error?.message||r.statusText); }
-      }
-      res.json({ success: true });
+      const uid = req.query.uid as string;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+      await db.collection("apiKeys").doc(`${uid}_${req.params.provider}`).delete();
+      res.json({ status: "ok" });
     } catch (err: any) {
-      const msg = err.message || "Unknown";
-      const lower = msg.toLowerCase();
-      if (lower.includes("quota") || lower.includes("429")) return res.status(429).json({ error: msg });
-      if (lower.includes("api key") || lower.includes("401"))  return res.status(401).json({ error: msg });
-      res.status(500).json({ error: msg });
-    }
-  });
-
-  // ── Proxy request ────────────────────────────────────────────────────────────
-  app.post("/api/proxy-request", requireAuth, async (req: any, res) => {
-    const uid = req.user.uid;
-    const { prompt, provider, model, messages, media, sandboxed, systemPrompt } = req.body;
-    try {
-      const { apiKey, keySource } = getAPIKey(uid, provider);
-      log(`[PROXY] ${provider} key source: ${keySource}`);
-      if (!apiKey && provider !== "local") return res.status(400).json({ error: `API Key for ${provider} not found.` });
-
-      const userSettings = db.prepare("SELECT use_memory, local_url FROM user_settings WHERE uid=?").get(uid) as any;
-      const useMemory = userSettings?.use_memory !== 0;
-      const localUrl  = userSettings?.local_url ?? "http://localhost:11434";
-      const context   = useMemory ? getLLMContext(uid) : "";
-
-      const base  = sandboxed ? "You are in a sandboxed environment. Only use provided context." : "You are a highly capable AI assistant.";
-      const full  = `${systemPrompt ? systemPrompt + "\n\n" : ""}${base}${context}`;
-
-      const result = await callLLM({ prompt, provider, model, messages, apiKey, systemPrompt: full, media, localUrl });
-      res.json({ text: result.responseText, tokensUsed: result.tokensUsed });
-    } catch (err: any) {
-      const msg   = err.message || String(err);
-      const lower = msg.toLowerCase();
-      if (lower.includes("api key") || lower.includes("401"))   return res.status(401).json({ error: msg });
-      if (lower.includes("balance") || lower.includes("402"))   return res.status(402).json({ error: "Insufficient balance." });
-      if (lower.includes("quota") || lower.includes("429"))     return res.status(429).json({ error: "Quota exceeded." });
-      if (lower.includes("not found") || lower.includes("404")) return res.status(404).json({ error: `Model '${model}' not found.` });
-      res.status(500).json({ error: `LLM Proxy Error: ${msg}` });
-    }
-  });
-
-  // ── Summarize ────────────────────────────────────────────────────────────────
-  app.post("/api/summarize", requireAuth, async (req: any, res) => {
-    const uid = req.user.uid;
-    const { messages } = req.body;
-    if (!messages?.length) return res.status(400).json({ error: "No messages" });
-    try {
-      const { apiKey } = getAPIKey(uid, "google");
-      if (!apiKey) return res.status(400).json({ error: "Google API Key required for summarisation." });
-      const histText = messages.map((m: any) => `${m.role.toUpperCase()}: ${m.content}`).join("\n\n");
-      const { responseText } = await callLLM({ prompt: `Summarise this conversation:\n\n${histText}`, provider: "google", model: "gemini-3-flash-preview", messages: [], apiKey, systemPrompt: "You are a helpful summarisation assistant." });
-      res.json({ summary: responseText });
-    } catch (err: any) {
+      log(`Error deleting key: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // ── Extract facts ────────────────────────────────────────────────────────────
-  app.post("/api/extract-facts", requireAuth, async (req: any, res) => {
-    const uid = req.user.uid;
-    const { prompt, response } = req.body;
-    if (!prompt || !response) return res.status(400).json({ error: "Missing data" });
+  // Facts Management (Memory)
+  app.get("/api/facts", async (req, res) => {
+    try {
+      const uid = req.query.uid as string;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+      const snapshot = await db.collection("facts")
+        .where("uid", "==", uid)
+        .orderBy("timestamp", "desc")
+        .get();
+      const rows = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(rows);
+    } catch (err: any) {
+      log(`Error fetching facts: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/facts", async (req, res) => {
+    try {
+      const { content, uid } = req.body;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+      const docRef = await db.collection("facts").add({ 
+        content, 
+        uid, 
+        timestamp: FieldValue.serverTimestamp() 
+      });
+      res.json({ id: docRef.id });
+    } catch (err: any) {
+      log(`Error saving fact: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/facts/:id", async (req, res) => {
+    try {
+      await db.collection("facts").doc(req.params.id).delete();
+      res.json({ status: "ok" });
+    } catch (err: any) {
+      log(`Error deleting fact: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/validate-provider", async (req, res) => {
+    const { provider, model, uid } = req.body;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
 
     try {
-      const userSettings = db.prepare("SELECT auto_memory FROM user_settings WHERE uid=?").get(uid) as any;
-      if (userSettings?.auto_memory === 0) return res.json({ success: true, skipped: true });
+      const keyDoc = await db.collection("apiKeys").doc(`${uid}_${provider}`).get();
+      let apiKey = keyDoc.data()?.key?.trim();
+      let keySource = "firestore";
 
-      const existing = (db.prepare("SELECT content FROM facts WHERE uid=?").all(uid) as any[]).map(r => r.content);
-      const extractPrompt = `Extract short personal facts about the user from this interaction. Ignore existing facts:\nEXISTING:\n${existing.map(f => `- ${f}`).join("\n") || "None."}\nUSER: ${prompt}\nAI: ${response}\nReturn ONLY a JSON array of strings. If nothing new, return [].`;
+      if (!apiKey) {
+        apiKey = process.env[`${provider.toUpperCase()}_API_KEY`]?.trim();
+        keySource = "environment variable";
+      }
 
-      const { apiKey } = getAPIKey(uid, "google");
-      if (!apiKey) throw new Error("Missing Gemini API Key");
+      if (provider === 'google' && (!apiKey || keySource === "environment variable")) {
+        const systemKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+        if (systemKey && (!apiKey || apiKey === systemKey)) {
+          apiKey = systemKey;
+          keySource = "system default/env";
+        }
+      }
+
+      if (!apiKey) {
+        return res.status(400).json({ error: `API Key for ${provider} not found.` });
+      }
+
+      log(`[VALIDATE] Checking ${provider}/${model} for user ${uid}...`);
+
+      if (provider === 'google') {
+        const { GoogleGenAI } = await import("@google/genai");
+        const ai = new GoogleGenAI({ apiKey });
+        // Minimal request to check health
+        await ai.models.generateContent({
+          model: model,
+          contents: [{ role: 'user', parts: [{ text: 'ping' }] }],
+          config: { maxOutputTokens: 1 }
+        });
+      } else if (['openai', 'xai', 'groq', 'deepseek', 'mistral', 'hypereal'].includes(provider)) {
+        let baseUrl = "";
+        if (provider === 'openai') baseUrl = "https://api.openai.com/v1/chat/completions";
+        else if (provider === 'xai') baseUrl = "https://api.x.ai/v1/chat/completions";
+        else if (provider === 'groq') baseUrl = "https://api.groq.com/openai/v1/chat/completions";
+        else if (provider === 'deepseek') baseUrl = "https://api.deepseek.com/chat/completions";
+        else if (provider === 'mistral') baseUrl = "https://api.mistral.ai/v1/chat/completions";
+        else if (provider === 'hypereal') baseUrl = "https://api.hypereal.tech/api/v1/chat/completions";
+
+        const response = await fetch(baseUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${apiKey}`
+          },
+          body: JSON.stringify({ 
+            model, 
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const message = errorData.error?.message || response.statusText;
+          throw new Error(`${provider.toUpperCase()} Validation Error: ${message}`);
+        }
+      } else if (provider === 'anthropic') {
+        const response = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01"
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 1,
+            messages: [{ role: "user", content: "ping" }]
+          })
+        });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const message = errorData.error?.message || response.statusText;
+          throw new Error(`Anthropic Validation Error: ${message}`);
+        }
+      } else if (provider === 'local') {
+        const settingsDoc = await db.collection("settings").doc(uid).get();
+        const localUrl = settingsDoc.data()?.localUrl || "http://localhost:11434";
+        const endpoint = `${localUrl.replace(/\/$/, '')}/v1/chat/completions`;
+        
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            model: "ping", 
+            messages: [{ role: "user", content: "ping" }],
+            max_tokens: 1
+          })
+        });
+
+        if (!response.ok) {
+          throw new Error(`Local LLM Validation Error: ${response.statusText}`);
+        }
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      let message = err.message || String(err || 'Unknown error');
+      
+      // Try to parse JSON error from SDKs (common in Gemini/OpenAI)
+      try {
+        if (message.startsWith('{') || message.includes('{"error":')) {
+          const jsonStart = message.indexOf('{');
+          const jsonStr = message.substring(jsonStart);
+          const parsed = JSON.parse(jsonStr);
+          if (parsed.error && parsed.error.message) {
+            message = parsed.error.message;
+          } else if (parsed.message) {
+            message = parsed.message;
+          }
+        }
+      } catch (e) {
+        // Not JSON or parse failed, keep original message
+      }
+
+      log(`[VALIDATE] Error: ${message}`);
+      
+      const lowerMsg = message.toLowerCase();
+      if (lowerMsg.includes("quota") || lowerMsg.includes("429") || lowerMsg.includes("limit") || lowerMsg.includes("resource_exhausted")) {
+        res.status(429).json({ error: "LLM Quota exceeded. Please try again later or use a different provider." });
+      } else if (lowerMsg.includes("api key") || lowerMsg.includes("unauthorized") || lowerMsg.includes("401")) {
+        res.status(401).json({ error: message });
+      } else {
+        res.status(500).json({ error: message });
+      }
+    }
+  });
+
+  app.post("/api/proxy-request", async (req, res) => {
+    const { prompt, provider, model, messages, uid, media, sandboxed, systemPrompt } = req.body;
+    if (!uid) return res.status(401).json({ error: "Unauthorized" });
+
+    try {
+      // 1. Fetch User Settings
+      const settingsDoc = await db.collection("settings").doc(uid).get();
+      const settings = settingsDoc.data() || {};
+      const useMemory = settings.useMemory !== false;
+      const localUrl = settings.localUrl || "http://localhost:11434";
+
+      // 2. Get API Key
+      const { apiKey, keySource } = await getAPIKey(uid, provider);
+      if (apiKey) {
+        log(`[PROXY] Using ${provider} API Key (Source: ${keySource})`);
+      }
+
+      if (!apiKey && provider !== 'local') {
+        return res.status(400).json({ error: `API Key for ${provider} not found.` });
+      }
+
+      // 3. Prepare Context
+      let context = "";
+      if (useMemory) {
+        context = await getLLMContext(uid);
+      }
+
+      const baseInstruction = sandboxed 
+        ? "You are running in a sandboxed environment. You can help with code, but cannot access external resources directly unless specified." 
+        : "You are a highly capable AI assistant.";
+      
+      const fullSystemPrompt = `${systemPrompt ? systemPrompt + "\n\n" : ""}${baseInstruction}${context}`;
+
+      // 4. Call LLM
+      const result = await callLLM({
+        prompt,
+        provider,
+        model,
+        messages,
+        apiKey: apiKey || "",
+        systemPrompt: fullSystemPrompt,
+        media,
+        localUrl
+      });
+
+      // 5. Return result
+      res.json({ text: result.responseText, tokensUsed: result.tokensUsed });
+    } catch (err: any) {
+      const message = err.message || String(err || 'Unknown error');
+      log(`[PROXY] Error: ${message}`);
+      
+      const lowerMsg = message.toLowerCase();
+      if (lowerMsg.includes("api key") || lowerMsg.includes("unauthorized") || lowerMsg.includes("401")) {
+        res.status(401).json({ error: message });
+      } else if (lowerMsg.includes("insufficient balance") || lowerMsg.includes("balance") || lowerMsg.includes("402")) {
+        res.status(402).json({ error: "Insufficient balance for this LLM provider. Please check your account credits." });
+      } else if (lowerMsg.includes("quota") || lowerMsg.includes("429") || lowerMsg.includes("limit") || lowerMsg.includes("resource_exhausted")) {
+        res.status(429).json({ error: "LLM Quota exceeded. Please try again later or use a different provider." });
+      } else if (lowerMsg.includes("not found") || lowerMsg.includes("404")) {
+        res.status(404).json({ error: `Model '${model}' not found for provider '${provider}'.` });
+      } else {
+        res.status(500).json({ error: `LLM Proxy Error: ${message}` });
+      }
+    }
+  });
+
+  app.post("/api/send-email", async (req, res) => {
+    try {
+      const { accessToken, to, subject, body, uid } = req.body;
+      if (!uid) return res.status(401).json({ error: "Unauthorized" });
+      if (!accessToken) return res.status(400).json({ error: "Google access token required. Please sign in again." });
+
+      const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString('base64')}?=`;
+      const messageParts = [
+        `To: ${to}`,
+        'Content-Type: text/html; charset=utf-8',
+        'MIME-Version: 1.0',
+        `Subject: ${utf8Subject}`,
+        '',
+        body,
+      ];
+      const message = messageParts.join('\n');
+
+      const encodedMessage = Buffer.from(message)
+        .toString('base64')
+        .replace(/\+/g, '-')
+        .replace(/\//g, '_')
+        .replace(/=+$/, '');
+
+      const response = await fetch('https://gmail.googleapis.com/gmail/v1/users/me/messages/send', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          raw: encodedMessage,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error?.message || "Failed to send email via Gmail API. Your session might have expired, please try signing out and back in.");
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      log(`Error sending email: ${err.message}`);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/extract-facts", async (req, res) => {
+    const { prompt, response, uid } = req.body;
+    if (!uid || !prompt || !response) return res.status(400).json({ error: "Missing data" });
+
+    try {
+      const settingsDoc = await db.collection("settings").doc(uid).get();
+      const settings = settingsDoc.data() || {};
+      if (settings.autoMemory === false) return res.json({ success: true, skipped: true });
+
+      const existingFactsSnap = await db.collection("facts").where("uid", "==", uid).get();
+      const existingFacts = existingFactsSnap.docs.map((d: any) => d.data().content);
+
+      const extractionPrompt = `
+        You are a personal memory assistant. Your task is to extract short, concise personal facts about the user from the following interaction.
+        
+        EXISTING FACTS:
+        ${existingFacts.length > 0 ? existingFacts.map((f: string) => `- ${f}`).join("\n") : "None yet."}
+
+        Guidelines:
+        - Extract ONLY new information that is NOT already in the "EXISTING FACTS" list.
+        - If the information is a more detailed version of an existing fact, extract it (e.g., "Lives in Harish" -> "Lives in Harish, Israel").
+        - If the information is already covered by an existing fact, IGNORE it.
+        - Be extremely concise (max 10 words per fact).
+        - Ignore temporary context (e.g., "I'm hungry right now").
+        - Return ONLY a valid JSON array of strings.
+        - If no new permanent facts are found, return [].
+        
+        USER: ${prompt}
+        AI: ${response}
+        
+        JSON Output:`;
+
+      log(`[EXTRACT] Request for UID: ${uid}`);
+      const keyDoc = await db.collection("apiKeys").doc(`${uid}_google`).get();
+      log(`[EXTRACT] Key doc exists: ${keyDoc.exists}`);
+      let apiKey = keyDoc.data()?.key?.trim();
+      let keySource = "firestore";
+      if (apiKey) {
+        log(`[EXTRACT] Found key in Firestore: ${apiKey.substring(0, 4)}...`);
+      }
+
+      if (!apiKey) {
+        apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+        keySource = "system default/env";
+      }
+
+      if (!apiKey || apiKey.startsWith("MY_")) {
+        // If it looks like a placeholder, try to find ANY google key in the environment
+        apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY || process.env.API_KEY;
+        keySource = "env fallback";
+      }
+
+      if (!apiKey) throw new Error("Missing Gemini API Key for extraction");
+      log(`[EXTRACT] Using API Key: ${apiKey.substring(0, 4)}...${apiKey.substring(apiKey.length - 4)} (Source: ${keySource})`);
+
       const { GoogleGenAI } = await import("@google/genai");
       const ai = new GoogleGenAI({ apiKey });
-      const result = await ai.models.generateContent({ model: "gemini-3-flash-preview", contents: extractPrompt });
-      const text = result.text ?? "";
+      
+      log(`[EXTRACT] Extracting facts for user ${uid}...`);
+      const result = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: extractionPrompt
+      });
+      const text = result.text || "";
+      log(`[EXTRACT] Raw response: ${text}`);
+      
       let facts: string[] = [];
-      const match = text.match(/\[.*\]/s);
-      if (match) facts = JSON.parse(match[0]);
+      try {
+        const jsonMatch = text.match(/\[.*\]/s);
+        if (jsonMatch) {
+          facts = JSON.parse(jsonMatch[0]);
+        }
+      } catch (e) {
+        log(`[EXTRACT] Failed to parse JSON: ${text}`);
+      }
 
-      if (facts.length) {
-        const ins = db.prepare("INSERT INTO facts (id,uid,content,created_at) VALUES (?,?,?,?)");
-        let added = 0;
-        db.transaction(() => {
-          facts.forEach(c => {
-            if (!existing.some(e => e.toLowerCase().trim() === c.toLowerCase().trim())) {
-              ins.run(randomUUID(), uid, c, now());
-              added++;
-            }
-          });
-        })();
-        res.json({ success: true, count: added });
+      if (facts.length > 0) {
+        const batch = db.batch();
+        let addedCount = 0;
+        facts.forEach(content => {
+          // Final check for duplicates (case-insensitive and trimmed)
+          const isDuplicate = existingFacts.some((ef: string) => ef.toLowerCase().trim() === content.toLowerCase().trim());
+          if (!isDuplicate) {
+            const factRef = db.collection("facts").doc();
+            batch.set(factRef, {
+              uid,
+              content,
+              timestamp: Timestamp.now()
+            });
+            addedCount++;
+          }
+        });
+        if (addedCount > 0) {
+          await batch.commit();
+          log(`Extracted ${addedCount} new facts for user ${uid}`);
+        } else {
+          log(`No new unique facts found for user ${uid}`);
+        }
+        res.json({ success: true, count: addedCount });
       } else {
         res.json({ success: true, count: 0 });
       }
     } catch (err: any) {
-      if (err.message?.toLowerCase().includes("quota")) return res.status(429).json({ error: "Quota exceeded", code: "QUOTA_EXHAUSTED" });
+      const errMessage = err.message || "";
+      if (errMessage.toLowerCase().includes("quota") || errMessage.includes("429") || errMessage.includes("RESOURCE_EXHAUSTED")) {
+        log(`[EXTRACT] Quota exceeded for fact extraction. Skipping...`);
+        return res.status(429).json({ error: "Quota exceeded", code: "QUOTA_EXHAUSTED" });
+      }
+      log(`Error extracting facts: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // ── Send email ───────────────────────────────────────────────────────────────
-  app.post("/api/send-email", requireAuth, async (req: any, res) => {
-    const uid = req.user.uid;
-    const { to, subject, body } = req.body;
-    const tokenRow = db.prepare("SELECT google_access_token FROM user_tokens WHERE uid=?").get(uid) as any;
-    if (!tokenRow?.google_access_token) return res.status(400).json({ error: "Google access token not found. Please sign in again." });
+  app.post("/api/facts/cleanup", async (req, res) => {
+    const { uid } = req.body;
+    if (!uid) return res.status(400).json({ error: "Missing UID" });
+
     try {
-      const utf8Subject = `=?utf-8?B?${Buffer.from(subject).toString("base64")}?=`;
-      const raw = Buffer.from([`To: ${to}`, "Content-Type: text/html; charset=utf-8", "MIME-Version: 1.0", `Subject: ${utf8Subject}`, "", body].join("\n"))
-        .toString("base64").replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-      const r = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/send", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${tokenRow.google_access_token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ raw })
+      const factsSnap = await db.collection("facts").where("uid", "==", uid).get();
+      if (factsSnap.empty) return res.json({ success: true, count: 0 });
+
+      const facts = factsSnap.docs.map((d: any) => ({ id: d.id, content: d.data().content }));
+      
+      const cleanupPrompt = `
+        You are a data cleaning assistant. Below is a list of personal facts about a user.
+        Some facts might be duplicates or very similar (e.g., "Lives in Harish" and "Lives in Harish, Israel").
+        Your task is to merge them into a single, most descriptive version.
+        
+        FACTS:
+        ${facts.map((f, i) => `${i}: ${f.content}`).join("\n")}
+        
+        Return a JSON object with:
+        - "merged": A list of unique, cleaned facts (strings).
+        - "toDelete": A list of indices from the original list that should be removed because they are now redundant.
+        
+        Guidelines:
+        - Keep the most detailed version if they overlap.
+        - If facts are unrelated, keep both.
+        - Return ONLY valid JSON.
+      `;
+
+      const keyDoc = await db.collection("apiKeys").doc(`${uid}_google`).get();
+      let apiKey = keyDoc.data()?.key?.trim() || process.env.GEMINI_API_KEY || process.env.API_KEY;
+      
+      if (!apiKey) throw new Error("Missing API Key for cleanup");
+
+      const { GoogleGenAI } = await import("@google/genai");
+      const ai = new GoogleGenAI({ apiKey });
+      const result = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        contents: cleanupPrompt,
+        config: { responseMimeType: "application/json" }
       });
-      if (!r.ok) { const d: any = await r.json().catch(() => ({})); throw new Error(d.error?.message || "Gmail API failed"); }
-      res.json({ success: true });
+
+      const data = JSON.parse(result.text || "{}");
+      const { merged, toDelete } = data;
+
+      if (merged && Array.isArray(merged)) {
+        const batch = db.batch();
+        
+        // Delete all old facts for this user to start fresh with merged ones
+        // (Safer than trying to map indices back perfectly)
+        factsSnap.docs.forEach((doc: any) => batch.delete(doc.ref));
+        
+        // Add merged facts
+        merged.forEach((content: string) => {
+          const factRef = db.collection("facts").doc();
+          batch.set(factRef, {
+            uid,
+            content,
+            timestamp: Timestamp.now()
+          });
+        });
+        
+        await batch.commit();
+        log(`Cleaned up facts for user ${uid}. Reduced ${facts.length} to ${merged.length}.`);
+        res.json({ success: true, originalCount: facts.length, newCount: merged.length });
+      } else {
+        res.json({ success: true, count: 0, message: "No changes needed" });
+      }
     } catch (err: any) {
+      log(`Error cleaning up facts: ${err.message}`);
       res.status(500).json({ error: err.message });
     }
   });
 
-  // ── Telegram Bot ─────────────────────────────────────────────────────────────
-  let tgBot: any = null;
-  let tgBotInfo: any = null;
-  let isTgInitializing = false;
+  // Global Error Handler
+  app.use((err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error("Global Error Handler:", err);
+    res.status(err.status || 500).json({
+      error: err.message || "Internal Server Error",
+    });
+  });
 
-  const initTelegram = async (force = false) => {
-    if (isTgInitializing) return;
-    if (tgBot && !force) {
-      try { const me = await tgBot.getMe(); if (me) return; } catch {}
-    }
-    isTgInitializing = true;
-    log("initTelegram() called.");
-    try {
-      const s = getSettings("global");
-      const token = s.telegram_token || process.env.TELEGRAM_BOT_TOKEN;
-      if (!token) return;
-
-      if (tgBot) { try { await tgBot.stopPolling(); } catch {} }
-      await new Promise(r => setTimeout(r, 5000));
-
-      const TelegramBot = require("node-telegram-bot-api");
-      tgBot     = new TelegramBot(token, { polling: true });
-      tgBotInfo = await tgBot.getMe();
-      log(`Telegram Bot: @${tgBotInfo.username}`);
-
-      await tgBot.setMyCommands([
-        { command: "start",   description: "Start the bot" },
-        { command: "new",     description: "New chat session" },
-        { command: "link",    description: "Link account (/link [UID])" },
-        { command: "status",  description: "Check link status" },
-        { command: "model",   description: "Select model" },
-        { command: "system",  description: "Set system prompt" },
-        { command: "sandbox", description: "Toggle Sandboxed Mode" },
-        { command: "email",   description: "Email current chat history" },
-      ]).catch(() => {});
-
-      tgBot.on("polling_error", (e: any) => { if (!e.message?.includes("409 Conflict")) console.error("TG polling error:", e.code, e.message); });
-      tgBot.on("error",         (e: any) => { console.error("TG error:", e.message); tgBot = null; });
-
-      tgBot.on("message", async (msg: any) => {
-        const chatId = String(msg.chat.id);
-        const text   = msg.text;
-        if (!text) return;
-
-        const getTgState = () => db.prepare("SELECT * FROM telegram_state WHERE chat_id=?").get(chatId) as any ?? {};
-        const setTgState = (patch: Record<string,any>) => {
-          const cur = getTgState();
-          const merged = { chat_id: chatId, session_id: null, last_seen: 0, selected_model: null, selected_provider: null, system_prompt: null, sandbox_enabled: 0, ...cur, ...patch };
-          db.prepare(`INSERT INTO telegram_state (chat_id,session_id,last_seen,selected_model,selected_provider,system_prompt,sandbox_enabled) VALUES (?,?,?,?,?,?,?)
-            ON CONFLICT(chat_id) DO UPDATE SET session_id=excluded.session_id, last_seen=excluded.last_seen, selected_model=excluded.selected_model, selected_provider=excluded.selected_provider, system_prompt=excluded.system_prompt, sandbox_enabled=excluded.sandbox_enabled`
-          ).run(merged.chat_id, merged.session_id, merged.last_seen, merged.selected_model, merged.selected_provider, merged.system_prompt, merged.sandbox_enabled);
-        };
-
-        if (text === "/start") {
-          tgBot.sendMessage(chatId, "🤖 LLM Router Bot\n\n/new - New session\n/link [UID] - Link account\n/status - Check status\n/model - Select model\n/sandbox - Toggle sandbox\n/email - Email chat history");
-          return;
-        }
-
-        if (text === "/new") {
-          setTgState({ session_id: randomUUID().substring(0,8), last_seen: Date.now() });
-          tgBot.sendMessage(chatId, "✨ New session started!");
-          return;
-        }
-
-        if (text.startsWith("/link ")) {
-          const uid = text.split(" ")[1];
-          if (uid) {
-            db.prepare(`INSERT INTO telegram_links (chat_id,uid,username,created_at) VALUES (?,?,?,?) ON CONFLICT(chat_id) DO UPDATE SET uid=excluded.uid`).run(chatId, uid, msg.from?.username ?? "unknown", now());
-            tgBot.sendMessage(chatId, "✅ Account linked successfully!");
-          }
-          return;
-        }
-
-        if (text === "/status") {
-          const link = db.prepare("SELECT uid FROM telegram_links WHERE chat_id=?").get(chatId) as any;
-          if (!link) { tgBot.sendMessage(chatId, "❌ Not linked. Use /link [UID]."); return; }
-          const user = db.prepare("SELECT email FROM users WHERE uid=?").get(link.uid) as any;
-          const token = db.prepare("SELECT google_access_token FROM user_tokens WHERE uid=?").get(link.uid) as any;
-          tgBot.sendMessage(chatId, `✅ Status\n👤 UID: ${link.uid}\n📧 ${user?.email ?? "?"}\n🔑 Google: ${token?.google_access_token ? "✅" : "❌"}`, { parse_mode: "HTML" });
-          return;
-        }
-
-        if (text === "/sandbox") {
-          const st  = getTgState();
-          const cur = !!st.sandbox_enabled;
-          setTgState({ sandbox_enabled: cur ? 0 : 1 });
-          tgBot.sendMessage(chatId, `🛡️ Sandbox ${!cur ? "ENABLED" : "DISABLED"}`);
-          return;
-        }
-
-        if (text.startsWith("/system")) {
-          const arg = text.substring(7).trim();
-          if (!arg) {
-            const st = getTgState();
-            tgBot.sendMessage(chatId, `Current prompt: ${st.system_prompt || "Default"}\nSet with /system [prompt] or /system reset`);
-          } else if (arg === "reset") {
-            setTgState({ system_prompt: null });
-            tgBot.sendMessage(chatId, "✅ System prompt reset.");
-          } else {
-            setTgState({ system_prompt: arg });
-            tgBot.sendMessage(chatId, `✅ Prompt set to: ${arg}`);
-          }
-          return;
-        }
-
-        // Regular message — route and call LLM
-        const link = db.prepare("SELECT uid FROM telegram_links WHERE chat_id=?").get(chatId) as any;
-        const linkedUid = link?.uid ?? "telegram_anonymous";
-
-        try { await tgBot.sendChatAction(chatId, "typing"); } catch {}
-
-        // Session management
-        const st   = getTgState();
-        const isExpired = !st.session_id || (Date.now() - (st.last_seen || 0) > 3600000);
-        const sessionId = isExpired ? randomUUID().substring(0,8) : st.session_id;
-        setTgState({ session_id: sessionId, last_seen: Date.now() });
-        const conversationId = `tg_${chatId}_${sessionId}`;
-
-        // Pick model
-        let model = st.selected_model ?? "";
-        let provider = st.selected_provider ?? "";
-        if (!model) {
-          const date = new Date().toISOString().split("T")[0];
-          const usage = db.prepare("SELECT tokens FROM daily_usage WHERE uid=? AND date=?").get(linkedUid, date) as any;
-          const route = getSmartRoute(text, ((usage?.tokens ?? 0) / 500000) * 100);
-          model    = route.model;
-          provider = route.provider;
-        }
-
-        try {
-          const { apiKey } = getAPIKey(linkedUid, provider);
-          if (!apiKey) throw new Error(`API Key for ${provider} not found.`);
-          const context   = getLLMContext(linkedUid);
-          const userSettings = db.prepare("SELECT system_prompt, local_url FROM user_settings WHERE uid=?").get(linkedUid) as any;
-          const base      = st.sandbox_enabled ? "SANDBOXED MODE: Only answer from provided context." : "You are a helpful AI assistant.";
-          const customSys = st.system_prompt ?? userSettings?.system_prompt ?? "";
-          const fullSys   = `${customSys ? customSys + "\n\n" : ""}${base}${context}`;
-          const { responseText, tokensUsed } = await callLLM({ prompt: text, provider, model, apiKey, systemPrompt: fullSys, localUrl: userSettings?.local_url });
-          // Send in chunks if needed
-          if (responseText.length > 4000) {
-            for (const chunk of (responseText.match(/[\s\S]{1,4000}/g) ?? [])) await tgBot.sendMessage(chatId, chunk);
-          } else {
-            await tgBot.sendMessage(chatId, responseText);
-          }
-          incrementDailyUsage(linkedUid, tokensUsed, `${provider}:${model}`.replace(/\./g,"_"));
-          db.prepare("INSERT INTO history (id,uid,prompt,response,model,tokens_used,status,conversation_id,created_at) VALUES (?,?,?,?,?,?,?,?,?)").run(randomUUID(), linkedUid, text, responseText, `${provider}:${model}`, tokensUsed, "success", conversationId, now());
-        } catch (err: any) {
-          tgBot.sendMessage(chatId, `❌ Error: ${err.message}`);
-        }
-      });
-
-      tgBot.on("callback_query", async (query: any) => {
-        const chatId = String(query.message.chat.id);
-        const data   = query.data;
-        try {
-          if (data.startsWith("set_model:")) {
-            const modelId = data.split(":")[1];
-            if (modelId === "auto") {
-              db.prepare("UPDATE telegram_state SET selected_model=NULL, selected_provider=NULL WHERE chat_id=?").run(chatId);
-              await tgBot.answerCallbackQuery(query.id, { text: "Smart Router enabled" });
-            } else {
-              const m = MODEL_REGISTRY.find(x => x.id === modelId);
-              if (m) {
-                db.prepare(`INSERT INTO telegram_state (chat_id, selected_model, selected_provider) VALUES (?,?,?) ON CONFLICT(chat_id) DO UPDATE SET selected_model=excluded.selected_model, selected_provider=excluded.selected_provider`).run(chatId, m.id, m.provider);
-                await tgBot.answerCallbackQuery(query.id, { text: `Model set to ${m.id}` });
-              }
-            }
-          }
-        } catch (e: any) {
-          await tgBot.answerCallbackQuery(query.id, { text: `Error: ${e.message}` });
-        }
-      });
-
-    } catch (err: any) {
-      log(`Telegram init error: ${err.message}`);
-    } finally {
-      isTgInitializing = false;
-    }
-  };
-
-  try { initTelegram(); } catch (e: any) { log(`Telegram startup failed: ${e.message}`); }
-
-  // ── Vite / Static ────────────────────────────────────────────────────────────
+  // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
-    log("Initialising Vite middleware…");
-    const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+    log("Initializing Vite middleware...");
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
     app.use(vite.middlewares);
+    log("Vite middleware initialized.");
   } else {
+    log("Serving static files from dist...");
     const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
-    app.get("*", (_req, res) => res.sendFile(path.join(distPath, "index.html")));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
   }
-
-  // ── Global error handler ─────────────────────────────────────────────────────
-  app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    console.error("Global error:", err);
-    res.status(err.status || 500).json({ error: err.message || "Internal Server Error" });
-  });
 
   app.listen(PORT, "0.0.0.0", () => {
     log(`Server running on http://localhost:${PORT}`);
-    setInterval(() => initTelegram().catch(e => log(`Health check failed: ${e.message}`)), 5 * 60 * 1000);
+    
+    // Background Health Check (every 5 minutes)
+    setInterval(() => {
+      log("Running background health check...");
+      initTelegram().catch(err => log(`Health check failed: ${err.message}`));
+    }, 5 * 60 * 1000);
   });
 }
 
-log("Calling startServer()…");
-startServer().catch(err => log(`CRITICAL: ${err.message}`));
+log("Calling startServer()...");
+startServer().catch(err => {
+  log(`CRITICAL: Failed to start server: ${err.message}`);
+});
