@@ -1,7 +1,13 @@
+console.log('[STARTUP] Starting server initialization...');
+
 import express from 'express';
+console.log('[STARTUP] Express imported');
 import cors from 'cors';
+console.log('[STARTUP] CORS imported');
 import dotenv from 'dotenv';
+console.log('[STARTUP] dotenv imported');
 import { initializeDatabase } from './db/index.js';
+console.log('[STARTUP] Database module imported');
 import { authMiddleware } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import historyRoutes from './routes/history.js';
