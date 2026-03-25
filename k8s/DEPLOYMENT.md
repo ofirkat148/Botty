@@ -34,8 +34,6 @@ host: yourdomain.com  # Change to your domain
 **k8s/app.yaml:**
 ```yaml
 image: yourusername/botty:latest  # Update image reference
-GOOGLE_CLIENT_ID: "YOUR_ID"       # Set your OAuth ID
-GOOGLE_CLIENT_SECRET: "YOUR_SECRET" # Set your OAuth secret
 JWT_SECRET: "generate-random-key"   # Generate strong key
 DATABASE_URL: "postgresql://..."    # If using external DB
 ```

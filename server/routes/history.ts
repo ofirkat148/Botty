@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { history, dailyUsage } from '../db/schema.js';
-import { eq, desc, sql } from 'drizzle-orm';
+import { and, eq, desc, sql } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -40,7 +41,7 @@ router.post('/', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const newEntry = {
       id,
       uid,
@@ -62,18 +63,24 @@ router.post('/', async (req: Request, res: Response) => {
     const existingUsage = await db
       .select()
       .from(dailyUsage)
-      .where(eq(dailyUsage.uid, uid))
-      .where(sql`DATE(day_usage.date) = CURRENT_DATE`);
+      .where(and(eq(dailyUsage.uid, uid), sql`DATE(${dailyUsage.date}) = CURRENT_DATE`))
+      .limit(1);
 
     if (existingUsage.length > 0) {
+      const current = existingUsage[0];
+      const modelUsage = (current.modelUsage as Record<string, number> | null) || {};
       await db
         .update(dailyUsage)
         .set({
-          tokens: sql`tokens + ${tokensUsed || 0}`,
+          tokens: (current.tokens || 0) + (tokensUsed || 0),
+          modelUsage: {
+            ...modelUsage,
+            [model]: (modelUsage[model] || 0) + (tokensUsed || 0),
+          },
         })
-        .where(eq(dailyUsage.uid, uid));
+        .where(eq(dailyUsage.id, current.id));
     } else {
-      const usageId = crypto.randomUUID();
+      const usageId = randomUUID();
       await db.insert(dailyUsage).values({
         id: usageId,
         uid,
@@ -100,8 +107,7 @@ router.delete('/group/:conversationId', async (req: Request, res: Response) => {
     // Delete all entries for this conversation
     await db
       .delete(history)
-      .where(eq(history.conversationId, conversationId))
-      .where(eq(history.uid, uid));
+      .where(and(eq(history.conversationId, conversationId), eq(history.uid, uid)));
 
     res.json({ success: true });
   } catch (error) {

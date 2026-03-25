@@ -1,7 +1,8 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { facts, memoryFiles, memoryUrls } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
@@ -16,7 +17,8 @@ router.get('/facts', async (req: Request, res: Response) => {
     const userFacts = await db
       .select()
       .from(facts)
-      .where(eq(facts.uid, uid));
+      .where(eq(facts.uid, uid))
+      .orderBy(desc(facts.timestamp));
 
     res.json(userFacts);
   } catch (error) {
@@ -35,7 +37,7 @@ router.post('/facts', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Content is required' });
     }
 
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const newFact = {
       id,
       uid,
@@ -60,8 +62,7 @@ router.delete('/facts/:id', async (req: Request, res: Response) => {
 
     await db
       .delete(facts)
-      .where(eq(facts.id, id))
-      .where(eq(facts.uid, uid));
+      .where(and(eq(facts.id, id), eq(facts.uid, uid)));
 
     res.json({ success: true });
   } catch (error) {
@@ -79,7 +80,8 @@ router.get('/files', async (req: Request, res: Response) => {
     const files = await db
       .select()
       .from(memoryFiles)
-      .where(eq(memoryFiles.uid, uid));
+      .where(eq(memoryFiles.uid, uid))
+      .orderBy(desc(memoryFiles.timestamp));
 
     res.json(files);
   } catch (error) {
@@ -98,7 +100,7 @@ router.post('/files', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Name and content are required' });
     }
 
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const newFile = {
       id,
       uid,
@@ -126,8 +128,7 @@ router.delete('/files/:id', async (req: Request, res: Response) => {
 
     await db
       .delete(memoryFiles)
-      .where(eq(memoryFiles.id, id))
-      .where(eq(memoryFiles.uid, uid));
+      .where(and(eq(memoryFiles.id, id), eq(memoryFiles.uid, uid)));
 
     res.json({ success: true });
   } catch (error) {
@@ -145,7 +146,8 @@ router.get('/urls', async (req: Request, res: Response) => {
     const urls = await db
       .select()
       .from(memoryUrls)
-      .where(eq(memoryUrls.uid, uid));
+      .where(eq(memoryUrls.uid, uid))
+      .orderBy(desc(memoryUrls.timestamp));
 
     res.json(urls);
   } catch (error) {
@@ -164,7 +166,7 @@ router.post('/urls', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'URL is required' });
     }
 
-    const id = crypto.randomUUID();
+    const id = randomUUID();
     const newUrl = {
       id,
       uid,
@@ -189,8 +191,7 @@ router.delete('/urls/:id', async (req: Request, res: Response) => {
 
     await db
       .delete(memoryUrls)
-      .where(eq(memoryUrls.id, id))
-      .where(eq(memoryUrls.uid, uid));
+      .where(and(eq(memoryUrls.id, id), eq(memoryUrls.uid, uid)));
 
     res.json({ success: true });
   } catch (error) {

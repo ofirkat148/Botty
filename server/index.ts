@@ -1,32 +1,37 @@
-console.log('[STARTUP] Starting server initialization...');
-
 import express from 'express';
-console.log('[STARTUP] Express imported');
 import cors from 'cors';
-console.log('[STARTUP] CORS imported');
 import dotenv from 'dotenv';
-console.log('[STARTUP] dotenv imported');
+import path from 'path';
+import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
 import { initializeDatabase } from './db/index.js';
-console.log('[STARTUP] Database module imported');
-import { authMiddleware } from './middleware/auth.js';
 import authRoutes from './routes/auth.js';
 import historyRoutes from './routes/history.js';
 import memoryRoutes from './routes/memory.js';
 import settingsRoutes from './routes/settings.js';
 import keysRoutes from './routes/keys.js';
 import usageRoutes from './routes/usage.js';
+import chatRoutes from './routes/chat.js';
 
 // Load environment variables
 dotenv.config();
 dotenv.config({ path: '.env.local' });
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 5000;
+const distDir = path.join(__dirname, '..', 'dist');
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://127.0.0.1:5173'],
+  credentials: false,
+}));
 app.use(express.json());
-app.use(express.static('dist'));
+if (existsSync(distDir)) {
+  app.use(express.static(distDir));
+}
 
 // Initialize database on startup
 let dbInitialized = false;
@@ -48,10 +53,11 @@ async function startServer() {
     res.json({ status: 'ok', database: dbInitialized ? 'connected' : 'disconnected' });
   });
 
-  // Authentication routes (public)
+  // Authentication routes
   app.use('/api/auth', authRoutes);
 
-  // Protected routes (with JWT middleware at path level)
+  // Application routes
+  app.use('/api/chat', chatRoutes);
   app.use('/api/history', historyRoutes);
   app.use('/api/memory', memoryRoutes);
   app.use('/api/settings', settingsRoutes);
@@ -60,7 +66,11 @@ async function startServer() {
 
   // Fallback to Vite for client-side routing
   app.get('*', (req, res) => {
-    res.sendFile(process.cwd() + '/dist/index.html');
+    if (!existsSync(path.join(distDir, 'index.html'))) {
+      return res.status(404).json({ error: 'Frontend build not found. Run the Vite dev server or npm run build.' });
+    }
+
+    res.sendFile(path.join(distDir, 'index.html'));
   });
 
   // Start server
@@ -68,7 +78,7 @@ async function startServer() {
     console.log(`
 🚀 Server is running at http://localhost:${PORT}
 📊 Database: PostgreSQL
-🔐 Auth: JWT + Google OAuth
+🔐 Auth: Local JWT
     `);
   });
 }

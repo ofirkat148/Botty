@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../db/index.js';
 import { apiKeys } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import crypto from 'crypto';
 
@@ -30,8 +30,8 @@ router.get('/', async (req: Request, res: Response) => {
 
     // Decrypt keys before sending
     const decryptedKeys = keys.map(key => ({
-      ...key,
-      encryptedKey: decryptKey(key.encryptedKey),
+      provider: key.provider,
+      key: decryptKey(key.encryptedKey),
     }));
 
     res.json(decryptedKeys);
@@ -55,13 +55,21 @@ router.post('/', async (req: Request, res: Response) => {
     const id = crypto.randomUUID();
     const encryptedKey = encryptKey(key);
 
-    await db.insert(apiKeys).values({
-      id,
-      uid,
-      provider,
-      encryptedKey,
-      createdAt: new Date(),
-    });
+    await db
+      .insert(apiKeys)
+      .values({
+        id,
+        uid,
+        provider,
+        encryptedKey,
+        createdAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [apiKeys.uid, apiKeys.provider],
+        set: {
+          encryptedKey,
+        },
+      });
 
     res.json({ success: true, provider });
   } catch (error) {
@@ -79,8 +87,7 @@ router.delete('/:provider', async (req: Request, res: Response) => {
 
     await db
       .delete(apiKeys)
-      .where(eq(apiKeys.uid, uid))
-      .where(eq(apiKeys.provider, provider));
+      .where(and(eq(apiKeys.uid, uid), eq(apiKeys.provider, provider)));
 
     res.json({ success: true });
   } catch (error) {

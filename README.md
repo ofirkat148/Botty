@@ -1,20 +1,30 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Botty Local OSS Runtime
 
-# Run and deploy your AI Studio app
+Botty is a local Postgres-backed app with a React frontend, a Node/Express API, local JWT auth, and direct provider calls such as Claude via Anthropic.
 
-This contains everything you need to run your app locally.
+## Project Structure
 
-View your app in AI Studio: https://ai.studio/apps/20952fa1-1ab1-41c1-adef-e530cae91921
+- `src/` contains the Vite React client
+- `server/` contains the Express API, database code, auth, and provider integrations
+- root config files stay at the repository root for Docker, Vite, TypeScript, and Drizzle
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
+- Node.js 20+
+- PostgreSQL 16+ or Docker Compose
 
+1. Copy `.env.example` to `.env.local`
+2. Set `JWT_SECRET`, `DATABASE_URL`, and at least one provider key such as `ANTHROPIC_API_KEY`
+3. Start PostgreSQL with `docker compose up -d postgres` or use an existing local Postgres instance
+4. Run `npm install`
+5. Run `npm run dev`
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+The frontend runs on `http://localhost:5173` and the API runs on `http://localhost:5000`.
+
+## Local Auth
+
+The app uses local email-based sign-in for single-user development. Enter any valid email in the UI and Botty will create or reuse that identity in PostgreSQL.
+
+## Claude
+
+If `ANTHROPIC_API_KEY` is set, the app will automatically expose Anthropic in the provider list and the default chat path will use Claude.

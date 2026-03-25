@@ -10,4 +10,3 @@ dist
 *.log
 .claude
 server-debug.log
-firebase-applet-config.json.bak

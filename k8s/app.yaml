@@ -6,7 +6,6 @@ metadata:
 data:
   NODE_ENV: "production"
   PORT: "5000"
-  REDIRECT_URI: "https://yourdomain.com/api/auth/google-callback"  # Change this!
 
 ---
 apiVersion: v1
@@ -17,13 +16,10 @@ metadata:
 type: Opaque
 stringData:
   DATABASE_URL: "postgresql://botty_user:botty_pass@postgres:5432/botty_db"
-  GOOGLE_CLIENT_ID: "YOUR_GOOGLE_CLIENT_ID"  # Change this!
-  GOOGLE_CLIENT_SECRET: "YOUR_GOOGLE_CLIENT_SECRET"  # Change this!
   JWT_SECRET: "your-super-secret-jwt-key"  # Change this!
   GEMINI_API_KEY: ""  # Optional
   OPENAI_API_KEY: ""  # Optional
   ANTHROPIC_API_KEY: ""  # Optional
-  TELEGRAM_BOT_TOKEN: ""  # Optional
 
 ---
 apiVersion: apps/v1

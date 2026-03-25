@@ -1,9 +1,6 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: botty-postgres
     environment:
       POSTGRES_USER: botty_user
       POSTGRES_PASSWORD: botty_pass
@@ -17,30 +14,6 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-
-  app:
-    build: .
-    container_name: botty-app
-    ports:
-      - "5000:5000"
-    environment:
-      DATABASE_URL: postgresql://botty_user:botty_pass@postgres:5432/botty_db
-      NODE_ENV: development
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
-      JWT_SECRET: ${JWT_SECRET:-your-super-secret-jwt-key}
-      REDIRECT_URI: http://localhost:5000/api/auth/google-callback
-      GEMINI_API_KEY: ${GEMINI_API_KEY}
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      - .:/app
-      - /app/node_modules
-      - /app/dist
 
 volumes:
   postgres_data:

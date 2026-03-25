@@ -1,5 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, decimal } from 'drizzle-orm/pg-core';
-import { sql } from 'drizzle-orm';
+import { pgTable, text, varchar, integer, timestamp, boolean, jsonb } from 'drizzle-orm/pg-core';
 
 // Users table
 export const users = pgTable('users', {
@@ -69,7 +68,6 @@ export const settings = pgTable('settings', {
   uid: varchar('uid', { length: 255 }).primaryKey().notNull(),
   localUrl: text('local_url'),
   useMemory: boolean('use_memory').default(true),
-  telegramToken: text('telegram_token'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
@@ -77,14 +75,6 @@ export const settings = pgTable('settings', {
 export const userSettings = pgTable('user_settings', {
   uid: varchar('uid', { length: 255 }).primaryKey().notNull(),
   systemPrompt: text('system_prompt'),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
-
-// User Tokens table (Google OAuth)
-export const userTokens = pgTable('user_tokens', {
-  uid: varchar('uid', { length: 255 }).primaryKey().notNull(),
-  googleAccessToken: text('google_access_token'),
-  expiresAt: timestamp('expires_at'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
@@ -96,36 +86,4 @@ export const dailyUsage = pgTable('daily_usage', {
   tokens: integer('tokens').default(0),
   modelUsage: jsonb('model_usage'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
-
-// Telegram Links table
-export const telegramLinks = pgTable('telegram_links', {
-  chatId: text('chat_id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
-  username: varchar('username', { length: 255 }),
-  timestamp: timestamp('timestamp').defaultNow().notNull(),
-});
-
-// Telegram Model Selection table
-export const tgModelSelection = pgTable('tg_model_selection', {
-  chatId: text('chat_id').primaryKey().notNull(),
-  model: varchar('model', { length: 100 }).notNull(),
-});
-
-// Telegram System Prompts table
-export const tgSystemPrompts = pgTable('tg_system_prompts', {
-  chatId: text('chat_id').primaryKey().notNull(),
-  systemPrompt: text('system_prompt').notNull(),
-});
-
-// Telegram Sandbox table
-export const tgSandbox = pgTable('tg_sandbox', {
-  chatId: text('chat_id').primaryKey().notNull(),
-  enabled: boolean('enabled').default(false),
-});
-
-// Telegram Sessions table
-export const tgSessions = pgTable('tg_sessions', {
-  chatId: text('chat_id').primaryKey().notNull(),
-  lastSeen: timestamp('last_seen').defaultNow().notNull(),
 });
