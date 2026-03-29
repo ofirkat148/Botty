@@ -3,7 +3,7 @@ import { getDatabase } from '../db/index.js';
 import { appSettings, settings, userSettings } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
-import { refreshTelegramBot } from '../services/telegram.js';
+import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -143,12 +143,29 @@ router.post('/', async (req: Request, res: Response) => {
         },
       });
 
-    await refreshTelegramBot();
+    let telegramError: string | null = null;
 
-    res.json({ success: true });
+    try {
+      await refreshTelegramBot();
+    } catch (error) {
+      telegramError = error instanceof Error ? error.message : 'Failed to refresh Telegram bot';
+      console.error('Telegram refresh after settings save failed:', error);
+    }
+
+    res.json({ success: true, telegramError });
   } catch (error) {
     console.error('Error updating settings:', error);
     res.status(500).json({ error: 'Failed to update settings' });
+  }
+});
+
+router.get('/telegram-status', async (req: Request, res: Response) => {
+  try {
+    const status = await getTelegramBotStatus();
+    res.json(status);
+  } catch (error) {
+    console.error('Error fetching Telegram bot status:', error);
+    res.status(500).json({ error: 'Failed to fetch Telegram bot status' });
   }
 });
 

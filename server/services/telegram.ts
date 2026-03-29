@@ -31,6 +31,8 @@ const conversationByChatId = new Map<number, string>();
 let pollingPromise: Promise<void> | null = null;
 let pollingOffset = 0;
 let pollingSessionId = 0;
+let lastKnownUsername: string | null = null;
+let lastTelegramError: string | null = null;
 
 type TelegramRuntimeConfig = {
   token: string;
@@ -38,6 +40,14 @@ type TelegramRuntimeConfig = {
   allowedChatIdsRaw: string;
   requestedProvider: string;
   requestedModel: string;
+};
+
+type TelegramBotStatus = {
+  configured: boolean;
+  enabled: boolean;
+  running: boolean;
+  username: string | null;
+  error: string | null;
 };
 
 function decryptValue(value: string): string {
@@ -234,12 +244,14 @@ async function pollTelegramUpdates(token: string, sessionId: number) {
         timeout: 50,
         allowed_updates: ['message'],
       });
+      lastTelegramError = null;
 
       for (const update of updates) {
         pollingOffset = update.update_id + 1;
         await handleTelegramMessage(update);
       }
     } catch (error) {
+      lastTelegramError = error instanceof Error ? error.message : 'Unknown Telegram polling error';
       console.error('Telegram polling error:', error);
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
@@ -272,6 +284,8 @@ export async function refreshTelegramBot() {
       console.log('Telegram bot disabled');
     }
     activeConfig = nextConfig;
+    lastKnownUsername = null;
+    lastTelegramError = null;
     return;
   }
 
@@ -282,17 +296,27 @@ export async function refreshTelegramBot() {
   pollingSessionId += 1;
   const sessionId = pollingSessionId;
   activeConfig = nextConfig;
-  const me = await telegramRequest<{ username?: string }>(nextConfig.token, 'getMe');
-  console.log(`Telegram bot enabled${me.username ? ` as @${me.username}` : ''}`);
-  pollingPromise = pollTelegramUpdates(nextConfig.token, sessionId)
-    .catch(error => {
-      console.error('Telegram bot stopped:', error);
-    })
-    .finally(() => {
-      if (pollingSessionId === sessionId) {
-        pollingPromise = null;
-      }
-    });
+  try {
+    const me = await telegramRequest<{ username?: string }>(nextConfig.token, 'getMe');
+    lastKnownUsername = me.username || null;
+    lastTelegramError = null;
+    console.log(`Telegram bot enabled${me.username ? ` as @${me.username}` : ''}`);
+    pollingPromise = pollTelegramUpdates(nextConfig.token, sessionId)
+      .catch(error => {
+        lastTelegramError = error instanceof Error ? error.message : 'Unknown Telegram bot error';
+        console.error('Telegram bot stopped:', error);
+      })
+      .finally(() => {
+        if (pollingSessionId === sessionId) {
+          pollingPromise = null;
+        }
+      });
+  } catch (error) {
+    lastKnownUsername = null;
+    lastTelegramError = error instanceof Error ? error.message : 'Unknown Telegram startup error';
+    pollingPromise = null;
+    throw error;
+  }
 }
 
 export async function startTelegramBot() {
@@ -305,4 +329,16 @@ export async function startTelegramBot() {
     }
     throw error;
   }
+}
+
+export async function getTelegramBotStatus(): Promise<TelegramBotStatus> {
+  const config = await loadTelegramConfig();
+
+  return {
+    configured: Boolean(config.token),
+    enabled: config.enabled,
+    running: Boolean(pollingPromise) && !lastTelegramError,
+    username: lastKnownUsername,
+    error: lastTelegramError,
+  };
 }

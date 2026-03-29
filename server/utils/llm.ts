@@ -346,6 +346,49 @@ export function consolidateFactRows(rows: FactRow[]) {
   return consolidated;
 }
 
+function sameFactSet(left: FactRow[], right: FactRow[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const sortKey = (row: FactRow) => `${normalizeFactContent(row.content)}::${Boolean(row.isSkill)}::${row.timestamp.toISOString()}`;
+  const leftSorted = [...left].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+  const rightSorted = [...right].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+
+  return leftSorted.every((row, index) => {
+    const compare = rightSorted[index];
+    return normalizeFactContent(row.content) === normalizeFactContent(compare.content)
+      && Boolean(row.isSkill) === Boolean(compare.isSkill)
+      && row.timestamp.toISOString() === compare.timestamp.toISOString();
+  });
+}
+
+export async function reconcileFactsForUser(uid: string) {
+  const db = getDatabase();
+  const existingFacts = await db.select().from(facts).where(eq(facts.uid, uid));
+  const factRows: FactRow[] = existingFacts.map(item => ({
+    id: item.id,
+    uid: item.uid,
+    content: item.content,
+    isSkill: item.isSkill,
+    timestamp: item.timestamp,
+  }));
+
+  const consolidatedRows = consolidateFactRows(factRows);
+
+  if (!sameFactSet(factRows, consolidatedRows)) {
+    await db.transaction(async tx => {
+      await tx.delete(facts).where(eq(facts.uid, uid));
+
+      if (consolidatedRows.length > 0) {
+        await tx.insert(facts).values(consolidatedRows);
+      }
+    });
+  }
+
+  return consolidatedRows;
+}
+
 export async function saveFactsWithConsolidation(
   uid: string,
   incomingFacts: Array<{ content: string; isSkill?: boolean; timestamp?: Date }>,
@@ -354,7 +397,7 @@ export async function saveFactsWithConsolidation(
   const db = getDatabase();
   const existingFacts = options?.replaceExisting
     ? []
-    : await db.select().from(facts).where(eq(facts.uid, uid));
+    : await reconcileFactsForUser(uid);
 
   const candidateRows: FactRow[] = incomingFacts.map(item => ({
     id: randomUUID(),
@@ -455,7 +498,7 @@ export async function learnFactsFromConversation(params: {
 }) {
   const { uid, prompt, responseText, provider, model, apiKey, localUrl } = params;
   const db = getDatabase();
-  const existingFacts = await db.select().from(facts).where(eq(facts.uid, uid)).limit(50);
+  const existingFacts = (await reconcileFactsForUser(uid)).slice(0, 50);
   const existingFactSet = new Set(existingFacts.map(item => normalizeFactContent(item.content)));
 
   const heuristicFacts = extractPromptFacts(prompt);
@@ -527,7 +570,7 @@ export async function learnFactsFromConversation(params: {
 export async function getMemoryContext(uid: string) {
   const db = getDatabase();
   const [userFacts, userFiles, userUrls] = await Promise.all([
-    db.select().from(facts).where(eq(facts.uid, uid)).limit(20),
+    reconcileFactsForUser(uid).then(rows => rows.slice(0, 20)),
     db.select().from(memoryFiles).where(eq(memoryFiles.uid, uid)).limit(5),
     db.select().from(memoryUrls).where(eq(memoryUrls.uid, uid)).limit(5),
   ]);

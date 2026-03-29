@@ -13,6 +13,7 @@ import {
   Save,
   Send,
   Settings,
+  Sparkles,
   SunMedium,
   Trash2,
   Upload,
@@ -71,6 +72,14 @@ type SettingsResponse = {
   telegramModel?: string | null;
 };
 
+type TelegramStatusResponse = {
+  configured: boolean;
+  enabled: boolean;
+  running: boolean;
+  username?: string | null;
+  error?: string | null;
+};
+
 type ProvidersResponse = {
   providers: string[];
   defaultLocalModel?: string | null;
@@ -106,6 +115,15 @@ type MemoryRestorePreview = {
   includesSystemPrompt: boolean;
 };
 
+type FunctionPreset = {
+  id: string;
+  kind: 'skill' | 'agent';
+  title: string;
+  description: string;
+  systemPrompt: string;
+  starterPrompt: string;
+};
+
 const PROVIDERS = [
   { value: 'auto', label: 'Auto route' },
   { value: 'anthropic', label: 'Anthropic / Claude' },
@@ -121,12 +139,75 @@ const DEFAULT_MODELS: Record<string, string> = {
   local: 'qwen2.5:3b',
 };
 
+const FUNCTION_PRESETS: FunctionPreset[] = [
+  {
+    id: 'skill-botty-development',
+    kind: 'skill',
+    title: 'Botty Development',
+    description: 'Full-stack product work across React, Express, memory, local LLM, settings, and Telegram.',
+    systemPrompt: 'You are Botty’s full-stack development mode. Make focused, production-minded changes across the React frontend, Express backend, PostgreSQL persistence, memory features, local LLM integration, and Telegram support. Prefer shared-layer fixes over route-specific patches. Keep changes minimal, validate after edits, and explain tradeoffs concretely.',
+    starterPrompt: 'Help me implement a Botty feature end to end.',
+  },
+  {
+    id: 'skill-botty-runtime-debug',
+    kind: 'skill',
+    title: 'Runtime Debug',
+    description: 'Diagnose fetch failures, localhost issues, service problems, Telegram startup, CORS, and Ollama connectivity.',
+    systemPrompt: 'You are Botty’s runtime debugging mode. Diagnose issues methodically across systemd, localhost access, API behavior, CORS, Telegram startup, Ollama connectivity, and saved settings. Confirm whether the service is healthy before assuming an outage. Separate local application errors from upstream network failures, and prefer root-cause fixes over surface workarounds.',
+    starterPrompt: 'Debug the current Botty runtime issue and find the root cause.',
+  },
+  {
+    id: 'skill-botty-ops',
+    kind: 'skill',
+    title: 'Botty Ops',
+    description: 'Operational mode for Docker, systemd, PostgreSQL, ports, persistence, and reverse proxy work.',
+    systemPrompt: 'You are Botty’s operations mode. Focus on runtime configuration, Docker, PostgreSQL, systemd startup, reverse proxy setup, and production-style local serving. Use the smallest operational fix that restores service, avoid destructive resets, and verify outcomes with health checks and logs.',
+    starterPrompt: 'Help me operate or deploy Botty safely.',
+  },
+  {
+    id: 'agent-botty-builder',
+    kind: 'agent',
+    title: 'Botty Builder',
+    description: 'Implementation-focused mode for feature work and bug fixes in this repository.',
+    systemPrompt: 'You are Botty Builder. Implement requested features or fixes directly and precisely. Read the relevant route, service, utility, and UI code first. Do not stop at analysis when a concrete change is needed. Avoid unrelated refactors, keep persistence and UI contracts aligned, and validate the final result.',
+    starterPrompt: 'Implement this change in Botty.',
+  },
+  {
+    id: 'agent-botty-reviewer',
+    kind: 'agent',
+    title: 'Botty Reviewer',
+    description: 'Review-focused mode for bugs, regressions, runtime risk, and missing tests.',
+    systemPrompt: 'You are Botty Reviewer. Review changes for defects, regressions, runtime risk, broken settings flows, memory issues, local LLM failures, Telegram issues, and deployment mistakes. Findings come first. Focus on correctness and behavior, not style. Use concise, severity-ordered review output with concrete file-level reasoning.',
+    starterPrompt: 'Review this Botty change for bugs and regressions.',
+  },
+  {
+    id: 'agent-botty-ops',
+    kind: 'agent',
+    title: 'Botty Ops Agent',
+    description: 'Operations-focused mode for service health, environment settings, and startup failures.',
+    systemPrompt: 'You are Botty Ops. Handle runtime operations for the Botty app: systemd, Docker, PostgreSQL, localhost health, reverse proxy setup, external exposure, and startup failures. Do not assume the service is down before checking health and logs. Distinguish local application faults from upstream network problems.',
+    starterPrompt: 'Diagnose and fix this Botty runtime or deployment issue.',
+  },
+];
+
+function getFunctionPresetForPrompt(value: string | null | undefined) {
+  const trimmed = value?.trim() || '';
+  if (!trimmed) {
+    return null;
+  }
+
+  return FUNCTION_PRESETS.find(preset => preset.systemPrompt === trimmed) || null;
+}
+
 const TABS = [
   { value: 'chat', label: 'Chat', Icon: MessageSquare },
+  { value: 'functions', label: 'Functions', Icon: Sparkles },
   { value: 'history', label: 'History', Icon: History },
   { value: 'memory', label: 'Memory', Icon: MemoryStick },
   { value: 'settings', label: 'Settings', Icon: Settings },
 ] as const;
+
+type TabValue = (typeof TABS)[number]['value'];
 
 function AppShell() {
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -152,7 +233,7 @@ function AppShell() {
   const [loginEmail, setLoginEmail] = useState('');
   const [loginName, setLoginName] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'memory' | 'settings'>('chat');
+  const [activeTab, setActiveTab] = useState<TabValue>('chat');
   const [provider, setProvider] = useState('auto');
   const [model, setModel] = useState('');
   const [prompt, setPrompt] = useState('');
@@ -176,6 +257,10 @@ function AppShell() {
   const [telegramAllowedChatIds, setTelegramAllowedChatIds] = useState('');
   const [telegramProvider, setTelegramProvider] = useState('auto');
   const [telegramModel, setTelegramModel] = useState('');
+  const [telegramStatus, setTelegramStatus] = useState<TelegramStatusResponse | null>(null);
+  const [loadingTelegramStatus, setLoadingTelegramStatus] = useState(false);
+  const [activeFunctionId, setActiveFunctionId] = useState('');
+  const [applyingFunctionId, setApplyingFunctionId] = useState('');
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
@@ -254,6 +339,14 @@ function AppShell() {
     void refreshAll();
   }, [user]);
 
+  useEffect(() => {
+    if (!user || activeTab !== 'settings') {
+      return;
+    }
+
+    void refreshTelegramStatus();
+  }, [user, activeTab]);
+
   async function apiGet<T>(path: string) {
     const response = await fetch(path, { headers: authHeaders });
     if (!response.ok) {
@@ -306,6 +399,7 @@ function AppShell() {
     setTelegramProvider(settingsData.telegramProvider || 'auto');
     setTelegramModel(settingsData.telegramModel || '');
     setSystemPrompt(userSettingsData.systemPrompt || '');
+    setActiveFunctionId(getFunctionPresetForPrompt(userSettingsData.systemPrompt)?.id || '');
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     setAvailableProviders(nextProviders);
@@ -328,6 +422,24 @@ function AppShell() {
     if (provider !== 'auto' && !nextProviders.includes(provider)) {
       setProvider('auto');
       setModel('');
+    }
+  }
+
+  async function refreshTelegramStatus() {
+    setLoadingTelegramStatus(true);
+    try {
+      const status = await apiGet<TelegramStatusResponse>('/api/settings/telegram-status');
+      setTelegramStatus(status);
+    } catch (error) {
+      setTelegramStatus({
+        configured: false,
+        enabled: false,
+        running: false,
+        username: null,
+        error: error instanceof Error ? error.message : 'Failed to fetch Telegram status',
+      });
+    } finally {
+      setLoadingTelegramStatus(false);
     }
   }
 
@@ -410,6 +522,24 @@ function AppShell() {
     }
   }
 
+  function handlePromptKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    void sendPrompt();
+  }
+
+  function handleSystemPromptKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || (!event.ctrlKey && !event.metaKey) || event.nativeEvent.isComposing) {
+      return;
+    }
+
+    event.preventDefault();
+    void saveSettings();
+  }
+
   function startNewChat() {
     setConversationId(null);
     setMessages([]);
@@ -437,8 +567,36 @@ function AppShell() {
     setActiveTab('chat');
   }
 
-  function openTab(tab: 'chat' | 'history' | 'memory' | 'settings') {
+  function openTab(tab: TabValue) {
     setActiveTab(tab);
+  }
+
+  async function saveSystemPromptOnly(nextSystemPrompt: string) {
+    await apiSend('/api/settings/user-settings', 'POST', { systemPrompt: nextSystemPrompt || null });
+    setSystemPrompt(nextSystemPrompt);
+    setActiveFunctionId(getFunctionPresetForPrompt(nextSystemPrompt)?.id || '');
+  }
+
+  async function activateFunctionPreset(preset: FunctionPreset) {
+    setApplyingFunctionId(preset.id);
+    try {
+      await saveSystemPromptOnly(preset.systemPrompt);
+      setPrompt(currentPrompt => currentPrompt.trim() ? currentPrompt : preset.starterPrompt);
+      setActiveTab('chat');
+      setNotice(`${preset.title} is active in chat.`);
+    } finally {
+      setApplyingFunctionId('');
+    }
+  }
+
+  async function clearFunctionPreset() {
+    setApplyingFunctionId('clear');
+    try {
+      await saveSystemPromptOnly('');
+      setNotice('Function mode cleared.');
+    } finally {
+      setApplyingFunctionId('');
+    }
   }
 
   async function deleteConversation(selectedConversationId: string | null | undefined) {
@@ -504,8 +662,8 @@ function AppShell() {
   async function saveSettings() {
     setSavingSettings(true);
     try {
-      await Promise.all([
-        apiSend('/api/settings', 'POST', {
+      const [settingsResult] = await Promise.all([
+        apiSend<{ success: boolean; telegramError?: string | null }>('/api/settings', 'POST', {
           localUrl,
           useMemory,
           autoMemory,
@@ -518,7 +676,12 @@ function AppShell() {
         apiSend('/api/settings/user-settings', 'POST', { systemPrompt }),
       ]);
       await refreshAll();
-      setNotice(telegramBotEnabled && telegramBotToken.trim() ? 'Settings updated. Telegram bot reloaded.' : 'Settings updated.');
+      await refreshTelegramStatus();
+      if (settingsResult?.telegramError) {
+        setNotice(`Settings saved. Telegram error: ${settingsResult.telegramError}`);
+      } else {
+        setNotice(telegramBotEnabled && telegramBotToken.trim() ? 'Settings updated. Telegram bot reloaded.' : 'Settings updated.');
+      }
     } finally {
       setSavingSettings(false);
     }
@@ -664,6 +827,33 @@ function AppShell() {
   const subtleTextClass = isDarkMode ? 'text-stone-400' : 'text-stone-500';
   const mutedTextClass = isDarkMode ? 'text-stone-300' : 'text-stone-600';
   const sectionLabelClass = isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-600 mb-2';
+  const telegramStatusToneClass = telegramStatus?.error
+    ? (isDarkMode ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-700')
+    : telegramStatus?.running
+      ? (isDarkMode ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-700')
+      : (isDarkMode ? 'border-amber-500/30 bg-amber-500/10 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-700');
+  const telegramStatusLabel = loadingTelegramStatus
+    ? 'Checking Telegram status...'
+    : telegramStatus?.error
+      ? 'Telegram error'
+      : telegramStatus?.running
+        ? `Connected${telegramStatus.username ? ` as @${telegramStatus.username}` : ''}`
+        : telegramStatus?.enabled === false
+          ? 'Telegram disabled'
+          : telegramStatus?.configured
+            ? 'Token saved, waiting to connect'
+            : 'No Telegram token saved';
+  const telegramStatusDetails = loadingTelegramStatus
+    ? 'Verifying the current Telegram bot state.'
+    : telegramStatus?.error
+      ? telegramStatus.error
+      : telegramStatus?.running
+        ? 'Polling is active and the bot is ready to receive messages.'
+        : telegramStatus?.enabled === false
+          ? 'Enable Telegram bot polling and save settings to start the bot.'
+          : telegramStatus?.configured
+            ? 'The bot has a saved token but is not currently connected.'
+            : 'Save a BotFather token to start Telegram polling.';
   const actionButtonClass = isDarkMode
     ? 'rounded-2xl border border-white/10 px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/5'
     : 'rounded-2xl border border-stone-200 px-4 py-2 text-sm flex items-center gap-2 hover:bg-stone-50';
@@ -794,6 +984,7 @@ function AppShell() {
                 <h2 className="text-2xl font-semibold capitalize">{activeTab}</h2>
                 <p className={`text-sm ${subtleTextClass}`}>
                   {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
+                  {activeTab === 'functions' ? 'Activate in-app Botty skills and agents as chat modes.' : null}
                   {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
                   {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
                   {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
@@ -864,6 +1055,7 @@ function AppShell() {
                     <textarea
                       value={prompt}
                       onChange={event => setPrompt(event.target.value)}
+                      onKeyDown={handlePromptKeyDown}
                       rows={5}
                       placeholder="Ask Claude to debug, design, or write code..."
                       className={textareaClass}
@@ -901,6 +1093,72 @@ function AppShell() {
                     </div>
                   </div>
                 </section>
+              </div>
+            ) : null}
+
+            {activeTab === 'functions' ? (
+              <div className="space-y-4">
+                <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
+                  <div>
+                    <h3 className="font-medium">In-app functions</h3>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>These bring the Botty skills and agents into the app as reusable chat modes by applying a targeted system prompt.</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${FUNCTION_PRESETS.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
+                    <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
+                      {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
+                    </button>
+                  </div>
+                </section>
+
+                {(['skill', 'agent'] as const).map(kind => (
+                  <section key={kind} className={sectionCardClass}>
+                    <div className="flex items-center gap-2 mb-3">
+                      <Sparkles className="w-4 h-4" />
+                      <h3 className="font-medium capitalize">{kind === 'skill' ? 'Skills' : 'Agents'}</h3>
+                    </div>
+                    <div className="grid gap-3 xl:grid-cols-2">
+                      {FUNCTION_PRESETS.filter(item => item.kind === kind).map(item => {
+                        const isActive = activeFunctionId === item.id;
+
+                        return (
+                          <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium">{item.title}</div>
+                                <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                              </div>
+                              <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
+                                {isActive ? 'Active' : kind}
+                              </div>
+                            </div>
+
+                            <div className={`text-xs ${subtleTextClass}`}>Starter: {item.starterPrompt}</div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={() => void activateFunctionPreset(item)}
+                                disabled={applyingFunctionId === item.id}
+                                className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
+                              >
+                                {applyingFunctionId === item.id ? 'Applying...' : 'Use in chat'}
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setPrompt(item.starterPrompt);
+                                  setActiveTab('chat');
+                                }}
+                                className={secondaryButtonClass}
+                              >
+                                Fill prompt
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                ))}
               </div>
             ) : null}
 
@@ -1077,7 +1335,7 @@ function AppShell() {
 
                   <div>
                     <label className={sectionLabelClass}>System prompt</label>
-                    <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} rows={6} className={isDarkMode ? 'w-full rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100' : 'w-full rounded-2xl border border-stone-200 px-3 py-2'} />
+                    <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={isDarkMode ? 'w-full rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100' : 'w-full rounded-2xl border border-stone-200 px-3 py-2'} />
                   </div>
 
                   <div className={`grid gap-4 lg:grid-cols-2 ${elevatedCardClass}`}>
@@ -1087,6 +1345,24 @@ function AppShell() {
                         <h4 className="font-medium">Telegram bot</h4>
                       </div>
                       <p className={`text-sm ${subtleTextClass}`}>Save the bot token here and Botty will start or reload Telegram polling without editing environment files.</p>
+                    </div>
+
+                    <div className={`lg:col-span-2 rounded-2xl border px-4 py-3 ${telegramStatusToneClass}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-medium">{telegramStatusLabel}</div>
+                          <div className="text-xs mt-1 opacity-90">{telegramStatusDetails}</div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => void refreshTelegramStatus()}
+                          className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm ${isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-700 border border-stone-200'}`}
+                          disabled={loadingTelegramStatus}
+                        >
+                          <RefreshCw className={`w-4 h-4 ${loadingTelegramStatus ? 'animate-spin' : ''}`} />
+                          Refresh
+                        </button>
+                      </div>
                     </div>
 
                     <div className="lg:col-span-2">

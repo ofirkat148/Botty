@@ -4,7 +4,7 @@ import { getDatabase } from '../db/index.js';
 import { facts, history, memoryFiles, memoryUrls, settings, userSettings } from '../db/schema.js';
 import { and, desc, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
-import { consolidateFactRows, saveFactsWithConsolidation } from '../utils/llm.js';
+import { consolidateFactRows, reconcileFactsForUser, saveFactsWithConsolidation } from '../utils/llm.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -206,14 +206,11 @@ router.post('/import', async (req: Request, res: Response) => {
 // Facts endpoints
 router.get('/facts', async (req: Request, res: Response) => {
   try {
-    const db = getDatabase();
     const uid = req.userId!;
 
-    const userFacts = await db
-      .select()
-      .from(facts)
-      .where(eq(facts.uid, uid))
-      .orderBy(desc(facts.timestamp));
+    const userFacts = await reconcileFactsForUser(uid);
+
+    userFacts.sort((left, right) => right.timestamp.getTime() - left.timestamp.getTime());
 
     res.json(userFacts);
   } catch (error) {
