@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
 import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 import { createWorker, PSM } from 'tesseract.js';
@@ -348,6 +348,7 @@ function AppShell() {
   const [notice, setNotice] = useState('');
   const importMemoryInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const composerDropRef = useRef<HTMLDivElement | null>(null);
   const speechRecognitionRef = useRef<any>(null);
 
   const authHeaders = useMemo(() => ({
@@ -381,6 +382,23 @@ function AppShell() {
     }
 
     return 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+  }
+
+  function hasDraggedFiles(dataTransfer: DataTransfer | null) {
+    if (!dataTransfer) {
+      return false;
+    }
+
+    return Array.from(dataTransfer.types || []).some(type => type === 'Files' || type === 'application/x-moz-file');
+  }
+
+  function isPointInsideComposer(clientX: number, clientY: number) {
+    const rect = composerDropRef.current?.getBoundingClientRect();
+    if (!rect) {
+      return false;
+    }
+
+    return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
   }
 
   function isReadableTextFile(file: File) {
@@ -524,6 +542,70 @@ function AppShell() {
       speechRecognitionRef.current = null;
     }
   }, []);
+
+  const handleWindowFileDrag = useEffectEvent((event: DragEvent) => {
+    if (!hasDraggedFiles(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    if (activeTab !== 'chat') {
+      setIsDragOverComposer(false);
+      return;
+    }
+
+    setIsDragOverComposer(isPointInsideComposer(event.clientX, event.clientY));
+  });
+
+  const handleWindowFileDrop = useEffectEvent((event: DragEvent) => {
+    if (!hasDraggedFiles(event.dataTransfer)) {
+      return;
+    }
+
+    event.preventDefault();
+    const shouldAttachToComposer = activeTab === 'chat' && isPointInsideComposer(event.clientX, event.clientY);
+    setIsDragOverComposer(false);
+
+    if (!shouldAttachToComposer) {
+      return;
+    }
+
+    void addChatFiles(event.dataTransfer.files);
+  });
+
+  const handleWindowDragExit = useEffectEvent((event: DragEvent) => {
+    if (!hasDraggedFiles(event.dataTransfer)) {
+      return;
+    }
+
+    if (event.clientX <= 0 && event.clientY <= 0) {
+      setIsDragOverComposer(false);
+    }
+  });
+
+  useEffect(() => {
+    function onWindowDragOver(event: DragEvent) {
+      handleWindowFileDrag(event);
+    }
+
+    function onWindowDrop(event: DragEvent) {
+      handleWindowFileDrop(event);
+    }
+
+    function onWindowDragLeave(event: DragEvent) {
+      handleWindowDragExit(event);
+    }
+
+    window.addEventListener('dragover', onWindowDragOver, true);
+    window.addEventListener('drop', onWindowDrop, true);
+    window.addEventListener('dragleave', onWindowDragLeave, true);
+
+    return () => {
+      window.removeEventListener('dragover', onWindowDragOver, true);
+      window.removeEventListener('drop', onWindowDrop, true);
+      window.removeEventListener('dragleave', onWindowDragLeave, true);
+    };
+  }, [handleWindowDragExit, handleWindowFileDrag, handleWindowFileDrop]);
 
   useEffect(() => {
     async function loadSession() {
@@ -845,46 +927,6 @@ function AppShell() {
       return combined.slice(0, 6);
     });
     setNotice(`${nextAttachments.length} file${nextAttachments.length === 1 ? '' : 's'} attached to chat.`);
-  }
-
-  function handleComposerDragEnter(event: React.DragEvent<HTMLElement>) {
-    if (!event.dataTransfer.types.includes('Files')) {
-      return;
-    }
-
-    event.preventDefault();
-    setIsDragOverComposer(true);
-  }
-
-  function handleComposerDragOver(event: React.DragEvent<HTMLElement>) {
-    if (!event.dataTransfer.types.includes('Files')) {
-      return;
-    }
-
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-    if (!isDragOverComposer) {
-      setIsDragOverComposer(true);
-    }
-  }
-
-  function handleComposerDragLeave(event: React.DragEvent<HTMLElement>) {
-    const nextTarget = event.relatedTarget;
-    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
-      return;
-    }
-
-    setIsDragOverComposer(false);
-  }
-
-  async function handleComposerDrop(event: React.DragEvent<HTMLElement>) {
-    if (!event.dataTransfer.files?.length) {
-      return;
-    }
-
-    event.preventDefault();
-    setIsDragOverComposer(false);
-    await addChatFiles(event.dataTransfer.files);
   }
 
   function removePendingAttachment(id: string) {
@@ -1589,16 +1631,7 @@ function AppShell() {
 
             {activeTab === 'chat' ? (
               <div className="grid xl:grid-cols-[1fr_320px] gap-4">
-                <section className={`${sectionCardClass} min-h-[70vh] flex flex-col relative transition-colors ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-amber-300/70 bg-[#1d2a3f]' : 'ring-2 ring-amber-400/80 bg-amber-50') : ''}`} onDragEnter={handleComposerDragEnter} onDragOver={handleComposerDragOver} onDragLeave={handleComposerDragLeave} onDrop={event => void handleComposerDrop(event)}>
-                  {isDragOverComposer ? (
-                    <div className={`pointer-events-none absolute inset-4 z-10 flex items-center justify-center rounded-[1.75rem] border-2 border-dashed ${isDarkMode ? 'border-amber-300/70 bg-[#0f1726]/85 text-amber-100' : 'border-amber-400 bg-white/90 text-stone-900'}`}>
-                      <div className="text-center">
-                        <Upload className="mx-auto h-8 w-8" />
-                        <p className="mt-3 text-base font-medium">Drop files to attach</p>
-                        <p className="mt-1 text-sm opacity-75">Text, PDF, and image files are supported.</p>
-                      </div>
-                    </div>
-                  ) : null}
+                <section className={`${sectionCardClass} min-h-[70vh] flex flex-col`}>
                   <div className="flex-1 overflow-auto space-y-4 pr-2">
                     {messages.length === 0 ? (
                       <div className={`h-full min-h-[360px] flex items-center justify-center ${emptyStateClass}`}>
@@ -1624,7 +1657,16 @@ function AppShell() {
 
                   {chatError ? <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">{chatError}</div> : null}
 
-                  <div className={`mt-4 rounded-[1.5rem] p-3 ${isDarkMode ? 'border border-white/8 bg-[#111927]' : 'border border-stone-200 bg-white'}`}>
+                  <div ref={composerDropRef} className={`mt-4 rounded-[1.5rem] p-3 relative transition-colors ${isDarkMode ? 'border border-white/8 bg-[#111927]' : 'border border-stone-200 bg-white'} ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-amber-300/70 bg-[#1d2a3f]' : 'ring-2 ring-amber-400/80 bg-amber-50') : ''}`}>
+                    {isDragOverComposer ? (
+                      <div className={`pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-[1.25rem] border-2 border-dashed ${isDarkMode ? 'border-amber-300/70 bg-[#0f1726]/88 text-amber-100' : 'border-amber-400 bg-white/92 text-stone-900'}`}>
+                        <div className="text-center">
+                          <Upload className="mx-auto h-8 w-8" />
+                          <p className="mt-3 text-base font-medium">Drop files to attach</p>
+                          <p className="mt-1 text-sm opacity-75">Text, PDF, and image files are supported.</p>
+                        </div>
+                      </div>
+                    ) : null}
                     <div className="grid md:grid-cols-[180px_1fr] gap-3 mb-3">
                       <select
                         value={provider}
