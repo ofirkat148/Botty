@@ -613,8 +613,8 @@ function AppShell() {
   }, [history]);
 
   const appBackgroundClass = isDarkMode
-    ? 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_24%),linear-gradient(180deg,_#0d1117_0%,_#111827_100%)] text-stone-100'
-    : 'min-h-screen bg-[#f3efe6] text-stone-900';
+    ? 'min-h-dvh w-full overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_24%),linear-gradient(180deg,_#0d1117_0%,_#111827_100%)] text-stone-100'
+    : 'min-h-dvh w-full overflow-x-hidden bg-[#f3efe6] text-stone-900';
   const shellPanelClass = isDarkMode
     ? 'rounded-[2rem] bg-[#111927]/88 backdrop-blur-xl p-4 md:p-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)] border border-white/8'
     : 'rounded-[2rem] bg-white/80 backdrop-blur-xl p-4 md:p-6 shadow-[0_30px_80px_rgba(120,95,64,0.15)] border border-white/70';
@@ -659,8 +659,8 @@ function AppShell() {
 
   if (!user) {
     return (
-      <div className={`${isDarkMode ? 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.18),_transparent_30%),linear-gradient(180deg,_#171717_0%,_#09090b_100%)] text-stone-100' : 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_26%),linear-gradient(180deg,_#f5efe4_0%,_#ece5d6_100%)] text-stone-900'} px-6 py-12`}>
-        <div className="max-w-5xl mx-auto grid lg:grid-cols-[1.3fr_0.9fr] gap-8 items-center min-h-[80vh]">
+      <div className={`${isDarkMode ? 'min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.18),_transparent_30%),linear-gradient(180deg,_#171717_0%,_#09090b_100%)] text-stone-100' : 'min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_26%),linear-gradient(180deg,_#f5efe4_0%,_#ece5d6_100%)] text-stone-900'} px-4 py-6 sm:px-6 sm:py-10 lg:px-10 lg:py-12`}>
+        <div className="mx-auto grid min-h-[calc(100dvh-3rem)] w-full max-w-[1600px] items-center gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,520px)]">
           <div>
             <div className="flex items-center justify-between gap-3 mb-4">
               <p className={`text-xs uppercase tracking-[0.35em] ${isDarkMode ? 'text-amber-300/80' : 'text-amber-700'} mb-0`}>Botty local runtime</p>
@@ -714,9 +714,9 @@ function AppShell() {
 
   return (
     <div className={appBackgroundClass}>
-      <div className="mx-auto max-w-7xl p-4 md:p-6">
-        <div className="grid lg:grid-cols-[280px_1fr] gap-4">
-          <aside className="rounded-[2rem] bg-[#1a120f] text-stone-100 p-5 flex flex-col gap-4 shadow-[0_30px_80px_rgba(0,0,0,0.12)]">
+      <div className="min-h-dvh w-full p-3 sm:p-4 lg:p-5">
+        <div className="grid min-h-[calc(100dvh-1.5rem)] w-full gap-3 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] lg:gap-4">
+          <aside className="relative rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(36,24,18,0.94)_0%,rgba(20,14,12,0.9)_100%)] text-stone-100 p-4 sm:p-5 flex flex-col gap-4 shadow-[0_24px_70px_rgba(0,0,0,0.28)] backdrop-blur-2xl lg:sticky lg:top-4 lg:max-h-[calc(100dvh-3rem)] lg:self-start before:pointer-events-none before:absolute before:inset-0 before:rounded-[2rem] before:border before:border-white/6 before:content-['']">
             <div>
               <p className="text-xs uppercase tracking-[0.35em] text-amber-200/70">Botty</p>
               <h1 className="text-3xl font-semibold mt-2">Local OSS</h1>
@@ -746,7 +746,7 @@ function AppShell() {
               {isDarkMode ? 'Light mode' : 'Dark mode'}
             </button>
 
-            <div className="mt-auto rounded-2xl bg-white/5 p-4 text-sm text-stone-300">
+            <div className="mt-auto rounded-2xl border border-white/8 bg-white/6 p-4 text-sm text-stone-300 backdrop-blur-sm">
               <p>Providers: {availableProviders.length ? availableProviders.join(', ') : 'none configured'}</p>
               <p className="mt-2">Tokens today: {dailyTokens.toLocaleString()}</p>
               <p className="mt-2">Stored keys: {apiKeys.length}</p>
@@ -758,8 +758,8 @@ function AppShell() {
             </button>
           </aside>
 
-          <main className={shellPanelClass}>
-            <div className="flex items-center justify-between gap-4 mb-5">
+          <main className={`${shellPanelClass} min-h-[calc(100dvh-1.5rem)] lg:min-h-[calc(100dvh-2.5rem)]`}>
+            <div className="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-2xl font-semibold capitalize">{activeTab}</h2>
                 <p className={`text-sm ${subtleTextClass}`}>
@@ -839,7 +839,7 @@ function AppShell() {
                       className={textareaClass}
                     />
 
-                    <div className="mt-3 flex items-center justify-between gap-3">
+                    <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}.</p>
                       <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
                         <Send className="w-4 h-4" />
@@ -877,7 +877,7 @@ function AppShell() {
             {activeTab === 'history' ? (
               <div className="space-y-3">
                 {conversations.map(item => (
-                  <div key={item.id} className={`${sectionCardClass} flex items-start justify-between gap-4`}>
+                  <div key={item.id} className={`${sectionCardClass} flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between`}>
                     <div>
                       <div className="text-sm font-medium">{item.items[0].prompt}</div>
                       <div className={`text-xs ${subtleTextClass} mt-2`}>{new Date(item.items[0].timestamp).toLocaleString()} · {item.items.length} message pair(s)</div>
@@ -896,12 +896,12 @@ function AppShell() {
 
             {activeTab === 'memory' ? (
               <div className="space-y-4">
-                <div className={`${sectionCardClass} flex items-center justify-between gap-3`}>
+                <div className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Memory backup</h3>
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Download a backup or restore one to replace the current user's saved facts, URLs, settings, and recent history.</p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                     <input
                       ref={importMemoryInputRef}
                       type="file"
@@ -958,7 +958,7 @@ function AppShell() {
                       <div>Includes system prompt: {memoryRestorePreview.includesSystemPrompt ? 'yes' : 'no'}</div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                       <button onClick={() => void importMemoryBackup()} disabled={isImportingMemory} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
                         <Upload className="w-4 h-4" />
                         {isImportingMemory ? 'Restoring...' : 'Confirm restore'}
@@ -973,7 +973,7 @@ function AppShell() {
                 <div className="grid xl:grid-cols-2 gap-4">
                 <section className={sectionCardClass}>
                   <h3 className="font-medium mb-3">Facts</h3>
-                  <form onSubmit={addFact} className="flex gap-2 mb-4">
+                  <form onSubmit={addFact} className="mb-4 flex flex-col gap-2 sm:flex-row">
                     <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
                     <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
                   </form>
@@ -989,7 +989,7 @@ function AppShell() {
 
                 <section className={sectionCardClass}>
                   <h3 className="font-medium mb-3">Saved URLs</h3>
-                  <form onSubmit={addUrl} className="flex gap-2 mb-4">
+                  <form onSubmit={addUrl} className="mb-4 flex flex-col gap-2 sm:flex-row">
                     <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className={`flex-1 ${inputClass}`} />
                     <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
                   </form>
