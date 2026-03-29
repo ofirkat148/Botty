@@ -137,8 +137,20 @@ async function bootstrapSchema(pool: Pool) {
     CREATE TABLE IF NOT EXISTS user_settings (
       uid VARCHAR(255) PRIMARY KEY,
       system_prompt TEXT,
+      custom_skills JSONB,
+      custom_bots JSONB,
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS custom_skills JSONB
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS custom_bots JSONB
   `);
 
   await pool.query(`

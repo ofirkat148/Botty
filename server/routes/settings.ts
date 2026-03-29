@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { appSettings, settings, userSettings } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
@@ -15,6 +16,68 @@ function encryptValue(value: string): string {
 
 function decryptValue(value: string): string {
   return Buffer.from(value, 'base64').toString();
+}
+
+type StoredFunctionPreset = {
+  id: string;
+  kind: 'skill' | 'agent';
+  title: string;
+  description: string;
+  command: string;
+  systemPrompt: string;
+  starterPrompt: string;
+};
+
+function slugifyCommand(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | 'agent'): StoredFunctionPreset | null {
+  const candidate = value as Partial<StoredFunctionPreset> | null;
+  const title = String(candidate?.title || '').trim();
+  const description = String(candidate?.description || '').trim();
+  const systemPrompt = String(candidate?.systemPrompt || '').trim();
+  const starterPrompt = String(candidate?.starterPrompt || '').trim();
+  const rawCommand = String(candidate?.command || '').trim();
+  const command = slugifyCommand(rawCommand || title);
+
+  if (!title || !description || !systemPrompt || !starterPrompt || !command) {
+    return null;
+  }
+
+  return {
+    id: String(candidate?.id || randomUUID()),
+    kind: expectedKind,
+    title,
+    description,
+    command,
+    systemPrompt,
+    starterPrompt,
+  };
+}
+
+function readStoredFunctionPresets(value: unknown, expectedKind: 'skill' | 'agent') {
+  if (!Array.isArray(value)) {
+    return [] as StoredFunctionPreset[];
+  }
+
+  const uniqueById = new Map<string, StoredFunctionPreset>();
+
+  value.forEach(item => {
+    const normalized = normalizeStoredFunctionPreset(item, expectedKind);
+    if (!normalized) {
+      return;
+    }
+
+    uniqueById.set(normalized.id, normalized);
+  });
+
+  return Array.from(uniqueById.values());
 }
 
 // GET /api/settings - Get user settings
@@ -188,10 +251,16 @@ router.get('/user-settings', async (req: Request, res: Response) => {
       return res.json({
         uid,
         systemPrompt: null,
+        customSkills: [],
+        customBots: [],
       });
     }
 
-    res.json(userSettingsData[0]);
+    res.json({
+      ...userSettingsData[0],
+      customSkills: readStoredFunctionPresets(userSettingsData[0]?.customSkills, 'skill'),
+      customBots: readStoredFunctionPresets(userSettingsData[0]?.customBots, 'agent'),
+    });
   } catch (error) {
     console.error('Error fetching user settings:', error);
     res.status(500).json({ error: 'Failed to fetch user settings' });
@@ -224,6 +293,84 @@ router.post('/user-settings', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error updating user settings:', error);
     res.status(500).json({ error: 'Failed to update user settings' });
+  }
+});
+
+router.get('/functions', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const uid = req.userId!;
+    const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+    const row = rows[0];
+
+    res.json({
+      skills: readStoredFunctionPresets(row?.customSkills, 'skill'),
+      bots: readStoredFunctionPresets(row?.customBots, 'agent'),
+    });
+  } catch (error) {
+    console.error('Error fetching custom functions:', error);
+    res.status(500).json({ error: 'Failed to fetch custom functions' });
+  }
+});
+
+router.post('/functions', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const uid = req.userId!;
+    const kind = req.body?.kind === 'agent' ? 'agent' : req.body?.kind === 'skill' ? 'skill' : null;
+
+    if (!kind) {
+      return res.status(400).json({ error: 'Function kind is required.' });
+    }
+
+    const normalized = normalizeStoredFunctionPreset({
+      id: randomUUID(),
+      kind,
+      title: req.body?.title,
+      description: req.body?.description,
+      command: req.body?.command,
+      systemPrompt: req.body?.systemPrompt,
+      starterPrompt: req.body?.starterPrompt,
+    }, kind);
+
+    if (!normalized) {
+      return res.status(400).json({ error: 'Title, description, prompt fields, and a valid command are required.' });
+    }
+
+    const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+    const existingRow = rows[0];
+    const currentSkills = readStoredFunctionPresets(existingRow?.customSkills, 'skill');
+    const currentBots = readStoredFunctionPresets(existingRow?.customBots, 'agent');
+
+    if (kind === 'skill' && currentSkills.some(item => item.command === normalized.command)) {
+      return res.status(400).json({ error: 'A custom skill with that slash command already exists.' });
+    }
+
+    const nextSkills = kind === 'skill' ? [...currentSkills, normalized] : currentSkills;
+    const nextBots = kind === 'agent' ? [...currentBots, normalized] : currentBots;
+
+    await db
+      .insert(userSettings)
+      .values({
+        uid,
+        systemPrompt: existingRow?.systemPrompt || null,
+        customSkills: nextSkills,
+        customBots: nextBots,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: userSettings.uid,
+        set: {
+          customSkills: nextSkills,
+          customBots: nextBots,
+          updatedAt: new Date(),
+        },
+      });
+
+    res.json({ success: true, item: normalized });
+  } catch (error) {
+    console.error('Error creating custom function:', error);
+    res.status(500).json({ error: 'Failed to create custom function' });
   }
 });
 

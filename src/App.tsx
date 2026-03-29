@@ -126,6 +126,12 @@ type FunctionPreset = {
   command: string;
   systemPrompt: string;
   starterPrompt: string;
+  builtIn?: boolean;
+};
+
+type FunctionCatalogResponse = {
+  skills: FunctionPreset[];
+  bots: FunctionPreset[];
 };
 
 const PROVIDERS = [
@@ -147,6 +153,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
   {
     id: 'skill-botty-development',
     kind: 'skill',
+    builtIn: true,
     title: 'Botty Development',
     description: 'Full-stack product work across React, Express, memory, local LLM, settings, and Telegram.',
     command: 'development',
@@ -156,6 +163,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
   {
     id: 'skill-botty-runtime-debug',
     kind: 'skill',
+    builtIn: true,
     title: 'Runtime Debug',
     description: 'Diagnose fetch failures, localhost issues, service problems, Telegram startup, CORS, and Ollama connectivity.',
     command: 'debug',
@@ -165,6 +173,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
   {
     id: 'skill-botty-ops',
     kind: 'skill',
+    builtIn: true,
     title: 'Botty Ops',
     description: 'Operational mode for Docker, systemd, PostgreSQL, ports, persistence, and reverse proxy work.',
     command: 'ops',
@@ -174,6 +183,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
   {
     id: 'agent-botty-builder',
     kind: 'agent',
+    builtIn: true,
     title: 'Botty Builder',
     description: 'Implementation-focused mode for feature work and bug fixes in this repository.',
     command: 'builder',
@@ -183,6 +193,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
   {
     id: 'agent-botty-reviewer',
     kind: 'agent',
+    builtIn: true,
     title: 'Botty Reviewer',
     description: 'Review-focused mode for bugs, regressions, runtime risk, and missing tests.',
     command: 'reviewer',
@@ -192,6 +203,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
   {
     id: 'agent-botty-ops',
     kind: 'agent',
+    builtIn: true,
     title: 'Botty Ops Agent',
     description: 'Operations-focused mode for service health, environment settings, and startup failures.',
     command: 'ops-bot',
@@ -203,13 +215,13 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
 const SKILL_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'skill');
 const BOT_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'agent');
 
-function getFunctionPresetForPrompt(value: string | null | undefined) {
+function getFunctionPresetForPrompt(value: string | null | undefined, presets: FunctionPreset[]) {
   const trimmed = value?.trim() || '';
   if (!trimmed) {
     return null;
   }
 
-  return FUNCTION_PRESETS.find(preset => preset.systemPrompt === trimmed) || null;
+  return presets.find(preset => preset.systemPrompt === trimmed) || null;
 }
 
 const TABS = [
@@ -260,6 +272,8 @@ function AppShell() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
   const [memoryUrls, setMemoryUrls] = useState<MemoryUrl[]>([]);
+  const [customSkills, setCustomSkills] = useState<FunctionPreset[]>([]);
+  const [customBots, setCustomBots] = useState<FunctionPreset[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [dailyTokens, setDailyTokens] = useState(0);
   const [systemPrompt, setSystemPrompt] = useState('');
@@ -279,6 +293,15 @@ function AppShell() {
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [newSkillTitle, setNewSkillTitle] = useState('');
+  const [newSkillDescription, setNewSkillDescription] = useState('');
+  const [newSkillCommand, setNewSkillCommand] = useState('');
+  const [newSkillSystemPrompt, setNewSkillSystemPrompt] = useState('');
+  const [newSkillStarterPrompt, setNewSkillStarterPrompt] = useState('');
+  const [newBotTitle, setNewBotTitle] = useState('');
+  const [newBotDescription, setNewBotDescription] = useState('');
+  const [newBotSystemPrompt, setNewBotSystemPrompt] = useState('');
+  const [newBotStarterPrompt, setNewBotStarterPrompt] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
     anthropic: '',
     google: '',
@@ -286,6 +309,7 @@ function AppShell() {
   });
   const [savingKey, setSavingKey] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
+  const [creatingFunction, setCreatingFunction] = useState<'skill' | 'agent' | ''>('');
   const [isExportingMemory, setIsExportingMemory] = useState(false);
   const [isImportingMemory, setIsImportingMemory] = useState(false);
   const [pendingMemoryRestore, setPendingMemoryRestore] = useState<MemoryBackupPayload | null>(null);
@@ -297,6 +321,10 @@ function AppShell() {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   }), [token]);
+
+  const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
+  const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
+  const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
 
   function formatProviderLabel(value?: string) {
     if (!value) {
@@ -406,20 +434,23 @@ function AppShell() {
   }
 
   async function refreshAll() {
-    const [historyRows, factRows, urlRows, keyRows, usageData, settingsData, userSettingsData, providersData] = await Promise.all([
+    const [historyRows, factRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData] = await Promise.all([
       apiGet<HistoryEntry[]>('/api/history'),
       apiGet<Fact[]>('/api/memory/facts'),
       apiGet<MemoryUrl[]>('/api/memory/urls'),
+      apiGet<FunctionCatalogResponse>('/api/settings/functions'),
       apiGet<ApiKey[]>('/api/keys'),
       apiGet<{ tokens: number }>('/api/usage'),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customBots?: FunctionPreset[] }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
     ]);
 
     setHistory(historyRows);
     setFacts(factRows);
     setMemoryUrls(urlRows);
+    setCustomSkills(functionsData.skills || []);
+    setCustomBots(functionsData.bots || []);
     setApiKeys(keyRows);
     setDailyTokens(usageData.tokens || 0);
     setLocalUrl(settingsData.localUrl || 'http://localhost:11434');
@@ -432,7 +463,7 @@ function AppShell() {
     setTelegramProvider(settingsData.telegramProvider || 'auto');
     setTelegramModel(settingsData.telegramModel || '');
     setSystemPrompt(userSettingsData.systemPrompt || '');
-    setActiveFunctionId(getFunctionPresetForPrompt(userSettingsData.systemPrompt)?.id || '');
+    setActiveFunctionId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...FUNCTION_PRESETS, ...(functionsData.skills || []), ...(functionsData.bots || [])])?.id || '');
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     setAvailableProviders(nextProviders);
@@ -635,7 +666,7 @@ function AppShell() {
   async function saveSystemPromptOnly(nextSystemPrompt: string) {
     await apiSend('/api/settings/user-settings', 'POST', { systemPrompt: nextSystemPrompt || null });
     setSystemPrompt(nextSystemPrompt);
-    setActiveFunctionId(getFunctionPresetForPrompt(nextSystemPrompt)?.id || '');
+    setActiveFunctionId(getFunctionPresetForPrompt(nextSystemPrompt, allFunctionPresets)?.id || '');
   }
 
   async function activateFunctionPreset(preset: FunctionPreset) {
@@ -663,7 +694,7 @@ function AppShell() {
 
   const slashQuery = prompt.startsWith('/') ? prompt.slice(1).trim().toLowerCase() : '';
   const matchingSkillPresets = prompt.startsWith('/')
-    ? SKILL_PRESETS.filter(item => {
+    ? skillPresets.filter(item => {
         if (!slashQuery) {
           return true;
         }
@@ -673,6 +704,81 @@ function AppShell() {
           || item.description.toLowerCase().includes(slashQuery);
       })
     : [];
+
+  async function createCustomSkill(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const title = newSkillTitle.trim();
+    const description = newSkillDescription.trim();
+    const command = newSkillCommand.trim().toLowerCase();
+    const systemPromptValue = newSkillSystemPrompt.trim();
+    const starterPromptValue = newSkillStarterPrompt.trim();
+
+    if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
+      setNotice('Fill in all skill fields before saving.');
+      return;
+    }
+
+    if (skillPresets.some(item => item.command.toLowerCase() === command)) {
+      setNotice('That skill slash command already exists.');
+      return;
+    }
+
+    setCreatingFunction('skill');
+    try {
+      await apiSend('/api/settings/functions', 'POST', {
+        kind: 'skill',
+        title,
+        description,
+        command,
+        systemPrompt: systemPromptValue,
+        starterPrompt: starterPromptValue,
+      });
+      setNewSkillTitle('');
+      setNewSkillDescription('');
+      setNewSkillCommand('');
+      setNewSkillSystemPrompt('');
+      setNewSkillStarterPrompt('');
+      await refreshAll();
+      setNotice('Custom skill added.');
+    } finally {
+      setCreatingFunction('');
+    }
+  }
+
+  async function createCustomBot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const title = newBotTitle.trim();
+    const description = newBotDescription.trim();
+    const systemPromptValue = newBotSystemPrompt.trim();
+    const starterPromptValue = newBotStarterPrompt.trim();
+
+    if (!title || !description || !systemPromptValue || !starterPromptValue) {
+      setNotice('Fill in all bot fields before saving.');
+      return;
+    }
+
+    setCreatingFunction('agent');
+    try {
+      await apiSend('/api/settings/functions', 'POST', {
+        kind: 'agent',
+        title,
+        description,
+        command: title,
+        systemPrompt: systemPromptValue,
+        starterPrompt: starterPromptValue,
+      });
+      setNewBotTitle('');
+      setNewBotDescription('');
+      setNewBotSystemPrompt('');
+      setNewBotStarterPrompt('');
+      await refreshAll();
+      setNotice('Custom bot added.');
+    } finally {
+      setCreatingFunction('');
+    }
+  }
 
   async function activateSlashSkill(preset: FunctionPreset) {
     await activateFunctionPreset(preset);
@@ -762,6 +868,43 @@ function AppShell() {
       } else {
         setNotice(telegramBotEnabled && telegramBotToken.trim() ? 'Settings updated. Telegram bot reloaded.' : 'Settings updated.');
       }
+    } finally {
+      setSavingSettings(false);
+    }
+  }
+
+  async function toggleSandboxModeFromMenu() {
+    const nextSandboxMode = !sandboxMode;
+    setSandboxMode(nextSandboxMode);
+    setSavingSettings(true);
+
+    try {
+      const settingsResult = await apiSend<{ success: boolean; telegramError?: string | null }>('/api/settings', 'POST', {
+        localUrl,
+        useMemory,
+        autoMemory,
+        sandboxMode: nextSandboxMode,
+        telegramBotToken,
+        telegramBotEnabled,
+        telegramAllowedChatIds,
+        telegramProvider,
+        telegramModel,
+      });
+
+      await refreshAll();
+
+      if (activeTab === 'settings') {
+        await refreshTelegramStatus();
+      }
+
+      if (settingsResult?.telegramError) {
+        setNotice(`Sandbox ${nextSandboxMode ? 'enabled' : 'disabled'}. Telegram error: ${settingsResult.telegramError}`);
+      } else {
+        setNotice(`Sandbox ${nextSandboxMode ? 'enabled' : 'disabled'}.`);
+      }
+    } catch (error) {
+      setSandboxMode(!nextSandboxMode);
+      setNotice(error instanceof Error ? error.message : 'Failed to update sandbox mode.');
     } finally {
       setSavingSettings(false);
     }
@@ -1041,6 +1184,20 @@ function AppShell() {
               ))}
             </nav>
 
+            <button
+              onClick={() => void toggleSandboxModeFromMenu()}
+              disabled={savingSettings}
+              className={`rounded-2xl border px-4 py-3 text-left flex items-center justify-between gap-3 transition-colors disabled:opacity-60 ${sandboxMode ? 'border-amber-300/30 bg-amber-300/10 text-amber-100 hover:bg-amber-300/15' : 'border-white/10 text-stone-300 hover:bg-white/5'}`}
+            >
+              <span>
+                <span className="block text-sm font-medium">Sandbox mode</span>
+                <span className="block text-xs opacity-75">{sandboxMode ? 'Facts and sites only' : 'Regular chat access'}</span>
+              </span>
+              <span className={`rounded-full px-2 py-1 text-xs ${sandboxMode ? 'bg-amber-200 text-stone-950' : 'bg-white/10 text-stone-200'}`}>
+                {savingSettings ? 'Saving...' : sandboxMode ? 'On' : 'Off'}
+              </span>
+            </button>
+
             <button onClick={() => setIsDarkMode(value => !value)} className="rounded-2xl border border-white/10 px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/5">
               {isDarkMode ? <SunMedium className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               {isDarkMode ? 'Light mode' : 'Dark mode'}
@@ -1171,7 +1328,7 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${FUNCTION_PRESETS.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}.</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}.</p>
                       <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
                         <Send className="w-4 h-4" />
                         {isSending ? 'Sending...' : 'Send'}
@@ -1213,7 +1370,7 @@ function AppShell() {
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Use these in the menu or type `/` in chat to activate a Botty skill instantly.</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${FUNCTION_PRESETS.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
+                    <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
                     <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
                       {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
                     </button>
@@ -1222,11 +1379,36 @@ function AppShell() {
 
                 <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
+                    <Plus className="w-4 h-4" />
+                    <h3 className="font-medium">Create skill</h3>
+                  </div>
+                  <form onSubmit={createCustomSkill} className="grid gap-3 md:grid-cols-2">
+                    <input value={newSkillTitle} onChange={event => setNewSkillTitle(event.target.value)} placeholder="Skill title" className={textInputClass} />
+                    <input value={newSkillCommand} onChange={event => setNewSkillCommand(event.target.value)} placeholder="Slash command, e.g. research" className={textInputClass} />
+                    <div className="md:col-span-2">
+                      <input value={newSkillDescription} onChange={event => setNewSkillDescription(event.target.value)} placeholder="Short description" className={textInputClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newSkillSystemPrompt} onChange={event => setNewSkillSystemPrompt(event.target.value)} rows={4} placeholder="System prompt" className={textareaClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newSkillStarterPrompt} onChange={event => setNewSkillStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt" className={textareaClass} />
+                    </div>
+                    <div>
+                      <button type="submit" disabled={creatingFunction === 'skill'} className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60">
+                        {creatingFunction === 'skill' ? 'Adding...' : 'Add skill'}
+                      </button>
+                    </div>
+                  </form>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="flex items-center gap-2 mb-3">
                     <Sparkles className="w-4 h-4" />
                     <h3 className="font-medium">Available slash skills</h3>
                   </div>
                   <div className="grid gap-3 xl:grid-cols-2">
-                    {SKILL_PRESETS.map(item => {
+                    {skillPresets.map(item => {
                       const isActive = activeFunctionId === item.id;
 
                       return (
@@ -1237,7 +1419,7 @@ function AppShell() {
                               <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
                             </div>
                             <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
-                              {isActive ? 'Active' : `/${item.command}`}
+                              {isActive ? 'Active' : item.builtIn ? `/${item.command}` : `Custom /${item.command}`}
                             </div>
                           </div>
 
@@ -1249,16 +1431,7 @@ function AppShell() {
                               disabled={applyingFunctionId === item.id}
                               className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
                             >
-                              {applyingFunctionId === item.id ? 'Applying...' : 'Use in chat'}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setPrompt(`/${item.command}`);
-                                setActiveTab('chat');
-                              }}
-                              className={secondaryButtonClass}
-                            >
-                              Insert slash command
+                              {applyingFunctionId === item.id ? 'Applying...' : 'Use skill'}
                             </button>
                           </div>
                         </div>
@@ -1276,12 +1449,36 @@ function AppShell() {
                     <h3 className="font-medium">Bots</h3>
                     <p className={`text-sm ${subtleTextClass} mt-1`}>These agent-backed bots switch Botty into a specialized task mode for building, reviewing, or operating the app.</p>
                   </div>
-                  <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active bot: ${BOT_PRESETS.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active bot'}</div>
+                  <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active bot: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active bot'}</div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Plus className="w-4 h-4" />
+                    <h3 className="font-medium">Create bot</h3>
+                  </div>
+                  <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2">
+                    <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Bot title" className={textInputClass} />
+                    <div className="md:col-span-2">
+                      <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Short description" className={textInputClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newBotSystemPrompt} onChange={event => setNewBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt" className={textareaClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newBotStarterPrompt} onChange={event => setNewBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt" className={textareaClass} />
+                    </div>
+                    <div>
+                      <button type="submit" disabled={creatingFunction === 'agent'} className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60">
+                        {creatingFunction === 'agent' ? 'Adding...' : 'Add bot'}
+                      </button>
+                    </div>
+                  </form>
                 </section>
 
                 <section className={sectionCardClass}>
                   <div className="grid gap-3 xl:grid-cols-2">
-                    {BOT_PRESETS.map(item => {
+                    {botPresets.map(item => {
                       const isActive = activeFunctionId === item.id;
 
                       return (
@@ -1292,7 +1489,7 @@ function AppShell() {
                               <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
                             </div>
                             <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
-                              {isActive ? 'Active' : 'Bot'}
+                              {isActive ? 'Active' : item.builtIn ? 'Bot' : 'Custom bot'}
                             </div>
                           </div>
 
@@ -1305,15 +1502,6 @@ function AppShell() {
                               className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
                             >
                               {applyingFunctionId === item.id ? 'Starting...' : 'Start bot'}
-                            </button>
-                            <button
-                              onClick={() => {
-                                setPrompt(item.starterPrompt);
-                                setActiveTab('chat');
-                              }}
-                              className={secondaryButtonClass}
-                            >
-                              Fill prompt
                             </button>
                           </div>
                         </div>

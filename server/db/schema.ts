@@ -87,6 +87,8 @@ export const appSettings = pgTable('app_settings', {
 export const userSettings = pgTable('user_settings', {
   uid: varchar('uid', { length: 255 }).primaryKey().notNull(),
   systemPrompt: text('system_prompt'),
+  customSkills: jsonb('custom_skills'),
+  customBots: jsonb('custom_bots'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

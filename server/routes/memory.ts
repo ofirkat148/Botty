@@ -50,6 +50,8 @@ router.get('/export', async (req: Request, res: Response) => {
       userSettings: userPromptSettings[0] || {
         uid,
         systemPrompt: null,
+        customSkills: [],
+        customBots: [],
       },
       history: userHistory,
     };
@@ -179,11 +181,15 @@ router.post('/import', async (req: Request, res: Response) => {
         await tx.insert(userSettings).values({
           uid,
           systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
+          customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
+          customBots: Array.isArray(incomingUserSettings.customBots) ? incomingUserSettings.customBots : [],
           updatedAt: new Date(),
         }).onConflictDoUpdate({
           target: userSettings.uid,
           set: {
             systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
+            customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
+            customBots: Array.isArray(incomingUserSettings.customBots) ? incomingUserSettings.customBots : [],
             updatedAt: new Date(),
           },
         });
