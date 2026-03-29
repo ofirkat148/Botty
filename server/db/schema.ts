@@ -69,6 +69,7 @@ export const settings = pgTable('settings', {
   localUrl: text('local_url'),
   useMemory: boolean('use_memory').default(true),
   autoMemory: boolean('auto_memory').default(true),
+  sandboxMode: boolean('sandbox_mode').default(false),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

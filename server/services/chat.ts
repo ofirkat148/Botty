@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { history } from '../db/schema.js';
 import {
+  buildChatSystemPrompt,
   callLLM,
   getAvailableProviders,
   getDefaultModel,
@@ -66,8 +67,14 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     throw new Error(`No API key configured for ${provider}.`);
   }
 
-  const memoryContext = runtimeSettings.useMemory ? await getMemoryContext(uid) : '';
-  const systemPrompt = [runtimeSettings.systemPrompt, memoryContext].filter(Boolean).join('\n\n');
+  const memoryContext = runtimeSettings.useMemory || runtimeSettings.sandboxMode
+    ? await getMemoryContext(uid, { sandboxMode: runtimeSettings.sandboxMode })
+    : '';
+  const systemPrompt = buildChatSystemPrompt({
+    systemPrompt: runtimeSettings.systemPrompt,
+    memoryContext,
+    sandboxMode: runtimeSettings.sandboxMode,
+  });
   const { responseText, tokensUsed } = await callLLM({
     prompt,
     provider,

@@ -46,6 +46,7 @@ router.get('/', async (req: Request, res: Response) => {
         localUrl: null,
         useMemory: true,
         autoMemory: true,
+        sandboxMode: false,
         telegramBotToken,
         telegramBotEnabled: appSettingsRow?.telegramBotEnabled !== false,
         telegramAllowedChatIds: appSettingsRow?.telegramAllowedChatIds || '',
@@ -75,6 +76,7 @@ router.post('/', async (req: Request, res: Response) => {
       localUrl,
       useMemory,
       autoMemory,
+      sandboxMode,
       telegramBotToken,
       telegramBotEnabled,
       telegramAllowedChatIds,
@@ -92,6 +94,7 @@ router.post('/', async (req: Request, res: Response) => {
         localUrl: localUrl || null,
         useMemory: useMemory !== undefined ? useMemory : true,
         autoMemory: autoMemory !== undefined ? autoMemory : true,
+        sandboxMode: sandboxMode === true,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -100,6 +103,7 @@ router.post('/', async (req: Request, res: Response) => {
           localUrl: localUrl || null,
           useMemory: useMemory !== undefined ? useMemory : true,
           autoMemory: autoMemory !== undefined ? autoMemory : true,
+          sandboxMode: sandboxMode === true,
           updatedAt: new Date(),
         },
       });

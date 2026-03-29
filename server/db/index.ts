@@ -81,6 +81,7 @@ async function bootstrapSchema(pool: Pool) {
       local_url TEXT,
       use_memory BOOLEAN DEFAULT TRUE,
       auto_memory BOOLEAN DEFAULT TRUE,
+      sandbox_mode BOOLEAN DEFAULT FALSE,
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
@@ -88,6 +89,11 @@ async function bootstrapSchema(pool: Pool) {
   await pool.query(`
     ALTER TABLE settings
     ADD COLUMN IF NOT EXISTS auto_memory BOOLEAN DEFAULT TRUE
+  `);
+
+  await pool.query(`
+    ALTER TABLE settings
+    ADD COLUMN IF NOT EXISTS sandbox_mode BOOLEAN DEFAULT FALSE
   `);
 
   await pool.query(`

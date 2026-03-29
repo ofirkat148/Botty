@@ -65,6 +65,7 @@ type SettingsResponse = {
   localUrl: string | null;
   useMemory: boolean;
   autoMemory: boolean;
+  sandboxMode: boolean;
   telegramBotToken?: string | null;
   telegramBotEnabled?: boolean;
   telegramAllowedChatIds?: string | null;
@@ -97,6 +98,7 @@ type MemoryBackupPayload = {
     localUrl?: string | null;
     useMemory?: boolean;
     autoMemory?: boolean;
+    sandboxMode?: boolean;
   };
   userSettings?: {
     systemPrompt?: string | null;
@@ -263,6 +265,7 @@ function AppShell() {
   const [localUrl, setLocalUrl] = useState('http://localhost:11434');
   const [useMemory, setUseMemory] = useState(true);
   const [autoMemory, setAutoMemory] = useState(true);
+  const [sandboxMode, setSandboxMode] = useState(false);
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramBotEnabled, setTelegramBotEnabled] = useState(true);
   const [telegramAllowedChatIds, setTelegramAllowedChatIds] = useState('');
@@ -409,6 +412,7 @@ function AppShell() {
     setLocalUrl(settingsData.localUrl || 'http://localhost:11434');
     setUseMemory(settingsData.useMemory !== false);
     setAutoMemory(settingsData.autoMemory !== false);
+    setSandboxMode(settingsData.sandboxMode === true);
     setTelegramBotToken(settingsData.telegramBotToken || '');
     setTelegramBotEnabled(settingsData.telegramBotEnabled !== false);
     setTelegramAllowedChatIds(settingsData.telegramAllowedChatIds || '');
@@ -724,6 +728,7 @@ function AppShell() {
           localUrl,
           useMemory,
           autoMemory,
+          sandboxMode,
           telegramBotToken,
           telegramBotEnabled,
           telegramAllowedChatIds,
@@ -1144,7 +1149,7 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. {activeFunctionId ? `Mode: ${FUNCTION_PRESETS.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}.</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${FUNCTION_PRESETS.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}.</p>
                       <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
                         <Send className="w-4 h-4" />
                         {isSending ? 'Sending...' : 'Send'}
@@ -1549,6 +1554,14 @@ function AppShell() {
                   <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
                     <input type="checkbox" checked={useMemory} onChange={event => setUseMemory(event.target.checked)} />
                     Include saved memory in prompt construction
+                  </label>
+
+                  <label className={`flex items-start gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+                    <input type="checkbox" checked={sandboxMode} onChange={event => setSandboxMode(event.target.checked)} className="mt-1" />
+                    <span>
+                      <span className="block">Enable sandboxed mode</span>
+                      <span className={`block text-xs ${subtleTextClass}`}>Restrict answers to the current conversation plus saved facts and known sites only. Botty should say it does not know instead of using general internet knowledge.</span>
+                    </span>
                   </label>
 
                   <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>

@@ -13,6 +13,7 @@ import keysRoutes from './routes/keys.js';
 import usageRoutes from './routes/usage.js';
 import chatRoutes from './routes/chat.js';
 import { startTelegramBot } from './services/telegram.js';
+import { reconcileAllFacts } from './utils/llm.js';
 
 // Load environment variables
 dotenv.config();
@@ -93,6 +94,8 @@ async function startServer() {
     await initializeDatabase();
     dbInitialized = true;
     console.log('✅ Database initialized successfully');
+    await reconcileAllFacts();
+    console.log('✅ Facts reconciled successfully');
   } catch (error) {
     console.error('❌ Failed to initialize database:', error);
     throw error;

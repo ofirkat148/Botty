@@ -180,6 +180,7 @@ export async function getRuntimeSettings(uid: string) {
     localUrl: normalizeLocalLlmUrl(savedSettings[0]?.localUrl || process.env.LOCAL_LLM_URL),
     useMemory: savedSettings[0]?.useMemory !== false,
     autoMemory: savedSettings[0]?.autoMemory !== false,
+    sandboxMode: savedSettings[0]?.sandboxMode === true,
     systemPrompt: savedUserSettings[0]?.systemPrompt || '',
   };
 }
@@ -188,25 +189,60 @@ export function cleanFactContent(value: string) {
   return value
     .trim()
     .replace(/^[-*\d.)\s]+/, '')
+    .replace(/^\*\*|\*\*$/g, '')
     .replace(/^['"`]+/, '')
     .replace(/['"`,]+$/, '')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
+function stripTrailingFactPunctuation(value: string) {
+  return value.replace(/[.,;:!?]+$/, '').trim();
+}
+
+function isFactNoise(value: string) {
+  const normalized = cleanFactContent(value).toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  return normalized.startsWith('this json array')
+    || normalized.startsWith('the json array')
+    || normalized.startsWith('[')
+    || normalized.startsWith('{')
+    || normalized.includes('json array')
+    || normalized.includes('["')
+    || normalized.includes("['");
+}
+
 function standardizeFactContent(value: string) {
-  const cleaned = cleanFactContent(value);
+  const cleaned = stripTrailingFactPunctuation(cleanFactContent(value));
   if (!cleaned) {
+    return '';
+  }
+
+  if (isFactNoise(cleaned)) {
     return '';
   }
 
   const patterns: Array<[RegExp, string]> = [
     [/^i prefer\s+(.+)$/i, 'Prefers'],
+    [/^prefer(?:s)?\s+(.+)$/i, 'Prefers'],
+    [/^user prefer(?:s)?\s+(.+)$/i, 'Prefers'],
     [/^i (?:mostly\s+)?use\s+(.+)$/i, 'Uses'],
+    [/^use(?:s)?\s+(.+)$/i, 'Uses'],
+    [/^user use(?:s)?\s+(.+)$/i, 'Uses'],
     [/^i work (?:mostly\s+)?on\s+(.+)$/i, 'Works on'],
+    [/^work(?:s)? on\s+(.+)$/i, 'Works on'],
+    [/^user work(?:s)? on\s+(.+)$/i, 'Works on'],
     [/^i[' ]?m\s+(.+)$/i, 'Is'],
     [/^i am\s+(.+)$/i, 'Is'],
+    [/^currently\s+(.+)$/i, 'Is'],
+    [/^user currently\s+(.+)$/i, 'Is'],
+    [/^user is\s+(.+)$/i, 'Is'],
     [/^my name is\s+(.+)$/i, 'Name is'],
+    [/^user(?:'s)? name is\s+(.+)$/i, 'Name is'],
+    [/^name is\s+(.+)$/i, 'Name is'],
   ];
 
   for (const [pattern, prefix] of patterns) {
@@ -215,7 +251,8 @@ function standardizeFactContent(value: string) {
       continue;
     }
 
-    return `${prefix} ${cleanFactContent(match[1])}`;
+    const remainder = stripTrailingFactPunctuation(cleanFactContent(match[1]));
+    return remainder ? `${prefix} ${remainder}` : '';
   }
 
   return cleaned;
@@ -226,7 +263,7 @@ export function normalizeFactContent(value: string) {
 }
 
 function splitFactClauses(value: string) {
-  return cleanFactContent(value)
+  return standardizeFactContent(value)
     .split(/\s*(?:,|;|\band\b)\s*/i)
     .map(clause => cleanFactContent(clause))
     .filter(Boolean);
@@ -320,13 +357,14 @@ export function consolidateFactRows(rows: FactRow[]) {
 
   for (const row of rows) {
     const cleanedContent = cleanFactContent(row.content);
-    if (!cleanedContent) {
+    const standardizedContent = standardizeFactContent(cleanedContent);
+    if (!standardizedContent) {
       continue;
     }
 
     const candidate: FactRow = {
       ...row,
-      content: cleanedContent,
+      content: standardizedContent,
       isSkill: Boolean(row.isSkill),
       timestamp: row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp),
     };
@@ -386,13 +424,13 @@ function sameFactSet(left: FactRow[], right: FactRow[]) {
     return false;
   }
 
-  const sortKey = (row: FactRow) => `${normalizeFactContent(row.content)}::${Boolean(row.isSkill)}::${row.timestamp.toISOString()}`;
+  const sortKey = (row: FactRow) => `${normalizeFactContent(row.content)}::${row.content}::${Boolean(row.isSkill)}::${row.timestamp.toISOString()}`;
   const leftSorted = [...left].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
   const rightSorted = [...right].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 
   return leftSorted.every((row, index) => {
     const compare = rightSorted[index];
-    return normalizeFactContent(row.content) === normalizeFactContent(compare.content)
+    return row.content === compare.content
       && Boolean(row.isSkill) === Boolean(compare.isSkill)
       && row.timestamp.toISOString() === compare.timestamp.toISOString();
   });
@@ -422,6 +460,15 @@ export async function reconcileFactsForUser(uid: string) {
   }
 
   return consolidatedRows;
+}
+
+export async function reconcileAllFacts() {
+  const db = getDatabase();
+  const rows = await db.selectDistinct({ uid: facts.uid }).from(facts);
+
+  for (const row of rows) {
+    await reconcileFactsForUser(row.uid);
+  }
 }
 
 export async function saveFactsWithConsolidation(
@@ -602,29 +649,61 @@ export async function learnFactsFromConversation(params: {
   return newFacts;
 }
 
-export async function getMemoryContext(uid: string) {
+export async function getMemoryContext(uid: string, options?: { sandboxMode?: boolean }) {
   const db = getDatabase();
+  const sandboxMode = options?.sandboxMode === true;
   const [userFacts, userFiles, userUrls] = await Promise.all([
     reconcileFactsForUser(uid).then(rows => rows.slice(0, 20)),
-    db.select().from(memoryFiles).where(eq(memoryFiles.uid, uid)).limit(5),
+    sandboxMode
+      ? Promise.resolve([])
+      : db.select().from(memoryFiles).where(eq(memoryFiles.uid, uid)).limit(5),
     db.select().from(memoryUrls).where(eq(memoryUrls.uid, uid)).limit(5),
   ]);
 
   const sections: string[] = [];
 
   if (userFacts.length > 0) {
-    sections.push(`[FACTS]\n${userFacts.map(item => `- ${item.content}`).join('\n')}`);
+    sections.push(`[${sandboxMode ? 'KNOWN FACTS' : 'FACTS'}]\n${userFacts.map(item => `- ${item.content}`).join('\n')}`);
   }
 
-  if (userFiles.length > 0) {
+  if (!sandboxMode && userFiles.length > 0) {
     sections.push(`[FILES]\n${userFiles.map(item => `- ${item.name}\n${item.content.slice(0, 1200)}`).join('\n\n')}`);
   }
 
   if (userUrls.length > 0) {
-    sections.push(`[URLS]\n${userUrls.map(item => `- ${item.title || item.url}\n${item.url}`).join('\n\n')}`);
+    sections.push(`[${sandboxMode ? 'KNOWN SITES' : 'URLS'}]\n${userUrls.map(item => `- ${item.title || item.url}\n${item.url}`).join('\n\n')}`);
   }
 
   return sections.join('\n\n');
+}
+
+export function buildChatSystemPrompt(params: {
+  systemPrompt?: string;
+  memoryContext?: string;
+  sandboxMode?: boolean;
+}) {
+  const { systemPrompt = '', memoryContext = '', sandboxMode = false } = params;
+  const parts: string[] = [];
+
+  if (sandboxMode) {
+    parts.push([
+      'You are operating in sandboxed mode.',
+      'Use only the information explicitly present in the current conversation plus the provided [KNOWN FACTS] and [KNOWN SITES] sections.',
+      'Treat all other background knowledge, internet knowledge, and unstated assumptions as unavailable.',
+      'Do not infer the contents of a site from its URL or title alone.',
+      'If the answer is not supported by the provided sources, say that you do not know in sandboxed mode.',
+    ].join(' '));
+  }
+
+  if (systemPrompt.trim()) {
+    parts.push(systemPrompt.trim());
+  }
+
+  if (memoryContext.trim()) {
+    parts.push(memoryContext.trim());
+  }
+
+  return parts.join('\n\n');
 }
 
 export function getSmartRoute(prompt: string, availableProviders: string[]) {

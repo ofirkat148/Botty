@@ -45,6 +45,7 @@ router.get('/export', async (req: Request, res: Response) => {
         localUrl: null,
         useMemory: true,
         autoMemory: true,
+        sandboxMode: false,
       },
       userSettings: userPromptSettings[0] || {
         uid,
@@ -160,6 +161,7 @@ router.post('/import', async (req: Request, res: Response) => {
           localUrl: incomingSettings.localUrl ? String(incomingSettings.localUrl) : null,
           useMemory: incomingSettings.useMemory !== false,
           autoMemory: incomingSettings.autoMemory !== false,
+          sandboxMode: incomingSettings.sandboxMode === true,
           updatedAt: new Date(),
         }).onConflictDoUpdate({
           target: settings.uid,
@@ -167,6 +169,7 @@ router.post('/import', async (req: Request, res: Response) => {
             localUrl: incomingSettings.localUrl ? String(incomingSettings.localUrl) : null,
             useMemory: incomingSettings.useMemory !== false,
             autoMemory: incomingSettings.autoMemory !== false,
+            sandboxMode: incomingSettings.sandboxMode === true,
             updatedAt: new Date(),
           },
         });
