@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import {
   Bot,
+  Download,
   History,
   KeyRound,
   LogOut,
@@ -143,6 +144,7 @@ function AppShell() {
   });
   const [savingKey, setSavingKey] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
+  const [isExportingMemory, setIsExportingMemory] = useState(false);
   const [notice, setNotice] = useState('');
 
   const authHeaders = useMemo(() => ({
@@ -459,6 +461,40 @@ function AppShell() {
     }
   }
 
+  async function exportMemoryBackup() {
+    setIsExportingMemory(true);
+
+    try {
+      const response = await fetch('/api/memory/export', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Export failed: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const contentDisposition = response.headers.get('content-disposition');
+      const fileNameMatch = contentDisposition?.match(/filename="([^"]+)"/);
+      anchor.href = url;
+      anchor.download = fileNameMatch?.[1] || `botty-memory-backup-${new Date().toISOString()}.json`;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.URL.revokeObjectURL(url);
+      setNotice('Memory backup downloaded.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Failed to download memory backup.');
+    } finally {
+      setIsExportingMemory(false);
+    }
+  }
+
   const conversations = useMemo(() => {
     const grouped = new Map<string, HistoryEntry[]>();
 
@@ -761,7 +797,19 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'memory' ? (
-              <div className="grid xl:grid-cols-2 gap-4">
+              <div className="space-y-4">
+                <div className={`${sectionCardClass} flex items-center justify-between gap-3`}>
+                  <div>
+                    <h3 className="font-medium">Memory backup</h3>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>Download your saved facts, URLs, settings, and recent history as a JSON backup.</p>
+                  </div>
+                  <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
+                    <Download className="w-4 h-4" />
+                    {isExportingMemory ? 'Exporting...' : 'Backup memory now'}
+                  </button>
+                </div>
+
+                <div className="grid xl:grid-cols-2 gap-4">
                 <section className={sectionCardClass}>
                   <h3 className="font-medium mb-3">Facts</h3>
                   <form onSubmit={addFact} className="flex gap-2 mb-4">
@@ -796,6 +844,7 @@ function AppShell() {
                     ))}
                   </div>
                 </section>
+                </div>
               </div>
             ) : null}
 

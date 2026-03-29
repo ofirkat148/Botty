@@ -1,12 +1,57 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
-import { facts, memoryFiles, memoryUrls } from '../db/schema.js';
+import { facts, history, memoryFiles, memoryUrls, settings, userSettings } from '../db/schema.js';
 import { and, desc, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 
 const router = Router();
 router.use(authMiddleware);
+
+router.get('/export', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const uid = req.userId!;
+
+    const [userFacts, userFiles, userUrls, userSettingsRow, userPromptSettings, userHistory] = await Promise.all([
+      db.select().from(facts).where(eq(facts.uid, uid)).orderBy(desc(facts.timestamp)),
+      db.select().from(memoryFiles).where(eq(memoryFiles.uid, uid)).orderBy(desc(memoryFiles.timestamp)),
+      db.select().from(memoryUrls).where(eq(memoryUrls.uid, uid)).orderBy(desc(memoryUrls.timestamp)),
+      db.select().from(settings).where(eq(settings.uid, uid)).limit(1),
+      db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1),
+      db.select().from(history).where(eq(history.uid, uid)).orderBy(desc(history.timestamp)).limit(200),
+    ]);
+
+    const payload = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      memory: {
+        facts: userFacts,
+        files: userFiles,
+        urls: userUrls,
+      },
+      settings: userSettingsRow[0] || {
+        uid,
+        localUrl: null,
+        useMemory: true,
+        autoMemory: true,
+      },
+      userSettings: userPromptSettings[0] || {
+        uid,
+        systemPrompt: null,
+      },
+      history: userHistory,
+    };
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Content-Disposition', `attachment; filename="botty-memory-backup-${timestamp}.json"`);
+    res.json(payload);
+  } catch (error) {
+    console.error('Error exporting memory backup:', error);
+    res.status(500).json({ error: 'Failed to export memory backup' });
+  }
+});
 
 // Facts endpoints
 router.get('/facts', async (req: Request, res: Response) => {
