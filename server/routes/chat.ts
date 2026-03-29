@@ -1,20 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { randomUUID } from 'crypto';
 import { authMiddleware } from '../middleware/auth.js';
-import { getDatabase } from '../db/index.js';
-import { history } from '../db/schema.js';
 import {
-  callLLM,
   getAvailableProviders,
-  getDefaultModel,
   getDefaultLocalModel,
-  getMemoryContext,
-  getProviderApiKey,
   getRuntimeSettings,
-  getSmartRoute,
-  incrementDailyUsage,
-  learnFactsFromConversation,
 } from '../utils/llm.js';
+import { runChatForUser } from '../services/chat.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -35,94 +26,21 @@ router.get('/providers', async (req: Request, res: Response) => {
 });
 
 router.post('/', async (req: Request, res: Response) => {
-  const uid = req.userId!;
-  const prompt = String(req.body?.prompt || '').trim();
-  const requestedProvider = String(req.body?.provider || '').trim().toLowerCase();
-  const requestedModel = String(req.body?.model || '').trim();
-  const messages = Array.isArray(req.body?.messages) ? req.body.messages : [];
-  const incomingConversationId = String(req.body?.conversationId || '').trim();
-
-  if (!prompt) {
-    return res.status(400).json({ error: 'Prompt is required' });
-  }
-
   try {
-    const runtimeSettings = await getRuntimeSettings(uid);
-    const availableProviders = await getAvailableProviders(uid);
-
-    const route = requestedProvider === 'auto' || !requestedProvider
-      ? getSmartRoute(prompt, availableProviders)
-      : {
-          provider: requestedProvider,
-          model: requestedModel || getDefaultModel(requestedProvider),
-        };
-
-    const provider = route.provider;
-    const model = route.model;
-    const apiKey = provider === 'local' ? '' : await getProviderApiKey(uid, provider);
-
-    if (provider !== 'local' && !apiKey) {
-      return res.status(400).json({ error: `No API key configured for ${provider}.` });
-    }
-
-    const memoryContext = runtimeSettings.useMemory ? await getMemoryContext(uid) : '';
-    const systemPrompt = [runtimeSettings.systemPrompt, memoryContext].filter(Boolean).join('\n\n');
-    const { responseText, tokensUsed } = await callLLM({
-      prompt,
-      provider,
-      model,
-      apiKey,
-      systemPrompt,
-      messages,
-      localUrl: runtimeSettings.localUrl,
+    const result = await runChatForUser({
+      uid: req.userId!,
+      prompt: String(req.body?.prompt || '').trim(),
+      requestedProvider: String(req.body?.provider || '').trim().toLowerCase(),
+      requestedModel: String(req.body?.model || '').trim(),
+      messages: Array.isArray(req.body?.messages) ? req.body.messages : [],
+      incomingConversationId: String(req.body?.conversationId || '').trim(),
     });
 
-    const db = getDatabase();
-    const conversationId = incomingConversationId || randomUUID();
-    const id = randomUUID();
-
-    await db.insert(history).values({
-      id,
-      uid,
-      prompt,
-      response: responseText,
-      model,
-      tokensUsed,
-      status: 'completed',
-      conversationId,
-      timestamp: new Date(),
-    });
-
-    await incrementDailyUsage(uid, model, tokensUsed);
-
-    if (runtimeSettings.autoMemory) {
-      try {
-        await learnFactsFromConversation({
-          uid,
-          prompt,
-          responseText,
-          provider,
-          model,
-          apiKey,
-          localUrl: runtimeSettings.localUrl,
-        });
-      } catch (memoryError) {
-        console.error('Automatic memory learning failed:', memoryError);
-      }
-    }
-
-    res.json({
-      id,
-      text: responseText,
-      tokensUsed,
-      provider,
-      model,
-      conversationId,
-    });
+    res.json(result);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Chat request failed';
     console.error('Chat route error:', error);
-    res.status(500).json({ error: message });
+    res.status(message === 'Prompt is required' || /^No API key configured/.test(message) ? 400 : 500).json({ error: message });
   }
 });
 

@@ -28,3 +28,41 @@ The app uses local email-based sign-in for single-user development. Enter any va
 ## Claude
 
 If `ANTHROPIC_API_KEY` is set, the app will automatically expose Anthropic in the provider list and the default chat path will use Claude.
+
+## External Access
+
+Botty now listens on `0.0.0.0` by default, so it can be reached from other machines if your firewall, router, reverse proxy, or cloud security group allows inbound traffic.
+
+- `HOST` controls the bind address.
+- `PUBLIC_BASE_URL` can be set to your public URL, such as `https://botty.example.com`.
+- `CORS_ORIGINS` accepts a comma-separated list of allowed browser origins for external frontends.
+
+Typical production setup is to place Botty behind Nginx, Caddy, Cloudflare Tunnel, Tailscale Funnel, or a cloud load balancer rather than exposing port `5000` directly.
+
+Sample reverse-proxy configs are included in:
+
+- [ops/Caddyfile](/home/ofirkat/Botty/ops/Caddyfile)
+- [ops/nginx-botty.conf](/home/ofirkat/Botty/ops/nginx-botty.conf)
+- [ops/REVERSE_PROXY.md](/home/ofirkat/Botty/ops/REVERSE_PROXY.md)
+
+## Telegram Bot
+
+Botty can now run as a Telegram bot using long polling.
+
+Required environment variables:
+
+- `TELEGRAM_BOT_TOKEN`
+
+Optional environment variables:
+
+- `TELEGRAM_BOT_ENABLED=true`
+- `TELEGRAM_ALLOWED_CHAT_IDS=123456789,987654321`
+- `TELEGRAM_PROVIDER=auto`
+- `TELEGRAM_MODEL=qwen2.5:3b`
+
+Behavior:
+
+- Each Telegram chat gets its own Botty user profile stored in PostgreSQL.
+- Messages are processed through the same Botty chat pipeline as the web app.
+- `/start` and `/help` show usage help.
+- `/reset` clears the current Telegram conversation context for that chat.

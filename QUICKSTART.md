@@ -13,6 +13,9 @@ Set these values in `.env.local`:
 DATABASE_URL=postgresql://botty_user:botty_pass@localhost:5432/botty_db
 JWT_SECRET=replace-this
 ANTHROPIC_API_KEY=your_claude_key
+HOST=0.0.0.0
+# Optional for Telegram
+# TELEGRAM_BOT_TOKEN=123456:telegram-token
 ```
 
 ## 2. Start PostgreSQL
@@ -34,6 +37,20 @@ npm run dev
 - API: `http://localhost:5000`
 
 The database schema is bootstrapped automatically on server startup.
+
+## Optional: Reach Botty From Outside Your Machine
+
+- Leave `HOST=0.0.0.0` enabled.
+- Expose the app through your router, reverse proxy, Tailscale, or a tunnel such as Cloudflare Tunnel.
+- If you serve Botty from another origin, set `CORS_ORIGINS=https://your-domain.example`.
+- Ready-made configs are included in [ops/Caddyfile](/home/ofirkat/Botty/ops/Caddyfile) and [ops/nginx-botty.conf](/home/ofirkat/Botty/ops/nginx-botty.conf).
+
+## Optional: Enable Telegram
+
+- Create a bot with BotFather.
+- Put the bot token in `.env.local` as `TELEGRAM_BOT_TOKEN=...`.
+- Restart Botty.
+- Optional: restrict access with `TELEGRAM_ALLOWED_CHAT_IDS`.
 
 ## Notes
 
