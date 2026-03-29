@@ -80,8 +80,14 @@ async function bootstrapSchema(pool: Pool) {
       uid VARCHAR(255) PRIMARY KEY,
       local_url TEXT,
       use_memory BOOLEAN DEFAULT TRUE,
+      auto_memory BOOLEAN DEFAULT TRUE,
       updated_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE settings
+    ADD COLUMN IF NOT EXISTS auto_memory BOOLEAN DEFAULT TRUE
   `);
 
   await pool.query(`

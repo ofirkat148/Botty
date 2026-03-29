@@ -17,8 +17,50 @@ const DEFAULT_MODELS = {
   anthropic: 'claude-3-7-sonnet-latest',
   google: 'gemini-2.5-flash',
   openai: 'gpt-4o-mini',
-  local: 'llama3.2',
+  local: 'qwen2.5:1.5b',
 };
+
+const PREFERRED_LOCAL_MODELS = [
+  'qwen2.5:1.5b',
+  'llama3.2:1b',
+  'gemma3:1b',
+  'smollm2:135m',
+];
+
+function isConfiguredSecret(value?: string | null) {
+  const trimmed = value?.trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  const normalized = trimmed.toLowerCase();
+  const obviousPlaceholders = [
+    'your_claude_key',
+    'your_gemini_key',
+    'your_openai_key',
+    'replace-this',
+    'replace-me',
+    'change-this',
+    'changeme',
+    'example',
+    'test',
+  ];
+
+  if (obviousPlaceholders.includes(normalized)) {
+    return false;
+  }
+
+  if (normalized.startsWith('your_') || normalized.startsWith('your-')) {
+    return false;
+  }
+
+  if (normalized.startsWith('my_') && normalized.endsWith('_api_key')) {
+    return false;
+  }
+
+  return true;
+}
 
 function decodeKey(encryptedKey: string): string {
   return Buffer.from(encryptedKey, 'base64').toString();
@@ -28,12 +70,34 @@ export function getDefaultModel(provider: string) {
   return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] || DEFAULT_MODELS.anthropic;
 }
 
+export async function getDefaultLocalModel(localUrl?: string) {
+  const fallbackModel = getDefaultModel('local');
+  const endpoint = `${(localUrl || process.env.LOCAL_LLM_URL || 'http://localhost:11434').replace(/\/$/, '')}/api/tags`;
+
+  try {
+    const response = await fetch(endpoint);
+    if (!response.ok) {
+      return fallbackModel;
+    }
+
+    const data = await response.json() as { models?: Array<{ name?: string }> };
+    const installedModels = data.models
+      ?.map(model => model.name?.trim())
+      .filter((modelName): modelName is string => Boolean(modelName)) || [];
+
+    const preferredInstalledModel = PREFERRED_LOCAL_MODELS.find(modelName => installedModels.includes(modelName));
+    return preferredInstalledModel || installedModels[0] || fallbackModel;
+  } catch {
+    return fallbackModel;
+  }
+}
+
 export async function getAvailableProviders(uid: string) {
   const providers = new Set<string>();
   const db = getDatabase();
 
   Object.entries(PROVIDER_ENV_KEYS).forEach(([provider, envVars]) => {
-    if (envVars.some(envVar => process.env[envVar]?.trim())) {
+    if (envVars.some(envVar => isConfiguredSecret(process.env[envVar]))) {
       providers.add(provider);
     }
   });
@@ -64,7 +128,7 @@ export async function getProviderApiKey(uid: string, provider: string) {
   const envVars = PROVIDER_ENV_KEYS[provider] || [];
   for (const envVar of envVars) {
     const value = process.env[envVar]?.trim();
-    if (value) {
+    if (isConfiguredSecret(value)) {
       return value;
     }
   }
@@ -80,8 +144,160 @@ export async function getRuntimeSettings(uid: string) {
   return {
     localUrl: savedSettings[0]?.localUrl || process.env.LOCAL_LLM_URL || 'http://localhost:11434',
     useMemory: savedSettings[0]?.useMemory !== false,
+    autoMemory: savedSettings[0]?.autoMemory !== false,
     systemPrompt: savedUserSettings[0]?.systemPrompt || '',
   };
+}
+
+function normalizeFactContent(value: string) {
+  return value.trim().replace(/^[-*\d.)\s]+/, '').replace(/\s+/g, ' ').toLowerCase();
+}
+
+function cleanFactContent(value: string) {
+  return value
+    .trim()
+    .replace(/^[-*\d.)\s]+/, '')
+    .replace(/^['"`]+/, '')
+    .replace(/['"`,]+$/, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function parseLearnedFacts(responseText: string) {
+  const trimmed = responseText.trim();
+  if (!trimmed) {
+    return [] as string[];
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+    if (Array.isArray(parsed)) {
+      return parsed.filter((item): item is string => typeof item === 'string');
+    }
+  } catch {
+    // Fall back to line parsing below.
+  }
+
+  return trimmed
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => line.replace(/^[-*\d.)\s]+/, '').trim())
+    .filter(Boolean);
+}
+
+function humanizeExtractedFact(prefix: string, value: string) {
+  const cleanedValue = cleanFactContent(value).replace(/[.]+$/, '');
+  if (!cleanedValue) {
+    return '';
+  }
+
+  const firstChar = cleanedValue.charAt(0).toLowerCase();
+  const rest = cleanedValue.slice(1);
+  return `${prefix} ${firstChar}${rest}`.trim();
+}
+
+function extractPromptFacts(prompt: string) {
+  const matches: string[] = [];
+  const normalizedPrompt = ` ${prompt.trim()} `;
+  const patterns: Array<[RegExp, string]> = [
+    [/(?:^|\W)i prefer\s+(.+?)(?=\s+and\s+i\s+|[.?!]|$)/gi, 'Prefers'],
+    [/(?:^|\W)i (?:mostly\s+)?use\s+(.+?)(?=\s+and\s+i\s+|[.?!]|$)/gi, 'Uses'],
+    [/(?:^|\W)i work (?:mostly\s+)?on\s+(.+?)(?=\s+and\s+i\s+|[.?!]|$)/gi, 'Works on'],
+    [/(?:^|\W)i[' ]?m\s+(.+?)(?=\s+and\s+i\s+|[.?!]|$)/gi, 'Is'],
+    [/(?:^|\W)i am\s+(.+?)(?=\s+and\s+i\s+|[.?!]|$)/gi, 'Is'],
+    [/(?:^|\W)my name is\s+(.+?)(?=\s+and\s+i\s+|[.?!]|$)/gi, 'Name is'],
+  ];
+
+  for (const [pattern, prefix] of patterns) {
+    for (const match of normalizedPrompt.matchAll(pattern)) {
+      const fact = humanizeExtractedFact(prefix, match[1] || '');
+      if (fact) {
+        matches.push(fact);
+      }
+    }
+  }
+
+  return matches;
+}
+
+export async function learnFactsFromConversation(params: {
+  uid: string;
+  prompt: string;
+  responseText: string;
+  provider: string;
+  model: string;
+  apiKey: string;
+  localUrl?: string;
+}) {
+  const { uid, prompt, responseText, provider, model, apiKey, localUrl } = params;
+  const db = getDatabase();
+  const existingFacts = await db.select().from(facts).where(eq(facts.uid, uid)).limit(50);
+  const existingFactSet = new Set(existingFacts.map(item => normalizeFactContent(item.content)));
+
+  const heuristicFacts = extractPromptFacts(prompt);
+
+  let candidateFacts = heuristicFacts;
+
+  if (candidateFacts.length === 0) {
+    const extractionPrompt = [
+      'Extract only durable user facts from this conversation.',
+      'Return a JSON array of short strings.',
+      'Rules:',
+      '- Include only stable preferences, identity details, recurring habits, long-term goals, or environment facts about the user.',
+      '- Do not include temporary requests, one-off tasks, secrets, API keys, passwords, tokens, or anything sensitive.',
+      '- Do not include facts already known.',
+      '- Return at most 3 facts.',
+      '',
+      `[KNOWN_FACTS]`,
+      existingFacts.map(item => `- ${item.content}`).join('\n') || '(none)',
+      '',
+      `[USER_MESSAGE]`,
+      prompt,
+      '',
+      `[ASSISTANT_REPLY]`,
+      responseText,
+    ].join('\n');
+
+    const { responseText: learnedText } = await callLLM({
+      prompt: extractionPrompt,
+      provider,
+      model,
+      apiKey,
+      systemPrompt: 'You extract durable, non-sensitive user facts. Output only a JSON array of strings.',
+      localUrl,
+      messages: [],
+    });
+
+    candidateFacts = parseLearnedFacts(learnedText)
+      .map(cleanFactContent)
+      .filter(item => item.length >= 8 && item.length <= 180);
+  }
+
+  const seen = new Set<string>();
+  const newFacts = candidateFacts.filter(item => {
+    const normalized = normalizeFactContent(item);
+    if (!normalized || existingFactSet.has(normalized) || seen.has(normalized)) {
+      return false;
+    }
+
+    seen.add(normalized);
+    return true;
+  });
+
+  if (newFacts.length === 0) {
+    return [] as string[];
+  }
+
+  await db.insert(facts).values(newFacts.map(content => ({
+    id: randomUUID(),
+    uid,
+    content,
+    isSkill: false,
+    timestamp: new Date(),
+  })));
+
+  return newFacts;
 }
 
 export async function getMemoryContext(uid: string) {

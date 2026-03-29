@@ -7,11 +7,13 @@ import {
   callLLM,
   getAvailableProviders,
   getDefaultModel,
+  getDefaultLocalModel,
   getMemoryContext,
   getProviderApiKey,
   getRuntimeSettings,
   getSmartRoute,
   incrementDailyUsage,
+  learnFactsFromConversation,
 } from '../utils/llm.js';
 
 const router = Router();
@@ -20,7 +22,12 @@ router.use(authMiddleware);
 router.get('/providers', async (req: Request, res: Response) => {
   try {
     const providers = await getAvailableProviders(req.userId!);
-    res.json({ providers });
+    const runtimeSettings = await getRuntimeSettings(req.userId!);
+    const defaultLocalModel = providers.includes('local')
+      ? await getDefaultLocalModel(runtimeSettings.localUrl)
+      : null;
+
+    res.json({ providers, defaultLocalModel });
   } catch (error) {
     console.error('Error fetching providers:', error);
     res.status(500).json({ error: 'Failed to fetch providers' });
@@ -87,6 +94,22 @@ router.post('/', async (req: Request, res: Response) => {
     });
 
     await incrementDailyUsage(uid, model, tokensUsed);
+
+    if (runtimeSettings.autoMemory) {
+      try {
+        await learnFactsFromConversation({
+          uid,
+          prompt,
+          responseText,
+          provider,
+          model,
+          apiKey,
+          localUrl: runtimeSettings.localUrl,
+        });
+      } catch (memoryError) {
+        console.error('Automatic memory learning failed:', memoryError);
+      }
+    }
 
     res.json({
       id,

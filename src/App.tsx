@@ -6,11 +6,13 @@ import {
   LogOut,
   MemoryStick,
   MessageSquare,
+  Moon,
   Plus,
   RefreshCw,
   Save,
   Send,
   Settings,
+  SunMedium,
   Trash2,
 } from 'lucide-react';
 
@@ -59,6 +61,12 @@ type ApiKey = {
 type SettingsResponse = {
   localUrl: string | null;
   useMemory: boolean;
+  autoMemory: boolean;
+};
+
+type ProvidersResponse = {
+  providers: string[];
+  defaultLocalModel?: string | null;
 };
 
 const PROVIDERS = [
@@ -73,7 +81,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-3-7-sonnet-latest',
   google: 'gemini-2.5-flash',
   openai: 'gpt-4o-mini',
-  local: 'llama3.2',
+  local: 'qwen2.5:1.5b',
 };
 
 const TABS = [
@@ -84,6 +92,22 @@ const TABS = [
 ] as const;
 
 function AppShell() {
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    const savedTheme = window.localStorage.getItem('botty.theme');
+    if (savedTheme === 'dark') {
+      return true;
+    }
+
+    if (savedTheme === 'light') {
+      return false;
+    }
+
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [token, setToken] = useState(() => localStorage.getItem('botty.authToken') || '');
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -92,8 +116,8 @@ function AppShell() {
   const [loginName, setLoginName] = useState('');
 
   const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'memory' | 'settings'>('chat');
-  const [provider, setProvider] = useState('anthropic');
-  const [model, setModel] = useState(DEFAULT_MODELS.anthropic);
+  const [provider, setProvider] = useState('auto');
+  const [model, setModel] = useState('');
   const [prompt, setPrompt] = useState('');
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -109,6 +133,7 @@ function AppShell() {
   const [systemPrompt, setSystemPrompt] = useState('');
   const [localUrl, setLocalUrl] = useState('http://localhost:11434');
   const [useMemory, setUseMemory] = useState(true);
+  const [autoMemory, setAutoMemory] = useState(true);
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
@@ -124,6 +149,11 @@ function AppShell() {
     'Content-Type': 'application/json',
     Authorization: `Bearer ${token}`,
   }), [token]);
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', isDarkMode);
+    window.localStorage.setItem('botty.theme', isDarkMode ? 'dark' : 'light');
+  }, [isDarkMode]);
 
   useEffect(() => {
     if (!notice) {
@@ -212,7 +242,7 @@ function AppShell() {
       apiGet<{ tokens: number }>('/api/usage'),
       apiGet<SettingsResponse>('/api/settings'),
       apiGet<{ systemPrompt?: string | null }>('/api/settings/user-settings'),
-      apiGet<{ providers: string[] }>('/api/chat/providers'),
+      apiGet<ProvidersResponse>('/api/chat/providers'),
     ]);
 
     setHistory(historyRows);
@@ -222,13 +252,31 @@ function AppShell() {
     setDailyTokens(usageData.tokens || 0);
     setLocalUrl(settingsData.localUrl || 'http://localhost:11434');
     setUseMemory(settingsData.useMemory !== false);
+    setAutoMemory(settingsData.autoMemory !== false);
     setSystemPrompt(userSettingsData.systemPrompt || '');
-    setAvailableProviders(providersData.providers || []);
+    const nextProviders = providersData.providers || [];
+    const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
+    setAvailableProviders(nextProviders);
     setKeyInputs({
       anthropic: keyRows.find(item => item.provider === 'anthropic')?.key || '',
       google: keyRows.find(item => item.provider === 'google')?.key || '',
       openai: keyRows.find(item => item.provider === 'openai')?.key || '',
     });
+
+    if (nextProviders.length === 1 && nextProviders[0] === 'local') {
+      setProvider('local');
+      setModel(nextLocalModel);
+      return;
+    }
+
+    if (provider === 'local' && model !== nextLocalModel && nextProviders.includes('local')) {
+      setModel(nextLocalModel);
+    }
+
+    if (provider !== 'auto' && !nextProviders.includes(provider)) {
+      setProvider('auto');
+      setModel('');
+    }
   }
 
   async function handleLocalLogin(event: FormEvent<HTMLFormElement>) {
@@ -401,7 +449,7 @@ function AppShell() {
     setSavingSettings(true);
     try {
       await Promise.all([
-        apiSend('/api/settings', 'POST', { localUrl, useMemory }),
+        apiSend('/api/settings', 'POST', { localUrl, useMemory, autoMemory }),
         apiSend('/api/settings/user-settings', 'POST', { systemPrompt }),
       ]);
       await refreshAll();
@@ -430,46 +478,93 @@ function AppShell() {
       .sort((left, right) => new Date(right.items[0].timestamp).getTime() - new Date(left.items[0].timestamp).getTime());
   }, [history]);
 
+  const appBackgroundClass = isDarkMode
+    ? 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_24%),linear-gradient(180deg,_#0d1117_0%,_#111827_100%)] text-stone-100'
+    : 'min-h-screen bg-[#f3efe6] text-stone-900';
+  const shellPanelClass = isDarkMode
+    ? 'rounded-[2rem] bg-[#111927]/88 backdrop-blur-xl p-4 md:p-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)] border border-white/8'
+    : 'rounded-[2rem] bg-white/80 backdrop-blur-xl p-4 md:p-6 shadow-[0_30px_80px_rgba(120,95,64,0.15)] border border-white/70';
+  const sectionCardClass = isDarkMode
+    ? 'rounded-[1.5rem] border border-white/8 bg-[#0f1724] p-4'
+    : 'rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4';
+  const elevatedCardClass = isDarkMode
+    ? 'rounded-2xl border border-white/8 bg-[#172131] px-3 py-3'
+    : 'rounded-2xl bg-white border border-stone-200 px-3 py-3';
+  const inputClass = isDarkMode
+    ? 'rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100 placeholder:text-stone-500'
+    : 'rounded-2xl border border-stone-200 px-3 py-2 bg-stone-50';
+  const textInputClass = isDarkMode
+    ? 'w-full rounded-2xl border border-white/10 px-3 py-2 text-sm bg-[#0b1220] text-stone-100 placeholder:text-stone-500'
+    : 'w-full rounded-2xl border border-stone-200 px-3 py-2 text-sm';
+  const textareaClass = isDarkMode
+    ? 'w-full resize-none rounded-[1.25rem] border border-white/10 px-4 py-3 outline-none bg-[#0b1220] text-stone-100 placeholder:text-stone-500 focus:border-amber-300/50'
+    : 'w-full resize-none rounded-[1.25rem] border border-stone-200 px-4 py-3 outline-none focus:border-stone-400';
+  const subtleTextClass = isDarkMode ? 'text-stone-400' : 'text-stone-500';
+  const mutedTextClass = isDarkMode ? 'text-stone-300' : 'text-stone-600';
+  const sectionLabelClass = isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-600 mb-2';
+  const actionButtonClass = isDarkMode
+    ? 'rounded-2xl border border-white/10 px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/5'
+    : 'rounded-2xl border border-stone-200 px-4 py-2 text-sm flex items-center gap-2 hover:bg-stone-50';
+  const listButtonClass = isDarkMode
+    ? 'w-full text-left rounded-2xl border border-white/8 bg-[#172131] px-3 py-3 hover:border-amber-300/30'
+    : 'w-full text-left rounded-2xl border border-stone-200 bg-white px-3 py-3 hover:border-stone-300';
+  const secondaryButtonClass = isDarkMode
+    ? 'rounded-2xl border border-white/10 bg-[#172131] px-3 py-2 text-sm hover:bg-[#1d293d]'
+    : 'rounded-2xl border border-stone-200 bg-white px-3 py-2 text-sm hover:bg-stone-100';
+  const destructiveButtonClass = isDarkMode
+    ? 'rounded-2xl border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300 hover:bg-red-950/60'
+    : 'rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100';
+  const noticeClass = isDarkMode
+    ? 'mb-4 rounded-2xl bg-emerald-950/50 border border-emerald-800 text-emerald-200 px-4 py-3 text-sm'
+    : 'mb-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 text-sm';
+  const emptyStateClass = isDarkMode ? 'text-center text-stone-400' : 'text-center text-stone-500';
+
   if (authLoading) {
     return <div className="min-h-screen bg-stone-950 text-stone-100 flex items-center justify-center">Loading local workspace...</div>;
   }
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.18),_transparent_30%),linear-gradient(180deg,_#171717_0%,_#09090b_100%)] text-stone-100 px-6 py-12">
+      <div className={`${isDarkMode ? 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.18),_transparent_30%),linear-gradient(180deg,_#171717_0%,_#09090b_100%)] text-stone-100' : 'min-h-screen bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_26%),linear-gradient(180deg,_#f5efe4_0%,_#ece5d6_100%)] text-stone-900'} px-6 py-12`}>
         <div className="max-w-5xl mx-auto grid lg:grid-cols-[1.3fr_0.9fr] gap-8 items-center min-h-[80vh]">
           <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-amber-300/80 mb-4">Botty local runtime</p>
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <p className={`text-xs uppercase tracking-[0.35em] ${isDarkMode ? 'text-amber-300/80' : 'text-amber-700'} mb-0`}>Botty local runtime</p>
+              <button onClick={() => setIsDarkMode(value => !value)} className={`${isDarkMode ? 'border-white/10 bg-white/5 text-stone-100 hover:bg-white/10' : 'border-stone-300 bg-white/70 text-stone-700 hover:bg-white'} rounded-2xl border px-3 py-2 text-sm flex items-center gap-2`}>
+                {isDarkMode ? <SunMedium className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                {isDarkMode ? 'Light mode' : 'Dark mode'}
+              </button>
+            </div>
             <h1 className="text-5xl md:text-6xl font-semibold leading-tight text-balance">Run the migrated app entirely on your machine.</h1>
-            <p className="mt-6 text-lg text-stone-300 max-w-2xl leading-8">
+            <p className={`mt-6 text-lg ${isDarkMode ? 'text-stone-300' : 'text-stone-700'} max-w-2xl leading-8`}>
               Local sign-in, PostgreSQL-backed memory, and direct Claude or local model calls. No Firebase path remains in the runtime you use here.
             </p>
-            <div className="mt-8 grid sm:grid-cols-3 gap-3 text-sm text-stone-300">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Claude via ANTHROPIC_API_KEY</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">Postgres auto-bootstrapped on startup</div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">JWT local auth for single-user development</div>
+            <div className={`mt-8 grid sm:grid-cols-3 gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+              <div className={`rounded-2xl border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/65'} p-4`}>Claude via ANTHROPIC_API_KEY</div>
+              <div className={`rounded-2xl border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/65'} p-4`}>Postgres auto-bootstrapped on startup</div>
+              <div className={`rounded-2xl border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/65'} p-4`}>JWT local auth for single-user development</div>
             </div>
           </div>
 
-          <form onSubmit={handleLocalLogin} className="rounded-[2rem] border border-white/10 bg-white/5 backdrop-blur-xl p-6 shadow-2xl">
+          <form onSubmit={handleLocalLogin} className={`rounded-[2rem] border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/80'} backdrop-blur-xl p-6 shadow-2xl`}>
             <h2 className="text-2xl font-semibold mb-2">Local sign-in</h2>
-            <p className="text-stone-400 mb-6">Create or reuse a local identity stored in PostgreSQL.</p>
+            <p className={`${isDarkMode ? 'text-stone-400' : 'text-stone-600'} mb-6`}>Create or reuse a local identity stored in PostgreSQL.</p>
 
-            <label className="block text-sm text-stone-300 mb-2">Display name</label>
+            <label className={`${isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-700 mb-2'}`}>Display name</label>
             <input
               value={loginName}
               onChange={event => setLoginName(event.target.value)}
               placeholder="Ofir"
-              className="w-full rounded-2xl bg-black/30 border border-white/10 px-4 py-3 mb-4 outline-none focus:border-amber-300/60"
+              className={`w-full rounded-2xl ${isDarkMode ? 'bg-black/30 border-white/10 text-stone-100 placeholder:text-stone-500' : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400'} border px-4 py-3 mb-4 outline-none focus:border-amber-300/60`}
             />
 
-            <label className="block text-sm text-stone-300 mb-2">Email</label>
+            <label className={`${isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-700 mb-2'}`}>Email</label>
             <input
               value={loginEmail}
               onChange={event => setLoginEmail(event.target.value)}
               type="email"
               placeholder="you@local.dev"
-              className="w-full rounded-2xl bg-black/30 border border-white/10 px-4 py-3 outline-none focus:border-amber-300/60"
+              className={`w-full rounded-2xl ${isDarkMode ? 'bg-black/30 border-white/10 text-stone-100 placeholder:text-stone-500' : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400'} border px-4 py-3 outline-none focus:border-amber-300/60`}
             />
 
             {authError ? <p className="mt-4 text-sm text-red-300">{authError}</p> : null}
@@ -484,7 +579,7 @@ function AppShell() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f3efe6] text-stone-900">
+    <div className={appBackgroundClass}>
       <div className="mx-auto max-w-7xl p-4 md:p-6">
         <div className="grid lg:grid-cols-[280px_1fr] gap-4">
           <aside className="rounded-[2rem] bg-[#1a120f] text-stone-100 p-5 flex flex-col gap-4 shadow-[0_30px_80px_rgba(0,0,0,0.12)]">
@@ -512,6 +607,11 @@ function AppShell() {
               ))}
             </nav>
 
+            <button onClick={() => setIsDarkMode(value => !value)} className="rounded-2xl border border-white/10 px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/5">
+              {isDarkMode ? <SunMedium className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              {isDarkMode ? 'Light mode' : 'Dark mode'}
+            </button>
+
             <div className="mt-auto rounded-2xl bg-white/5 p-4 text-sm text-stone-300">
               <p>Providers: {availableProviders.length ? availableProviders.join(', ') : 'none configured'}</p>
               <p className="mt-2">Tokens today: {dailyTokens.toLocaleString()}</p>
@@ -524,11 +624,11 @@ function AppShell() {
             </button>
           </aside>
 
-          <main className="rounded-[2rem] bg-white/80 backdrop-blur-xl p-4 md:p-6 shadow-[0_30px_80px_rgba(120,95,64,0.15)] border border-white/70">
+          <main className={shellPanelClass}>
             <div className="flex items-center justify-between gap-4 mb-5">
               <div>
                 <h2 className="text-2xl font-semibold capitalize">{activeTab}</h2>
-                <p className="text-sm text-stone-500">
+                <p className={`text-sm ${subtleTextClass}`}>
                   {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
                   {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
                   {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
@@ -536,30 +636,30 @@ function AppShell() {
                 </p>
               </div>
 
-              <button onClick={() => void refreshAll()} className="rounded-2xl border border-stone-200 px-4 py-2 text-sm flex items-center gap-2 hover:bg-stone-50">
+              <button onClick={() => void refreshAll()} className={actionButtonClass}>
                 <RefreshCw className="w-4 h-4" />
                 Refresh
               </button>
             </div>
 
-            {notice ? <div className="mb-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 text-sm">{notice}</div> : null}
+            {notice ? <div className={noticeClass}>{notice}</div> : null}
 
             {activeTab === 'chat' ? (
               <div className="grid xl:grid-cols-[1fr_320px] gap-4">
-                <section className="rounded-[1.5rem] bg-stone-50 border border-stone-200 p-4 min-h-[70vh] flex flex-col">
+                <section className={`${sectionCardClass} min-h-[70vh] flex flex-col`}>
                   <div className="flex-1 overflow-auto space-y-4 pr-2">
                     {messages.length === 0 ? (
-                      <div className="h-full min-h-[360px] flex items-center justify-center text-center text-stone-500">
+                      <div className={`h-full min-h-[360px] flex items-center justify-center ${emptyStateClass}`}>
                         <div>
-                          <Bot className="w-10 h-10 mx-auto mb-3 text-stone-400" />
-                          <p className="text-lg text-stone-700">Start a local conversation.</p>
+                          <Bot className={`w-10 h-10 mx-auto mb-3 ${isDarkMode ? 'text-stone-500' : 'text-stone-400'}`} />
+                          <p className={`text-lg ${isDarkMode ? 'text-stone-200' : 'text-stone-700'}`}>Start a local conversation.</p>
                           <p className="text-sm mt-2 max-w-md">If Anthropic is configured, Botty will use Claude. Otherwise set a provider key or switch to your local endpoint.</p>
                         </div>
                       </div>
                     ) : null}
 
                     {messages.map((message, index) => (
-                      <div key={`${message.role}-${index}`} className={`rounded-[1.5rem] px-4 py-4 ${message.role === 'user' ? 'bg-stone-900 text-white ml-auto max-w-[82%]' : 'bg-white border border-stone-200 max-w-[92%]'}`}>
+                      <div key={`${message.role}-${index}`} className={`rounded-[1.5rem] px-4 py-4 ${message.role === 'user' ? 'bg-stone-900 text-white ml-auto max-w-[82%]' : isDarkMode ? 'bg-[#172131] border border-white/8 max-w-[92%]' : 'bg-white border border-stone-200 max-w-[92%]'}`}>
                         <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">{message.role === 'user' ? 'You' : message.model || 'Assistant'}</div>
                         <div className="whitespace-pre-wrap leading-7 text-[15px]">{message.content}</div>
                       </div>
@@ -568,7 +668,7 @@ function AppShell() {
 
                   {chatError ? <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">{chatError}</div> : null}
 
-                  <div className="mt-4 rounded-[1.5rem] border border-stone-200 bg-white p-3">
+                  <div className={`mt-4 rounded-[1.5rem] p-3 ${isDarkMode ? 'border border-white/8 bg-[#111927]' : 'border border-stone-200 bg-white'}`}>
                     <div className="grid md:grid-cols-[180px_1fr] gap-3 mb-3">
                       <select
                         value={provider}
@@ -577,9 +677,11 @@ function AppShell() {
                           setProvider(nextProvider);
                           if (nextProvider !== 'auto') {
                             setModel(DEFAULT_MODELS[nextProvider] || '');
+                          } else {
+                            setModel('');
                           }
                         }}
-                        className="rounded-2xl border border-stone-200 px-3 py-2 bg-stone-50"
+                        className={inputClass}
                       >
                         {PROVIDERS.map(option => (
                           <option key={option.value} value={option.value}>{option.label}</option>
@@ -591,7 +693,7 @@ function AppShell() {
                         onChange={event => setModel(event.target.value)}
                         disabled={provider === 'auto'}
                         placeholder={provider === 'auto' ? 'Chosen automatically' : 'Model name'}
-                        className="rounded-2xl border border-stone-200 px-3 py-2 bg-stone-50 disabled:bg-stone-100 disabled:text-stone-400"
+                        className={`${inputClass} ${isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400'}`}
                       />
                     </div>
 
@@ -600,11 +702,11 @@ function AppShell() {
                       onChange={event => setPrompt(event.target.value)}
                       rows={5}
                       placeholder="Ask Claude to debug, design, or write code..."
-                      className="w-full resize-none rounded-[1.25rem] border border-stone-200 px-4 py-3 outline-none focus:border-stone-400"
+                      className={textareaClass}
                     />
 
                     <div className="mt-3 flex items-center justify-between gap-3">
-                      <p className="text-xs text-stone-500">Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}.</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}.</p>
                       <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
                         <Send className="w-4 h-4" />
                         {isSending ? 'Sending...' : 'Send'}
@@ -614,22 +716,22 @@ function AppShell() {
                 </section>
 
                 <section className="space-y-4">
-                  <div className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4">
+                  <div className={sectionCardClass}>
                     <h3 className="font-medium">Current runtime</h3>
-                    <ul className="mt-3 text-sm text-stone-600 space-y-2">
+                    <ul className={`mt-3 text-sm ${mutedTextClass} space-y-2`}>
                       <li>Primary provider: {provider}</li>
                       <li>Model: {provider === 'auto' ? 'auto-selected' : model}</li>
                       <li>Available providers: {availableProviders.length ? availableProviders.join(', ') : 'none'}</li>
                     </ul>
                   </div>
 
-                  <div className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4">
+                  <div className={sectionCardClass}>
                     <h3 className="font-medium">Recent conversations</h3>
                     <div className="mt-3 space-y-2 max-h-[420px] overflow-auto">
                       {conversations.slice(0, 8).map(item => (
-                        <button key={item.id} onClick={() => loadConversation(item.id)} className="w-full text-left rounded-2xl border border-stone-200 bg-white px-3 py-3 hover:border-stone-300">
+                        <button key={item.id} onClick={() => loadConversation(item.id)} className={listButtonClass}>
                           <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
-                          <div className="text-xs text-stone-500 mt-2">{new Date(item.items[0].timestamp).toLocaleString()}</div>
+                          <div className={`text-xs ${subtleTextClass} mt-2`}>{new Date(item.items[0].timestamp).toLocaleString()}</div>
                         </button>
                       ))}
                     </div>
@@ -641,55 +743,55 @@ function AppShell() {
             {activeTab === 'history' ? (
               <div className="space-y-3">
                 {conversations.map(item => (
-                  <div key={item.id} className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4 flex items-start justify-between gap-4">
+                  <div key={item.id} className={`${sectionCardClass} flex items-start justify-between gap-4`}>
                     <div>
                       <div className="text-sm font-medium">{item.items[0].prompt}</div>
-                      <div className="text-xs text-stone-500 mt-2">{new Date(item.items[0].timestamp).toLocaleString()} · {item.items.length} message pair(s)</div>
+                      <div className={`text-xs ${subtleTextClass} mt-2`}>{new Date(item.items[0].timestamp).toLocaleString()} · {item.items.length} message pair(s)</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <button onClick={() => loadConversation(item.id)} className="rounded-2xl border border-stone-200 bg-white px-3 py-2 text-sm hover:bg-stone-100">Open</button>
-                      <button onClick={() => void deleteConversation(item.id)} className="rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100">
+                      <button onClick={() => loadConversation(item.id)} className={secondaryButtonClass}>Open</button>
+                      <button onClick={() => void deleteConversation(item.id)} className={destructiveButtonClass}>
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
                   </div>
                 ))}
-                {conversations.length === 0 ? <div className="text-sm text-stone-500">No saved history yet.</div> : null}
+                {conversations.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
               </div>
             ) : null}
 
             {activeTab === 'memory' ? (
               <div className="grid xl:grid-cols-2 gap-4">
-                <section className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4">
+                <section className={sectionCardClass}>
                   <h3 className="font-medium mb-3">Facts</h3>
                   <form onSubmit={addFact} className="flex gap-2 mb-4">
-                    <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className="flex-1 rounded-2xl border border-stone-200 px-3 py-2" />
+                    <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
                     <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
                   </form>
                   <div className="space-y-2">
                     {facts.map(item => (
-                      <div key={item.id} className="rounded-2xl bg-white border border-stone-200 px-3 py-3 flex items-start justify-between gap-3">
+                      <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
                         <div className="text-sm">{item.content}</div>
-                        <button onClick={() => void deleteFact(item.id)} className="text-stone-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => void deleteFact(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
                       </div>
                     ))}
                   </div>
                 </section>
 
-                <section className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4">
+                <section className={sectionCardClass}>
                   <h3 className="font-medium mb-3">Saved URLs</h3>
                   <form onSubmit={addUrl} className="flex gap-2 mb-4">
-                    <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className="flex-1 rounded-2xl border border-stone-200 px-3 py-2" />
+                    <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className={`flex-1 ${inputClass}`} />
                     <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
                   </form>
                   <div className="space-y-2">
                     {memoryUrls.map(item => (
-                      <div key={item.id} className="rounded-2xl bg-white border border-stone-200 px-3 py-3 flex items-start justify-between gap-3">
+                      <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
                         <div>
                           <div className="text-sm font-medium">{item.title || item.url}</div>
-                          <div className="text-xs text-stone-500 mt-1">{item.url}</div>
+                          <div className={`text-xs ${subtleTextClass} mt-1`}>{item.url}</div>
                         </div>
-                        <button onClick={() => void deleteUrl(item.id)} className="text-stone-500 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={() => void deleteUrl(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
                       </div>
                     ))}
                   </div>
@@ -699,20 +801,20 @@ function AppShell() {
 
             {activeTab === 'settings' ? (
               <div className="space-y-4">
-                <section className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4">
+                <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
                     <KeyRound className="w-4 h-4" />
                     <h3 className="font-medium">Provider keys</h3>
                   </div>
                   <div className="grid md:grid-cols-3 gap-3">
                     {['anthropic', 'google', 'openai'].map(providerName => (
-                      <div key={providerName} className="rounded-2xl bg-white border border-stone-200 p-3">
+                      <div key={providerName} className={`${isDarkMode ? 'rounded-2xl bg-[#172131] border border-white/8 p-3' : 'rounded-2xl bg-white border border-stone-200 p-3'}`}>
                         <div className="text-sm font-medium capitalize mb-2">{providerName}</div>
                         <input
                           value={keyInputs[providerName] || ''}
                           onChange={event => setKeyInputs(prev => ({ ...prev, [providerName]: event.target.value }))}
                           placeholder={`${providerName.toUpperCase()}_API_KEY`}
-                          className="w-full rounded-2xl border border-stone-200 px-3 py-2 text-sm"
+                          className={textInputClass}
                         />
                         <button onClick={() => void saveKey(providerName)} className="mt-3 rounded-2xl bg-stone-900 text-white px-3 py-2 text-sm w-full disabled:opacity-60" disabled={savingKey === providerName}>
                           {savingKey === providerName ? 'Saving...' : 'Save key'}
@@ -722,25 +824,30 @@ function AppShell() {
                   </div>
                 </section>
 
-                <section className="rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4 space-y-4">
+                <section className={`${sectionCardClass} space-y-4`}>
                   <div className="flex items-center gap-2">
                     <Settings className="w-4 h-4" />
                     <h3 className="font-medium">Runtime settings</h3>
                   </div>
 
                   <div>
-                    <label className="block text-sm text-stone-600 mb-2">Local LLM URL</label>
-                    <input value={localUrl} onChange={event => setLocalUrl(event.target.value)} className="w-full rounded-2xl border border-stone-200 px-3 py-2" />
+                    <label className={sectionLabelClass}>Local LLM URL</label>
+                    <input value={localUrl} onChange={event => setLocalUrl(event.target.value)} className={isDarkMode ? 'w-full rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100' : 'w-full rounded-2xl border border-stone-200 px-3 py-2'} />
                   </div>
 
                   <div>
-                    <label className="block text-sm text-stone-600 mb-2">System prompt</label>
-                    <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} rows={6} className="w-full rounded-2xl border border-stone-200 px-3 py-2" />
+                    <label className={sectionLabelClass}>System prompt</label>
+                    <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} rows={6} className={isDarkMode ? 'w-full rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100' : 'w-full rounded-2xl border border-stone-200 px-3 py-2'} />
                   </div>
 
-                  <label className="flex items-center gap-3 text-sm text-stone-700">
+                  <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
                     <input type="checkbox" checked={useMemory} onChange={event => setUseMemory(event.target.checked)} />
                     Include saved memory in prompt construction
+                  </label>
+
+                  <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+                    <input type="checkbox" checked={autoMemory} onChange={event => setAutoMemory(event.target.checked)} />
+                    Learn durable facts about me automatically from successful chats
                   </label>
 
                   <button onClick={() => void saveSettings()} disabled={savingSettings} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">

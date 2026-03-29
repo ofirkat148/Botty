@@ -1,0 +1,22 @@
+[Unit]
+Description=Botty application service
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=simple
+User=ofirkat
+Group=ofirkat
+SupplementaryGroups=docker
+WorkingDirectory=/home/ofirkat/Botty
+Environment=NODE_ENV=production
+EnvironmentFile=/home/ofirkat/Botty/.env.local
+ExecStartPre=/usr/bin/docker compose -f /home/ofirkat/Botty/docker-compose.yml up -d postgres
+ExecStartPre=/bin/sh -c 'until /usr/bin/nc -z 127.0.0.1 5432; do sleep 1; done'
+ExecStartPre=/usr/bin/npm run build
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

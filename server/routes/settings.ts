@@ -24,7 +24,7 @@ router.get('/', async (req: Request, res: Response) => {
         uid,
         localUrl: null,
         useMemory: true,
-        autoMemory: false,
+        autoMemory: true,
       });
     }
 
@@ -38,7 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/settings - Update user settings
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { localUrl, useMemory } = req.body;
+    const { localUrl, useMemory, autoMemory } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
 
@@ -49,6 +49,7 @@ router.post('/', async (req: Request, res: Response) => {
         uid,
         localUrl: localUrl || null,
         useMemory: useMemory !== undefined ? useMemory : true,
+        autoMemory: autoMemory !== undefined ? autoMemory : true,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -56,6 +57,7 @@ router.post('/', async (req: Request, res: Response) => {
         set: {
           localUrl: localUrl || null,
           useMemory: useMemory !== undefined ? useMemory : true,
+          autoMemory: autoMemory !== undefined ? autoMemory : true,
           updatedAt: new Date(),
         },
       });

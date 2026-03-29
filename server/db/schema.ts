@@ -68,6 +68,7 @@ export const settings = pgTable('settings', {
   uid: varchar('uid', { length: 255 }).primaryKey().notNull(),
   localUrl: text('local_url'),
   useMemory: boolean('use_memory').default(true),
+  autoMemory: boolean('auto_memory').default(true),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
