@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
   Download,
@@ -15,6 +15,7 @@ import {
   Settings,
   SunMedium,
   Trash2,
+  Upload,
 } from 'lucide-react';
 
 type User = {
@@ -68,6 +69,36 @@ type SettingsResponse = {
 type ProvidersResponse = {
   providers: string[];
   defaultLocalModel?: string | null;
+};
+
+type MemoryBackupPayload = {
+  version?: number;
+  exportedAt?: string;
+  memory?: {
+    facts?: Array<unknown>;
+    files?: Array<unknown>;
+    urls?: Array<unknown>;
+  };
+  settings?: {
+    localUrl?: string | null;
+    useMemory?: boolean;
+    autoMemory?: boolean;
+  };
+  userSettings?: {
+    systemPrompt?: string | null;
+  };
+  history?: Array<unknown>;
+};
+
+type MemoryRestorePreview = {
+  fileName: string;
+  exportedAt: string | null;
+  facts: number;
+  files: number;
+  urls: number;
+  history: number;
+  includesSettings: boolean;
+  includesSystemPrompt: boolean;
 };
 
 const PROVIDERS = [
@@ -145,7 +176,11 @@ function AppShell() {
   const [savingKey, setSavingKey] = useState('');
   const [savingSettings, setSavingSettings] = useState(false);
   const [isExportingMemory, setIsExportingMemory] = useState(false);
+  const [isImportingMemory, setIsImportingMemory] = useState(false);
+  const [pendingMemoryRestore, setPendingMemoryRestore] = useState<MemoryBackupPayload | null>(null);
+  const [memoryRestorePreview, setMemoryRestorePreview] = useState<MemoryRestorePreview | null>(null);
   const [notice, setNotice] = useState('');
+  const importMemoryInputRef = useRef<HTMLInputElement | null>(null);
 
   const authHeaders = useMemo(() => ({
     'Content-Type': 'application/json',
@@ -495,6 +530,69 @@ function AppShell() {
     }
   }
 
+  function resetMemoryRestoreSelection() {
+    setPendingMemoryRestore(null);
+    setMemoryRestorePreview(null);
+    if (importMemoryInputRef.current) {
+      importMemoryInputRef.current.value = '';
+    }
+  }
+
+  async function prepareMemoryRestore(file: File) {
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text) as MemoryBackupPayload;
+      const preview: MemoryRestorePreview = {
+        fileName: file.name,
+        exportedAt: typeof payload.exportedAt === 'string' ? payload.exportedAt : null,
+        facts: Array.isArray(payload.memory?.facts) ? payload.memory?.facts.length : 0,
+        files: Array.isArray(payload.memory?.files) ? payload.memory?.files.length : 0,
+        urls: Array.isArray(payload.memory?.urls) ? payload.memory?.urls.length : 0,
+        history: Array.isArray(payload.history) ? payload.history.length : 0,
+        includesSettings: Boolean(payload.settings),
+        includesSystemPrompt: Boolean(payload.userSettings),
+      };
+
+      setPendingMemoryRestore(payload);
+      setMemoryRestorePreview(preview);
+    } catch (error) {
+      resetMemoryRestoreSelection();
+      setNotice(error instanceof Error ? error.message : 'Failed to read memory backup.');
+    }
+  }
+
+  async function importMemoryBackup() {
+    if (!pendingMemoryRestore) {
+      return;
+    }
+
+    setIsImportingMemory(true);
+
+    try {
+      const response = await fetch('/api/memory/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(pendingMemoryRestore),
+      });
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `Restore failed: ${response.status}`);
+      }
+
+      await refreshAll();
+      setNotice('Memory backup restored.');
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Failed to restore memory backup.');
+    } finally {
+      setIsImportingMemory(false);
+      resetMemoryRestoreSelection();
+    }
+  }
+
   const conversations = useMemo(() => {
     const grouped = new Map<string, HistoryEntry[]>();
 
@@ -801,13 +899,76 @@ function AppShell() {
                 <div className={`${sectionCardClass} flex items-center justify-between gap-3`}>
                   <div>
                     <h3 className="font-medium">Memory backup</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>Download your saved facts, URLs, settings, and recent history as a JSON backup.</p>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>Download a backup or restore one to replace the current user's saved facts, URLs, settings, and recent history.</p>
                   </div>
-                  <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
-                    <Download className="w-4 h-4" />
-                    {isExportingMemory ? 'Exporting...' : 'Backup memory now'}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={importMemoryInputRef}
+                      type="file"
+                      accept="application/json"
+                      className="hidden"
+                      onChange={event => {
+                        const file = event.target.files?.[0];
+                        if (file) {
+                          void prepareMemoryRestore(file);
+                        }
+                      }}
+                    />
+                    <button onClick={() => importMemoryInputRef.current?.click()} disabled={isImportingMemory} className="rounded-2xl border border-stone-300 bg-white/80 px-4 py-3 flex items-center gap-2 disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-stone-100">
+                      <Upload className="w-4 h-4" />
+                      {isImportingMemory ? 'Restoring...' : 'Restore backup'}
+                    </button>
+                    <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
+                      <Download className="w-4 h-4" />
+                      {isExportingMemory ? 'Exporting...' : 'Backup memory now'}
+                    </button>
+                  </div>
                 </div>
+
+                {memoryRestorePreview ? (
+                  <div className={`${sectionCardClass} space-y-4`}>
+                    <div>
+                      <h3 className="font-medium">Restore preview</h3>
+                      <p className={`text-sm ${subtleTextClass} mt-1`}>Review this backup before restoring it. Confirming will replace the current signed-in user's saved backup data.</p>
+                    </div>
+
+                    <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
+                      <div className={elevatedCardClass}>
+                        <div className={subtleTextClass}>Facts</div>
+                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.facts}</div>
+                      </div>
+                      <div className={elevatedCardClass}>
+                        <div className={subtleTextClass}>Files</div>
+                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.files}</div>
+                      </div>
+                      <div className={elevatedCardClass}>
+                        <div className={subtleTextClass}>URLs</div>
+                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.urls}</div>
+                      </div>
+                      <div className={elevatedCardClass}>
+                        <div className={subtleTextClass}>History</div>
+                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.history}</div>
+                      </div>
+                    </div>
+
+                    <div className={`text-sm ${subtleTextClass} space-y-1`}>
+                      <div>File: {memoryRestorePreview.fileName}</div>
+                      <div>Exported at: {memoryRestorePreview.exportedAt ? new Date(memoryRestorePreview.exportedAt).toLocaleString() : 'unknown'}</div>
+                      <div>Includes runtime settings: {memoryRestorePreview.includesSettings ? 'yes' : 'no'}</div>
+                      <div>Includes system prompt: {memoryRestorePreview.includesSystemPrompt ? 'yes' : 'no'}</div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => void importMemoryBackup()} disabled={isImportingMemory} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
+                        <Upload className="w-4 h-4" />
+                        {isImportingMemory ? 'Restoring...' : 'Confirm restore'}
+                      </button>
+                      <button onClick={resetMemoryRestoreSelection} disabled={isImportingMemory} className="rounded-2xl border border-stone-300 bg-white/80 px-4 py-3 flex items-center gap-2 disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-stone-100">
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="grid xl:grid-cols-2 gap-4">
                 <section className={sectionCardClass}>

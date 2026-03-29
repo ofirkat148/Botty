@@ -27,6 +27,16 @@ const PREFERRED_LOCAL_MODELS = [
   'smollm2:135m',
 ];
 
+const COMBINABLE_FACT_PREFIXES = ['Prefers', 'Uses', 'Works on'] as const;
+
+type FactRow = {
+  id: string;
+  uid: string;
+  content: string;
+  isSkill: boolean | null;
+  timestamp: Date;
+};
+
 function isConfiguredSecret(value?: string | null) {
   const trimmed = value?.trim();
 
@@ -149,11 +159,11 @@ export async function getRuntimeSettings(uid: string) {
   };
 }
 
-function normalizeFactContent(value: string) {
+export function normalizeFactContent(value: string) {
   return value.trim().replace(/^[-*\d.)\s]+/, '').replace(/\s+/g, ' ').toLowerCase();
 }
 
-function cleanFactContent(value: string) {
+export function cleanFactContent(value: string) {
   return value
     .trim()
     .replace(/^[-*\d.)\s]+/, '')
@@ -161,6 +171,194 @@ function cleanFactContent(value: string) {
     .replace(/['"`,]+$/, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function splitFactClauses(value: string) {
+  return cleanFactContent(value)
+    .split(/\s*(?:,|;|\band\b)\s*/i)
+    .map(clause => cleanFactContent(clause))
+    .filter(Boolean);
+}
+
+function joinFactClauses(clauses: string[]) {
+  if (clauses.length <= 1) {
+    return clauses[0] || '';
+  }
+
+  if (clauses.length === 2) {
+    return `${clauses[0]} and ${clauses[1]}`;
+  }
+
+  return `${clauses.slice(0, -1).join(', ')}, and ${clauses[clauses.length - 1]}`;
+}
+
+function parseFactPrefix(value: string) {
+  const cleaned = cleanFactContent(value);
+
+  for (const prefix of COMBINABLE_FACT_PREFIXES) {
+    if (cleaned.toLowerCase().startsWith(`${prefix.toLowerCase()} `)) {
+      return {
+        prefix,
+        remainder: cleaned.slice(prefix.length).trim(),
+      };
+    }
+  }
+
+  return null;
+}
+
+function combineFactContents(left: string, right: string) {
+  const cleanedLeft = cleanFactContent(left);
+  const cleanedRight = cleanFactContent(right);
+  const normalizedLeft = normalizeFactContent(cleanedLeft);
+  const normalizedRight = normalizeFactContent(cleanedRight);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return cleanedLeft || cleanedRight;
+  }
+
+  if (normalizedLeft === normalizedRight) {
+    return cleanedLeft.length >= cleanedRight.length ? cleanedLeft : cleanedRight;
+  }
+
+  if (normalizedLeft.includes(normalizedRight)) {
+    return cleanedLeft;
+  }
+
+  if (normalizedRight.includes(normalizedLeft)) {
+    return cleanedRight;
+  }
+
+  const leftParsed = parseFactPrefix(cleanedLeft);
+  const rightParsed = parseFactPrefix(cleanedRight);
+
+  if (!leftParsed || !rightParsed || leftParsed.prefix !== rightParsed.prefix) {
+    return null;
+  }
+
+  const clauseMap = new Map<string, string>();
+
+  [...splitFactClauses(leftParsed.remainder), ...splitFactClauses(rightParsed.remainder)].forEach(clause => {
+    const normalizedClause = normalizeFactContent(clause);
+    if (!normalizedClause || clauseMap.has(normalizedClause)) {
+      return;
+    }
+
+    clauseMap.set(normalizedClause, clause);
+  });
+
+  const mergedClauses = Array.from(clauseMap.values());
+  if (mergedClauses.length === 0) {
+    return null;
+  }
+
+  return `${leftParsed.prefix} ${joinFactClauses(mergedClauses)}`;
+}
+
+export function consolidateFactRows(rows: FactRow[]) {
+  const consolidated: FactRow[] = [];
+
+  for (const row of rows) {
+    const cleanedContent = cleanFactContent(row.content);
+    if (!cleanedContent) {
+      continue;
+    }
+
+    const candidate: FactRow = {
+      ...row,
+      content: cleanedContent,
+      isSkill: Boolean(row.isSkill),
+      timestamp: row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp),
+    };
+
+    let merged = false;
+
+    for (const existing of consolidated) {
+      const nextContent = combineFactContents(existing.content, candidate.content);
+      if (!nextContent) {
+        continue;
+      }
+
+      existing.content = nextContent;
+      existing.isSkill = Boolean(existing.isSkill || candidate.isSkill);
+      existing.timestamp = existing.timestamp >= candidate.timestamp ? existing.timestamp : candidate.timestamp;
+      merged = true;
+      break;
+    }
+
+    if (!merged) {
+      consolidated.push(candidate);
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    for (let index = 0; index < consolidated.length; index += 1) {
+      for (let compareIndex = index + 1; compareIndex < consolidated.length; compareIndex += 1) {
+        const mergedContent = combineFactContents(consolidated[index].content, consolidated[compareIndex].content);
+        if (!mergedContent) {
+          continue;
+        }
+
+        consolidated[index].content = mergedContent;
+        consolidated[index].isSkill = Boolean(consolidated[index].isSkill || consolidated[compareIndex].isSkill);
+        consolidated[index].timestamp = consolidated[index].timestamp >= consolidated[compareIndex].timestamp
+          ? consolidated[index].timestamp
+          : consolidated[compareIndex].timestamp;
+        consolidated.splice(compareIndex, 1);
+        changed = true;
+        break;
+      }
+
+      if (changed) {
+        break;
+      }
+    }
+  }
+
+  return consolidated;
+}
+
+export async function saveFactsWithConsolidation(
+  uid: string,
+  incomingFacts: Array<{ content: string; isSkill?: boolean; timestamp?: Date }>,
+  options?: { replaceExisting?: boolean },
+) {
+  const db = getDatabase();
+  const existingFacts = options?.replaceExisting
+    ? []
+    : await db.select().from(facts).where(eq(facts.uid, uid));
+
+  const candidateRows: FactRow[] = incomingFacts.map(item => ({
+    id: randomUUID(),
+    uid,
+    content: item.content,
+    isSkill: Boolean(item.isSkill),
+    timestamp: item.timestamp || new Date(),
+  }));
+
+  const consolidatedRows = consolidateFactRows([
+    ...existingFacts.map(item => ({
+      id: item.id,
+      uid: item.uid,
+      content: item.content,
+      isSkill: item.isSkill,
+      timestamp: item.timestamp,
+    })),
+    ...candidateRows,
+  ]);
+
+  await db.transaction(async tx => {
+    await tx.delete(facts).where(eq(facts.uid, uid));
+
+    if (consolidatedRows.length > 0) {
+      await tx.insert(facts).values(consolidatedRows);
+    }
+  });
+
+  return consolidatedRows.map(item => item.content);
 }
 
 function parseLearnedFacts(responseText: string) {
@@ -289,13 +487,14 @@ export async function learnFactsFromConversation(params: {
     return [] as string[];
   }
 
-  await db.insert(facts).values(newFacts.map(content => ({
-    id: randomUUID(),
+  await saveFactsWithConsolidation(
     uid,
-    content,
-    isSkill: false,
-    timestamp: new Date(),
-  })));
+    newFacts.map(content => ({
+      content,
+      isSkill: false,
+      timestamp: new Date(),
+    })),
+  );
 
   return newFacts;
 }
