@@ -42,6 +42,7 @@ router.post('/', async (req: Request, res: Response) => {
             memoryMode: req.body.activeBot.memoryMode,
           }
         : null,
+      attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
     });
 
     res.json(result);

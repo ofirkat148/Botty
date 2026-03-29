@@ -1,4 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
+import { createWorker, PSM } from 'tesseract.js';
 import {
   Bot,
   Download,
@@ -6,6 +9,7 @@ import {
   KeyRound,
   LogOut,
   MemoryStick,
+  Mic,
   MessageSquare,
   Moon,
   Plus,
@@ -14,10 +18,19 @@ import {
   Send,
   Settings,
   Sparkles,
+  Square,
   SunMedium,
   Trash2,
   Upload,
 } from 'lucide-react';
+
+GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+
+const MAX_CHAT_ATTACHMENT_BYTES = 6 * 1024 * 1024;
+const MAX_CHAT_ATTACHMENT_CHARS = 12000;
+const MAX_CHAT_ATTACHMENT_PAGES = 20;
+
+let imageOcrWorkerPromise: Promise<Awaited<ReturnType<typeof createWorker>>> | null = null;
 
 type User = {
   id: string;
@@ -32,6 +45,15 @@ type Message = {
   content: string;
   model?: string;
   provider?: string;
+};
+
+type PendingAttachment = {
+  id: string;
+  name: string;
+  content: string;
+  type?: string;
+  size: number;
+  source: 'text' | 'pdf' | 'image';
 };
 
 type HistoryEntry = {
@@ -269,6 +291,7 @@ function AppShell() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const [chatError, setChatError] = useState('');
   const [availableProviders, setAvailableProviders] = useState<string[]>([]);
 
@@ -296,6 +319,8 @@ function AppShell() {
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
+  const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [newSkillTitle, setNewSkillTitle] = useState('');
   const [newSkillDescription, setNewSkillDescription] = useState('');
   const [newSkillCommand, setNewSkillCommand] = useState('');
@@ -322,6 +347,8 @@ function AppShell() {
   const [memoryRestorePreview, setMemoryRestorePreview] = useState<MemoryRestorePreview | null>(null);
   const [notice, setNotice] = useState('');
   const importMemoryInputRef = useRef<HTMLInputElement | null>(null);
+  const attachmentInputRef = useRef<HTMLInputElement | null>(null);
+  const speechRecognitionRef = useRef<any>(null);
 
   const authHeaders = useMemo(() => ({
     'Content-Type': 'application/json',
@@ -348,6 +375,135 @@ function AppShell() {
     return value.charAt(0).toUpperCase() + value.slice(1);
   }
 
+  function supportsSpeechRecognition() {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return 'SpeechRecognition' in window || 'webkitSpeechRecognition' in window;
+  }
+
+  function isReadableTextFile(file: File) {
+    const lowerName = file.name.toLowerCase();
+    const textExtensions = ['.txt', '.md', '.markdown', '.json', '.csv', '.ts', '.tsx', '.js', '.jsx', '.css', '.html', '.xml', '.yml', '.yaml', '.py', '.java', '.c', '.cpp', '.rs', '.go', '.sh', '.sql', '.log'];
+
+    return file.type.startsWith('text/')
+      || file.type === 'application/json'
+      || file.type === 'application/xml'
+      || textExtensions.some(extension => lowerName.endsWith(extension));
+  }
+
+  function isPdfFile(file: File) {
+    return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+  }
+
+  function isImageFile(file: File) {
+    const lowerName = file.name.toLowerCase();
+    const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'];
+
+    return file.type.startsWith('image/') || imageExtensions.some(extension => lowerName.endsWith(extension));
+  }
+
+  async function readFileAsDataUrl(file: File) {
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+      reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}`));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function extractPdfText(file: File) {
+    const pdf = await getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
+    const totalPages = Math.min(pdf.numPages, MAX_CHAT_ATTACHMENT_PAGES);
+    const chunks: string[] = [];
+
+    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
+      const page = await pdf.getPage(pageNumber);
+      const textContent = await page.getTextContent();
+      const pageText = textContent.items
+        .map(item => ('str' in item ? item.str : ''))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      if (pageText) {
+        chunks.push(`Page ${pageNumber}: ${pageText}`);
+      }
+    }
+
+    return chunks.join('\n\n').trim();
+  }
+
+  async function getImageOcrWorker() {
+    if (!imageOcrWorkerPromise) {
+      imageOcrWorkerPromise = createWorker('eng', 1, {
+        logger: message => {
+          if (message.status === 'recognizing text') {
+            setNotice(`Running OCR: ${Math.round(message.progress * 100)}%`);
+          }
+        },
+      });
+    }
+
+    const worker = await imageOcrWorkerPromise;
+    await worker.setParameters({
+      tessedit_pageseg_mode: PSM.SPARSE_TEXT,
+      preserve_interword_spaces: '1',
+    });
+    return worker;
+  }
+
+  async function extractImageText(file: File) {
+    const worker = await getImageOcrWorker();
+    const imageUrl = await readFileAsDataUrl(file);
+    const { data } = await worker.recognize(imageUrl);
+    return data.text.replace(/\s+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+  }
+
+  async function parseAttachmentFile(file: File) {
+    if (isReadableTextFile(file)) {
+      const content = (await file.text()).trim();
+      return {
+        content,
+        source: 'text' as const,
+        type: file.type || 'text/plain',
+      };
+    }
+
+    if (isPdfFile(file)) {
+      const content = await extractPdfText(file);
+      return {
+        content,
+        source: 'pdf' as const,
+        type: 'application/pdf',
+      };
+    }
+
+    if (isImageFile(file)) {
+      const content = await extractImageText(file);
+      return {
+        content,
+        source: 'image' as const,
+        type: file.type || 'image/*',
+      };
+    }
+
+    return null;
+  }
+
+  function formatAttachmentSize(size: number) {
+    if (size < 1024) {
+      return `${size} B`;
+    }
+
+    if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(1)} KB`;
+    }
+
+    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
     window.localStorage.setItem('botty.theme', isDarkMode ? 'dark' : 'light');
@@ -361,6 +517,13 @@ function AppShell() {
     const timer = window.setTimeout(() => setNotice(''), 3000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => () => {
+    if (speechRecognitionRef.current) {
+      speechRecognitionRef.current.stop();
+      speechRecognitionRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     async function loadSession() {
@@ -558,11 +721,12 @@ function AppShell() {
 
   async function sendPrompt() {
     const text = prompt.trim();
-    if (!text || isSending) {
+    if ((!text && pendingAttachments.length === 0) || isSending) {
       return;
     }
 
-    const nextMessages = [...messages, { role: 'user' as const, content: text }];
+    const displayPrompt = text || `Attached ${pendingAttachments.length} file${pendingAttachments.length === 1 ? '' : 's'}`;
+    const nextMessages = [...messages, { role: 'user' as const, content: displayPrompt }];
     setMessages(nextMessages);
     setPrompt('');
     setChatError('');
@@ -581,6 +745,11 @@ function AppShell() {
         model: provider === 'auto' ? undefined : model,
         conversationId,
         messages: messages.slice(-10),
+        attachments: pendingAttachments.map(item => ({
+          name: item.name,
+          content: item.content,
+          type: item.type,
+        })),
         activeBot: activeBotPreset
           ? {
               id: activeBotPreset.id,
@@ -592,6 +761,10 @@ function AppShell() {
       });
 
       setConversationId(response.conversationId);
+      setPendingAttachments([]);
+      if (attachmentInputRef.current) {
+        attachmentInputRef.current.value = '';
+      }
       setMessages(prev => [...prev, {
         role: 'assistant',
         content: response.text,
@@ -607,6 +780,157 @@ function AppShell() {
     } finally {
       setIsSending(false);
     }
+  }
+
+  async function addChatFiles(fileList: FileList | null) {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) {
+      return;
+    }
+
+    const nextAttachments: PendingAttachment[] = [];
+
+    for (const file of files) {
+      if (!isReadableTextFile(file) && !isPdfFile(file) && !isImageFile(file)) {
+        setNotice(`Skipping ${file.name}: supported chat files are text, PDF, and images.`);
+        continue;
+      }
+
+      if (file.size > MAX_CHAT_ATTACHMENT_BYTES) {
+        setNotice(`Skipping ${file.name}: file is larger than 6 MB.`);
+        continue;
+      }
+
+      if (isPdfFile(file)) {
+        setNotice(`Extracting text from ${file.name}...`);
+      } else if (isImageFile(file)) {
+        setNotice(`Running OCR for ${file.name}...`);
+      }
+
+      let parsedAttachment: Awaited<ReturnType<typeof parseAttachmentFile>>;
+      try {
+        parsedAttachment = await parseAttachmentFile(file);
+      } catch (error) {
+        setNotice(`Skipping ${file.name}: ${error instanceof Error ? error.message : 'could not parse file'}.`);
+        continue;
+      }
+
+      const content = parsedAttachment?.content.trim() || '';
+      if (!parsedAttachment || !content) {
+        setNotice(`Skipping ${file.name}: no readable text was found.`);
+        continue;
+      }
+
+      nextAttachments.push({
+        id: `${file.name}-${file.size}-${file.lastModified}`,
+        name: file.name,
+        content: content.slice(0, MAX_CHAT_ATTACHMENT_CHARS),
+        type: parsedAttachment.type,
+        size: file.size,
+        source: parsedAttachment.source,
+      });
+    }
+
+    if (nextAttachments.length === 0) {
+      return;
+    }
+
+    setPendingAttachments(current => {
+      const combined = [...current];
+      nextAttachments.forEach(item => {
+        if (!combined.some(existing => existing.id === item.id)) {
+          combined.push(item);
+        }
+      });
+      return combined.slice(0, 6);
+    });
+    setNotice(`${nextAttachments.length} file${nextAttachments.length === 1 ? '' : 's'} attached to chat.`);
+  }
+
+  function handleComposerDragEnter(event: React.DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.types.includes('Files')) {
+      return;
+    }
+
+    event.preventDefault();
+    setIsDragOverComposer(true);
+  }
+
+  function handleComposerDragOver(event: React.DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.types.includes('Files')) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+    if (!isDragOverComposer) {
+      setIsDragOverComposer(true);
+    }
+  }
+
+  function handleComposerDragLeave(event: React.DragEvent<HTMLElement>) {
+    const nextTarget = event.relatedTarget;
+    if (nextTarget instanceof Node && event.currentTarget.contains(nextTarget)) {
+      return;
+    }
+
+    setIsDragOverComposer(false);
+  }
+
+  async function handleComposerDrop(event: React.DragEvent<HTMLElement>) {
+    if (!event.dataTransfer.files?.length) {
+      return;
+    }
+
+    event.preventDefault();
+    setIsDragOverComposer(false);
+    await addChatFiles(event.dataTransfer.files);
+  }
+
+  function removePendingAttachment(id: string) {
+    setPendingAttachments(current => current.filter(item => item.id !== id));
+  }
+
+  function toggleVoiceInput() {
+    if (!supportsSpeechRecognition()) {
+      setNotice('Voice input is not supported in this browser.');
+      return;
+    }
+
+    if (isListening && speechRecognitionRef.current) {
+      speechRecognitionRef.current.stop();
+      return;
+    }
+
+    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new Recognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = false;
+    recognition.interimResults = false;
+
+    recognition.onresult = (event: any) => {
+      const transcript = Array.from(event.results || [])
+        .map((result: any) => result?.[0]?.transcript || '')
+        .join(' ')
+        .trim();
+
+      if (transcript) {
+        setPrompt(current => current.trim() ? `${current.trim()} ${transcript}` : transcript);
+      }
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+      speechRecognitionRef.current = null;
+    };
+
+    speechRecognitionRef.current = recognition;
+    setIsListening(true);
+    recognition.start();
   }
 
   function handlePromptKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
@@ -1265,7 +1589,16 @@ function AppShell() {
 
             {activeTab === 'chat' ? (
               <div className="grid xl:grid-cols-[1fr_320px] gap-4">
-                <section className={`${sectionCardClass} min-h-[70vh] flex flex-col`}>
+                <section className={`${sectionCardClass} min-h-[70vh] flex flex-col relative transition-colors ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-amber-300/70 bg-[#1d2a3f]' : 'ring-2 ring-amber-400/80 bg-amber-50') : ''}`} onDragEnter={handleComposerDragEnter} onDragOver={handleComposerDragOver} onDragLeave={handleComposerDragLeave} onDrop={event => void handleComposerDrop(event)}>
+                  {isDragOverComposer ? (
+                    <div className={`pointer-events-none absolute inset-4 z-10 flex items-center justify-center rounded-[1.75rem] border-2 border-dashed ${isDarkMode ? 'border-amber-300/70 bg-[#0f1726]/85 text-amber-100' : 'border-amber-400 bg-white/90 text-stone-900'}`}>
+                      <div className="text-center">
+                        <Upload className="mx-auto h-8 w-8" />
+                        <p className="mt-3 text-base font-medium">Drop files to attach</p>
+                        <p className="mt-1 text-sm opacity-75">Text, PDF, and image files are supported.</p>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="flex-1 overflow-auto space-y-4 pr-2">
                     {messages.length === 0 ? (
                       <div className={`h-full min-h-[360px] flex items-center justify-center ${emptyStateClass}`}>
@@ -1329,6 +1662,28 @@ function AppShell() {
                       className={textareaClass}
                     />
 
+                    <input
+                      ref={attachmentInputRef}
+                      type="file"
+                      multiple
+                      accept="text/*,.txt,.md,.markdown,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.xml,.yml,.yaml,.py,.java,.c,.cpp,.rs,.go,.sh,.sql,.log,.pdf,image/*"
+                      onChange={event => void addChatFiles(event.target.files)}
+                      className="hidden"
+                    />
+
+                    {pendingAttachments.length > 0 ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {pendingAttachments.map(item => (
+                          <div key={item.id} className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs ${isDarkMode ? 'bg-white/10 text-stone-200 border border-white/10' : 'bg-stone-100 text-stone-700 border border-stone-200'}`}>
+                            <span>{item.name}</span>
+                            <span className="opacity-70 uppercase">{item.source}</span>
+                            <span className="opacity-70">{formatAttachmentSize(item.size)}</span>
+                            <button type="button" onClick={() => removePendingAttachment(item.id)} className="opacity-80 hover:opacity-100">×</button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+
                     {prompt.startsWith('/') ? (
                       <div className={`mt-3 rounded-2xl border ${isDarkMode ? 'border-white/8 bg-[#172131]' : 'border-stone-200 bg-stone-50'} p-2`}>
                         <div className={`px-2 pb-2 text-xs ${subtleTextClass}`}>Slash skills</div>
@@ -1354,11 +1709,21 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}.</p>
-                      <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
-                        <Send className="w-4 h-4" />
-                        {isSending ? 'Sending...' : 'Send'}
-                      </button>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
+                          <Upload className="w-4 h-4" />
+                          Add files
+                        </button>
+                        <button type="button" onClick={toggleVoiceInput} className={secondaryButtonClass}>
+                          {isListening ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                          {isListening ? 'Stop voice' : 'Voice'}
+                        </button>
+                        <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
+                          <Send className="w-4 h-4" />
+                          {isSending ? 'Sending...' : 'Send'}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </section>

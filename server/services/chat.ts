@@ -21,6 +21,12 @@ type ChatMessage = {
   content: string;
 };
 
+type ChatAttachment = {
+  name: string;
+  content: string;
+  type?: string;
+};
+
 type ActiveBotConfig = {
   id: string;
   provider?: string | null;
@@ -36,6 +42,7 @@ export type RunChatForUserInput = {
   messages?: ChatMessage[];
   incomingConversationId?: string | null;
   activeBot?: ActiveBotConfig | null;
+  attachments?: ChatAttachment[];
 };
 
 export type RunChatForUserResult = {
@@ -46,6 +53,37 @@ export type RunChatForUserResult = {
   model: string;
   conversationId: string;
 };
+
+function normalizeChatAttachments(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [] as ChatAttachment[];
+  }
+
+  return value
+    .map(item => ({
+      name: String((item as ChatAttachment)?.name || '').trim(),
+      content: String((item as ChatAttachment)?.content || '').trim(),
+      type: typeof (item as ChatAttachment)?.type === 'string' ? (item as ChatAttachment).type : undefined,
+    }))
+    .filter(item => item.name && item.content)
+    .slice(0, 6);
+}
+
+function buildPromptWithAttachments(prompt: string, attachments: ChatAttachment[]) {
+  if (attachments.length === 0) {
+    return prompt;
+  }
+
+  const basePrompt = prompt.trim() || 'Please analyze the attached files.';
+  const attachmentBlock = attachments
+    .map((attachment, index) => {
+      const typeLine = attachment.type ? `Type: ${attachment.type}` : 'Type: unknown';
+      return [`[ATTACHMENT ${index + 1}] ${attachment.name}`, typeLine, attachment.content].join('\n');
+    })
+    .join('\n\n');
+
+  return `${basePrompt}\n\n[ATTACHMENTS]\n${attachmentBlock}`;
+}
 
 export async function runChatForUser(input: RunChatForUserInput): Promise<RunChatForUserResult> {
   const uid = input.uid;
@@ -64,10 +102,13 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
           : 'shared' as BotMemoryMode,
       }
     : null;
+  const attachments = normalizeChatAttachments(input.attachments);
 
-  if (!prompt) {
+  if (!prompt && attachments.length === 0) {
     throw new Error('Prompt is required');
   }
+
+  const promptForModel = buildPromptWithAttachments(prompt, attachments);
 
   const runtimeSettings = await getRuntimeSettings(uid);
   const availableProviders = await getAvailableProviders(uid);
@@ -116,7 +157,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
 
     try {
       const result = await callLLM({
-        prompt,
+        prompt: promptForModel,
         provider: route.provider,
         model: route.model,
         apiKey: nextApiKey,
@@ -174,7 +215,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     try {
       await learnFactsFromConversation({
         uid,
-        prompt,
+        prompt: promptForModel,
         responseText,
         provider,
         model,
