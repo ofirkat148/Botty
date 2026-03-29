@@ -17,15 +17,18 @@ const DEFAULT_MODELS = {
   anthropic: 'claude-3-7-sonnet-latest',
   google: 'gemini-2.5-flash',
   openai: 'gpt-4o-mini',
-  local: 'qwen2.5:1.5b',
+  local: 'qwen2.5:3b',
 };
 
 const PREFERRED_LOCAL_MODELS = [
+  'qwen2.5:3b',
   'qwen2.5:1.5b',
   'llama3.2:1b',
   'gemma3:1b',
   'smollm2:135m',
 ];
+
+const DEFAULT_LOCAL_LLM_URL = 'http://localhost:11434';
 
 const COMBINABLE_FACT_PREFIXES = ['Prefers', 'Uses', 'Works on'] as const;
 
@@ -76,13 +79,35 @@ function decodeKey(encryptedKey: string): string {
   return Buffer.from(encryptedKey, 'base64').toString();
 }
 
+function normalizeLocalLlmUrl(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return DEFAULT_LOCAL_LLM_URL;
+  }
+
+  const withProtocol = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)
+    ? trimmed
+    : `http://${trimmed}`;
+
+  try {
+    const url = new URL(withProtocol);
+    const normalizedPath = url.pathname
+      .replace(/\/(v1\/chat\/completions|api\/generate|api\/chat|v1|api)\/?$/i, '')
+      .replace(/\/$/, '');
+
+    return `${url.origin}${normalizedPath}`;
+  } catch {
+    return DEFAULT_LOCAL_LLM_URL;
+  }
+}
+
 export function getDefaultModel(provider: string) {
   return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] || DEFAULT_MODELS.anthropic;
 }
 
 export async function getDefaultLocalModel(localUrl?: string) {
   const fallbackModel = getDefaultModel('local');
-  const endpoint = `${(localUrl || process.env.LOCAL_LLM_URL || 'http://localhost:11434').replace(/\/$/, '')}/api/tags`;
+  const endpoint = `${normalizeLocalLlmUrl(localUrl || process.env.LOCAL_LLM_URL).replace(/\/$/, '')}/api/tags`;
 
   try {
     const response = await fetch(endpoint);
@@ -152,7 +177,7 @@ export async function getRuntimeSettings(uid: string) {
   const savedUserSettings = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
 
   return {
-    localUrl: savedSettings[0]?.localUrl || process.env.LOCAL_LLM_URL || 'http://localhost:11434',
+    localUrl: normalizeLocalLlmUrl(savedSettings[0]?.localUrl || process.env.LOCAL_LLM_URL),
     useMemory: savedSettings[0]?.useMemory !== false,
     autoMemory: savedSettings[0]?.autoMemory !== false,
     systemPrompt: savedUserSettings[0]?.systemPrompt || '',
@@ -676,7 +701,7 @@ export async function callLLM(params: {
     responseText = data.choices?.[0]?.message?.content || '';
     tokensUsed = data.usage?.total_tokens || 0;
   } else if (provider === 'local') {
-    const endpoint = `${(localUrl || 'http://localhost:11434').replace(/\/$/, '')}/v1/chat/completions`;
+    const endpoint = `${normalizeLocalLlmUrl(localUrl).replace(/\/$/, '')}/v1/chat/completions`;
     const response = await fetch(endpoint, {
       method: 'POST',
       headers: {

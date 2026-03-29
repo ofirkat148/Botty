@@ -5,6 +5,7 @@ import {
   History,
   KeyRound,
   LogOut,
+  Menu,
   MemoryStick,
   MessageSquare,
   Moon,
@@ -16,6 +17,7 @@ import {
   SunMedium,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 
 type User = {
@@ -113,7 +115,7 @@ const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-3-7-sonnet-latest',
   google: 'gemini-2.5-flash',
   openai: 'gpt-4o-mini',
-  local: 'qwen2.5:1.5b',
+  local: 'qwen2.5:3b',
 };
 
 const TABS = [
@@ -146,6 +148,7 @@ function AppShell() {
   const [authError, setAuthError] = useState('');
   const [loginEmail, setLoginEmail] = useState('');
   const [loginName, setLoginName] = useState('');
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   const [activeTab, setActiveTab] = useState<'chat' | 'history' | 'memory' | 'settings'>('chat');
   const [provider, setProvider] = useState('auto');
@@ -349,6 +352,7 @@ function AppShell() {
     localStorage.removeItem('botty.user');
     setToken('');
     setUser(null);
+    setIsSidebarOpen(false);
     setMessages([]);
     setConversationId(null);
     setHistory([]);
@@ -400,6 +404,7 @@ function AppShell() {
     setMessages([]);
     setChatError('');
     setActiveTab('chat');
+    setIsSidebarOpen(false);
   }
 
   function loadConversation(selectedConversationId: string | null | undefined) {
@@ -420,6 +425,12 @@ function AppShell() {
     setConversationId(selectedConversationId);
     setMessages(nextMessages);
     setActiveTab('chat');
+    setIsSidebarOpen(false);
+  }
+
+  function openTab(tab: 'chat' | 'history' | 'memory' | 'settings') {
+    setActiveTab(tab);
+    setIsSidebarOpen(false);
   }
 
   async function deleteConversation(selectedConversationId: string | null | undefined) {
@@ -715,12 +726,27 @@ function AppShell() {
   return (
     <div className={appBackgroundClass}>
       <div className="min-h-dvh w-full p-3 sm:p-4 lg:p-5">
-        <div className="grid min-h-[calc(100dvh-1.5rem)] w-full gap-3 lg:grid-cols-[minmax(240px,280px)_minmax(0,1fr)] lg:gap-4">
-          <aside className="relative rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(36,24,18,0.94)_0%,rgba(20,14,12,0.9)_100%)] text-stone-100 p-4 sm:p-5 flex flex-col gap-4 shadow-[0_24px_70px_rgba(0,0,0,0.28)] backdrop-blur-2xl lg:sticky lg:top-4 lg:max-h-[calc(100dvh-3rem)] lg:self-start before:pointer-events-none before:absolute before:inset-0 before:rounded-[2rem] before:border before:border-white/6 before:content-['']">
-            <div>
-              <p className="text-xs uppercase tracking-[0.35em] text-amber-200/70">Botty</p>
-              <h1 className="text-3xl font-semibold mt-2">Local OSS</h1>
-              <p className="text-sm text-stone-300 mt-2">{user.displayName || user.email}</p>
+        <div className="relative min-h-[calc(100dvh-1.5rem)] w-full">
+          {isSidebarOpen ? (
+            <button
+              type="button"
+              aria-label="Close menu overlay"
+              onClick={() => setIsSidebarOpen(false)}
+              className="fixed inset-0 z-40 bg-black/35 backdrop-blur-[2px]"
+            />
+          ) : null}
+
+          <aside className={`fixed left-3 top-3 z-50 flex w-[min(320px,calc(100vw-1.5rem))] max-h-[calc(100dvh-1.5rem)] flex-col gap-4 overflow-auto rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(36,24,18,0.96)_0%,rgba(20,14,12,0.92)_100%)] p-4 text-stone-100 shadow-[0_28px_90px_rgba(0,0,0,0.38)] backdrop-blur-2xl transition-all duration-300 ease-out before:pointer-events-none before:absolute before:inset-0 before:rounded-[2rem] before:border before:border-white/6 before:content-[''] ${isSidebarOpen ? 'translate-x-0 translate-y-0 scale-100 opacity-100' : '-translate-x-8 translate-y-2 scale-[0.98] opacity-0 pointer-events-none'}`}>
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.35em] text-amber-200/70">Botty</p>
+                <h1 className="mt-2 text-3xl font-semibold">Local OSS</h1>
+                <p className="mt-2 text-sm text-stone-300">{user.displayName || user.email}</p>
+              </div>
+
+              <button onClick={() => setIsSidebarOpen(false)} className="rounded-2xl border border-white/10 px-3 py-2 text-stone-300 hover:bg-white/5">
+                <X className="h-4 w-4" />
+              </button>
             </div>
 
             <button onClick={startNewChat} className="rounded-2xl bg-amber-300 text-stone-950 px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-amber-200">
@@ -732,7 +758,7 @@ function AppShell() {
               {TABS.map(({ value, label, Icon }) => (
                 <button
                   key={value}
-                  onClick={() => setActiveTab(value)}
+                  onClick={() => openTab(value)}
                   className={`w-full rounded-2xl px-4 py-3 flex items-center gap-3 ${activeTab === value ? 'bg-white/10 text-white' : 'text-stone-300 hover:bg-white/5'}`}
                 >
                   <Icon className="w-4 h-4" />
@@ -758,7 +784,7 @@ function AppShell() {
             </button>
           </aside>
 
-          <main className={`${shellPanelClass} min-h-[calc(100dvh-1.5rem)] lg:min-h-[calc(100dvh-2.5rem)]`}>
+          <main className={`${shellPanelClass} min-h-[calc(100dvh-1.5rem)] pt-16`}>
             <div className="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <h2 className="text-2xl font-semibold capitalize">{activeTab}</h2>
@@ -770,10 +796,16 @@ function AppShell() {
                 </p>
               </div>
 
-              <button onClick={() => void refreshAll()} className={actionButtonClass}>
-                <RefreshCw className="w-4 h-4" />
-                Refresh
-              </button>
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                <button onClick={() => setIsSidebarOpen(true)} className="rounded-2xl border border-stone-300 bg-white/80 px-4 py-2 text-sm flex items-center gap-2 dark:border-white/10 dark:bg-white/5 dark:text-stone-100">
+                  <Menu className="w-4 h-4" />
+                  {isSidebarOpen ? 'Menu open' : 'Open menu'}
+                </button>
+                <button onClick={() => void refreshAll()} className={actionButtonClass}>
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh
+                </button>
+              </div>
             </div>
 
             {notice ? <div className={noticeClass}>{notice}</div> : null}
