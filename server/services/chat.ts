@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { history } from '../db/schema.js';
 import {
+  BotMemoryMode,
   buildChatSystemPrompt,
   callLLM,
   getAvailableProviders,
@@ -20,6 +21,13 @@ type ChatMessage = {
   content: string;
 };
 
+type ActiveBotConfig = {
+  id: string;
+  provider?: string | null;
+  model?: string | null;
+  memoryMode?: BotMemoryMode;
+};
+
 export type RunChatForUserInput = {
   uid: string;
   prompt: string;
@@ -27,6 +35,7 @@ export type RunChatForUserInput = {
   requestedModel?: string;
   messages?: ChatMessage[];
   incomingConversationId?: string | null;
+  activeBot?: ActiveBotConfig | null;
 };
 
 export type RunChatForUserResult = {
@@ -45,6 +54,16 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   const requestedModel = String(input.requestedModel || '').trim();
   const messages = Array.isArray(input.messages) ? input.messages : [];
   const incomingConversationId = String(input.incomingConversationId || '').trim();
+  const activeBot = input.activeBot && typeof input.activeBot.id === 'string'
+    ? {
+        id: input.activeBot.id.trim(),
+        provider: typeof input.activeBot.provider === 'string' ? input.activeBot.provider.trim().toLowerCase() : '',
+        model: typeof input.activeBot.model === 'string' ? input.activeBot.model.trim() : '',
+        memoryMode: (input.activeBot.memoryMode === 'isolated' || input.activeBot.memoryMode === 'none')
+          ? input.activeBot.memoryMode
+          : 'shared' as BotMemoryMode,
+      }
+    : null;
 
   if (!prompt) {
     throw new Error('Prompt is required');
@@ -52,16 +71,23 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
 
   const runtimeSettings = await getRuntimeSettings(uid);
   const availableProviders = await getAvailableProviders(uid);
-  const shouldAutoRoute = requestedProvider === 'auto' || !requestedProvider;
+  const effectiveProvider = activeBot?.provider || requestedProvider;
+  const effectiveModel = activeBot?.model || requestedModel;
+  const shouldAutoRoute = effectiveProvider === 'auto' || !effectiveProvider;
   const routes = shouldAutoRoute
     ? getAutoRouteCandidates(prompt, availableProviders)
     : [{
-        provider: requestedProvider,
-        model: requestedModel || getDefaultModel(requestedProvider),
+        provider: effectiveProvider,
+        model: effectiveModel || getDefaultModel(effectiveProvider),
       }];
+  const memoryMode = activeBot?.memoryMode || 'shared';
 
-  const memoryContext = runtimeSettings.useMemory || runtimeSettings.sandboxMode
-    ? await getMemoryContext(uid, { sandboxMode: runtimeSettings.sandboxMode })
+  const memoryContext = runtimeSettings.useMemory || runtimeSettings.sandboxMode || memoryMode === 'isolated'
+    ? await getMemoryContext(uid, {
+        sandboxMode: runtimeSettings.sandboxMode,
+        botId: memoryMode === 'isolated' ? activeBot?.id || null : null,
+        memoryMode,
+      })
     : '';
   const systemPrompt = buildChatSystemPrompt({
     systemPrompt: runtimeSettings.systemPrompt,
@@ -144,7 +170,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
 
   await incrementDailyUsage(uid, model, tokensUsed);
 
-  if (runtimeSettings.autoMemory) {
+  if (runtimeSettings.autoMemory && memoryMode !== 'none') {
     try {
       await learnFactsFromConversation({
         uid,
@@ -154,6 +180,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
         model,
         apiKey,
         localUrl: runtimeSettings.localUrl,
+        botId: memoryMode === 'isolated' ? activeBot?.id || null : null,
       });
     } catch (memoryError) {
       console.error('Automatic memory learning failed:', memoryError);

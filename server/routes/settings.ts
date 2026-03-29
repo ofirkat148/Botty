@@ -26,6 +26,9 @@ type StoredFunctionPreset = {
   command: string;
   systemPrompt: string;
   starterPrompt: string;
+  provider?: string | null;
+  model?: string | null;
+  memoryMode?: 'shared' | 'isolated' | 'none';
 };
 
 function slugifyCommand(value: string) {
@@ -45,6 +48,15 @@ function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | '
   const starterPrompt = String(candidate?.starterPrompt || '').trim();
   const rawCommand = String(candidate?.command || '').trim();
   const command = slugifyCommand(rawCommand || title);
+  const provider = typeof candidate?.provider === 'string' && candidate.provider.trim()
+    ? candidate.provider.trim().toLowerCase()
+    : null;
+  const model = typeof candidate?.model === 'string' && candidate.model.trim()
+    ? candidate.model.trim()
+    : null;
+  const memoryMode = candidate?.memoryMode === 'isolated' || candidate?.memoryMode === 'none'
+    ? candidate.memoryMode
+    : 'shared';
 
   if (!title || !description || !systemPrompt || !starterPrompt || !command) {
     return null;
@@ -58,6 +70,9 @@ function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | '
     command,
     systemPrompt,
     starterPrompt,
+    provider: expectedKind === 'agent' ? provider : null,
+    model: expectedKind === 'agent' ? model : null,
+    memoryMode: expectedKind === 'agent' ? memoryMode : 'shared',
   };
 }
 
@@ -331,6 +346,9 @@ router.post('/functions', async (req: Request, res: Response) => {
       command: req.body?.command,
       systemPrompt: req.body?.systemPrompt,
       starterPrompt: req.body?.starterPrompt,
+      provider: req.body?.provider,
+      model: req.body?.model,
+      memoryMode: req.body?.memoryMode,
     }, kind);
 
     if (!normalized) {

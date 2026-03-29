@@ -37,6 +37,7 @@ export const history = pgTable('history', {
 export const facts = pgTable('facts', {
   id: text('id').primaryKey().notNull(),
   uid: varchar('uid', { length: 255 }).notNull(),
+  botId: text('bot_id'),
   content: text('content').notNull(),
   isSkill: boolean('is_skill').default(false),
   timestamp: timestamp('timestamp').defaultNow().notNull(),

@@ -126,6 +126,9 @@ type FunctionPreset = {
   command: string;
   systemPrompt: string;
   starterPrompt: string;
+  provider?: string | null;
+  model?: string | null;
+  memoryMode?: 'shared' | 'isolated' | 'none';
   builtIn?: boolean;
 };
 
@@ -300,6 +303,9 @@ function AppShell() {
   const [newSkillStarterPrompt, setNewSkillStarterPrompt] = useState('');
   const [newBotTitle, setNewBotTitle] = useState('');
   const [newBotDescription, setNewBotDescription] = useState('');
+  const [newBotProvider, setNewBotProvider] = useState('');
+  const [newBotModel, setNewBotModel] = useState('');
+  const [newBotMemoryMode, setNewBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
   const [newBotSystemPrompt, setNewBotSystemPrompt] = useState('');
   const [newBotStarterPrompt, setNewBotStarterPrompt] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
@@ -325,6 +331,10 @@ function AppShell() {
   const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
   const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
   const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
+  const activeBotPreset = useMemo(() => {
+    const activePreset = allFunctionPresets.find(item => item.id === activeFunctionId) || null;
+    return activePreset?.kind === 'agent' ? activePreset : null;
+  }, [activeFunctionId, allFunctionPresets]);
 
   function formatProviderLabel(value?: string) {
     if (!value) {
@@ -571,6 +581,14 @@ function AppShell() {
         model: provider === 'auto' ? undefined : model,
         conversationId,
         messages: messages.slice(-10),
+        activeBot: activeBotPreset
+          ? {
+              id: activeBotPreset.id,
+              provider: activeBotPreset.provider || '',
+              model: activeBotPreset.model || '',
+              memoryMode: activeBotPreset.memoryMode || 'shared',
+            }
+          : null,
       });
 
       setConversationId(response.conversationId);
@@ -751,6 +769,8 @@ function AppShell() {
 
     const title = newBotTitle.trim();
     const description = newBotDescription.trim();
+    const providerValue = newBotProvider.trim().toLowerCase();
+    const modelValue = newBotModel.trim();
     const systemPromptValue = newBotSystemPrompt.trim();
     const starterPromptValue = newBotStarterPrompt.trim();
 
@@ -766,11 +786,17 @@ function AppShell() {
         title,
         description,
         command: title,
+        provider: providerValue || null,
+        model: modelValue || null,
+        memoryMode: newBotMemoryMode,
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
       });
       setNewBotTitle('');
       setNewBotDescription('');
+      setNewBotProvider('');
+      setNewBotModel('');
+      setNewBotMemoryMode('shared');
       setNewBotSystemPrompt('');
       setNewBotStarterPrompt('');
       await refreshAll();
@@ -1462,6 +1488,20 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Short description" className={textInputClass} />
                     </div>
+                    <select value={newBotProvider} onChange={event => setNewBotProvider(event.target.value)} className={textInputClass}>
+                      <option value="">Inherit chat provider</option>
+                      {PROVIDERS.map(option => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                    <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                      <option value="shared">Shared memory</option>
+                      <option value="isolated">Isolated bot memory</option>
+                      <option value="none">No memory</option>
+                    </select>
+                    <div className="md:col-span-2">
+                      <input value={newBotModel} onChange={event => setNewBotModel(event.target.value)} placeholder="Optional model override" className={textInputClass} />
+                    </div>
                     <div className="md:col-span-2">
                       <textarea value={newBotSystemPrompt} onChange={event => setNewBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt" className={textareaClass} />
                     </div>
@@ -1494,6 +1534,13 @@ function AppShell() {
                           </div>
 
                           <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>
+                            Provider: {item.provider ? (item.provider === 'auto' ? 'Auto route' : formatProviderLabel(item.provider)) : 'Inherit chat'}
+                            {' · '}
+                            Model: {item.model || 'Inherit chat'}
+                            {' · '}
+                            Memory: {item.memoryMode || 'shared'}
+                          </div>
 
                           <div className="flex flex-wrap items-center gap-2">
                             <button

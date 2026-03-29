@@ -41,10 +41,20 @@ export type ProviderRoute = {
 type FactRow = {
   id: string;
   uid: string;
+  botId?: string | null;
   content: string;
   isSkill: boolean | null;
   timestamp: Date;
 };
+
+export type BotMemoryMode = 'shared' | 'isolated' | 'none';
+
+function buildFactScopeFilter(uid: string, botId?: string | null) {
+  return and(
+    eq(facts.uid, uid),
+    botId ? eq(facts.botId, botId) : sql`${facts.botId} IS NULL`,
+  );
+}
 
 function isConfiguredSecret(value?: string | null) {
   const trimmed = value?.trim();
@@ -448,10 +458,11 @@ function sameFactSet(left: FactRow[], right: FactRow[]) {
 
 export async function reconcileFactsForUser(uid: string) {
   const db = getDatabase();
-  const existingFacts = await db.select().from(facts).where(eq(facts.uid, uid));
+  const existingFacts = await db.select().from(facts).where(buildFactScopeFilter(uid, null));
   const factRows: FactRow[] = existingFacts.map(item => ({
     id: item.id,
     uid: item.uid,
+    botId: item.botId,
     content: item.content,
     isSkill: item.isSkill,
     timestamp: item.timestamp,
@@ -461,7 +472,7 @@ export async function reconcileFactsForUser(uid: string) {
 
   if (!sameFactSet(factRows, consolidatedRows)) {
     await db.transaction(async tx => {
-      await tx.delete(facts).where(eq(facts.uid, uid));
+      await tx.delete(facts).where(buildFactScopeFilter(uid, null));
 
       if (consolidatedRows.length > 0) {
         await tx.insert(facts).values(consolidatedRows);
@@ -474,26 +485,61 @@ export async function reconcileFactsForUser(uid: string) {
 
 export async function reconcileAllFacts() {
   const db = getDatabase();
-  const rows = await db.selectDistinct({ uid: facts.uid }).from(facts);
+  const rows = await db.selectDistinct({ uid: facts.uid, botId: facts.botId }).from(facts);
 
   for (const row of rows) {
-    await reconcileFactsForUser(row.uid);
+    if (row.botId) {
+      await reconcileFactsForUserScoped(row.uid, row.botId);
+    } else {
+      await reconcileFactsForUser(row.uid);
+    }
   }
+}
+
+export async function reconcileFactsForUserScoped(uid: string, botId: string) {
+  const db = getDatabase();
+  const existingFacts = await db.select().from(facts).where(buildFactScopeFilter(uid, botId));
+  const factRows: FactRow[] = existingFacts.map(item => ({
+    id: item.id,
+    uid: item.uid,
+    botId: item.botId,
+    content: item.content,
+    isSkill: item.isSkill,
+    timestamp: item.timestamp,
+  }));
+
+  const consolidatedRows = consolidateFactRows(factRows);
+
+  if (!sameFactSet(factRows, consolidatedRows)) {
+    await db.transaction(async tx => {
+      await tx.delete(facts).where(buildFactScopeFilter(uid, botId));
+
+      if (consolidatedRows.length > 0) {
+        await tx.insert(facts).values(consolidatedRows);
+      }
+    });
+  }
+
+  return consolidatedRows;
 }
 
 export async function saveFactsWithConsolidation(
   uid: string,
   incomingFacts: Array<{ content: string; isSkill?: boolean; timestamp?: Date }>,
-  options?: { replaceExisting?: boolean },
+  options?: { replaceExisting?: boolean; botId?: string | null },
 ) {
   const db = getDatabase();
+  const botId = options?.botId || null;
   const existingFacts = options?.replaceExisting
     ? []
-    : await reconcileFactsForUser(uid);
+    : botId
+      ? await reconcileFactsForUserScoped(uid, botId)
+      : await reconcileFactsForUser(uid);
 
   const candidateRows: FactRow[] = incomingFacts.map(item => ({
     id: randomUUID(),
     uid,
+    botId,
     content: item.content,
     isSkill: Boolean(item.isSkill),
     timestamp: item.timestamp || new Date(),
@@ -503,6 +549,7 @@ export async function saveFactsWithConsolidation(
     ...existingFacts.map(item => ({
       id: item.id,
       uid: item.uid,
+      botId: item.botId,
       content: item.content,
       isSkill: item.isSkill,
       timestamp: item.timestamp,
@@ -511,7 +558,7 @@ export async function saveFactsWithConsolidation(
   ]);
 
   await db.transaction(async tx => {
-    await tx.delete(facts).where(eq(facts.uid, uid));
+    await tx.delete(facts).where(buildFactScopeFilter(uid, botId));
 
     if (consolidatedRows.length > 0) {
       await tx.insert(facts).values(consolidatedRows);
@@ -587,10 +634,11 @@ export async function learnFactsFromConversation(params: {
   model: string;
   apiKey: string;
   localUrl?: string;
+  botId?: string | null;
 }) {
-  const { uid, prompt, responseText, provider, model, apiKey, localUrl } = params;
+  const { uid, prompt, responseText, provider, model, apiKey, localUrl, botId } = params;
   const db = getDatabase();
-  const existingFacts = (await reconcileFactsForUser(uid)).slice(0, 50);
+  const existingFacts = (botId ? await reconcileFactsForUserScoped(uid, botId) : await reconcileFactsForUser(uid)).slice(0, 50);
   const existingFactSet = new Set(existingFacts.map(item => normalizeFactContent(item.content)));
 
   const heuristicFacts = extractPromptFacts(prompt);
@@ -654,20 +702,33 @@ export async function learnFactsFromConversation(params: {
       isSkill: false,
       timestamp: new Date(),
     })),
+    { botId },
   );
 
   return newFacts;
 }
 
-export async function getMemoryContext(uid: string, options?: { sandboxMode?: boolean }) {
+export async function getMemoryContext(uid: string, options?: { sandboxMode?: boolean; botId?: string | null; memoryMode?: BotMemoryMode }) {
   const db = getDatabase();
   const sandboxMode = options?.sandboxMode === true;
+  const botId = options?.botId || null;
+  const memoryMode = options?.memoryMode || 'shared';
+
+  if (memoryMode === 'none') {
+    return '';
+  }
+
+  const factPromise = memoryMode === 'isolated' && botId
+    ? reconcileFactsForUserScoped(uid, botId).then(rows => rows.slice(0, 20))
+    : reconcileFactsForUser(uid).then(rows => rows.slice(0, 20));
   const [userFacts, userFiles, userUrls] = await Promise.all([
-    reconcileFactsForUser(uid).then(rows => rows.slice(0, 20)),
-    sandboxMode
+    factPromise,
+    sandboxMode || memoryMode === 'isolated'
       ? Promise.resolve([])
       : db.select().from(memoryFiles).where(eq(memoryFiles.uid, uid)).limit(5),
-    db.select().from(memoryUrls).where(eq(memoryUrls.uid, uid)).limit(5),
+    memoryMode === 'isolated'
+      ? Promise.resolve([])
+      : db.select().from(memoryUrls).where(eq(memoryUrls.uid, uid)).limit(5),
   ]);
 
   const sections: string[] = [];

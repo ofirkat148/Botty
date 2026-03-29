@@ -46,10 +46,16 @@ async function bootstrapSchema(pool: Pool) {
     CREATE TABLE IF NOT EXISTS facts (
       id TEXT PRIMARY KEY,
       uid VARCHAR(255) NOT NULL,
+      bot_id TEXT,
       content TEXT NOT NULL,
       is_skill BOOLEAN DEFAULT FALSE,
       timestamp TIMESTAMP NOT NULL DEFAULT NOW()
     )
+  `);
+
+  await pool.query(`
+    ALTER TABLE facts
+    ADD COLUMN IF NOT EXISTS bot_id TEXT
   `);
 
   await pool.query(`

@@ -85,6 +85,7 @@ router.post('/import', async (req: Request, res: Response) => {
       .map((item: any) => ({
         id: randomUUID(),
         uid,
+        botId: typeof item?.botId === 'string' && item.botId.trim() ? String(item.botId).trim() : null,
         content: String(item?.content || '').trim(),
         isSkill: Boolean(item?.isSkill),
         timestamp: parseTimestamp(item?.timestamp),

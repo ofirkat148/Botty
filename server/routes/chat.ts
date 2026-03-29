@@ -34,6 +34,14 @@ router.post('/', async (req: Request, res: Response) => {
       requestedModel: String(req.body?.model || '').trim(),
       messages: Array.isArray(req.body?.messages) ? req.body.messages : [],
       incomingConversationId: String(req.body?.conversationId || '').trim(),
+      activeBot: req.body?.activeBot && typeof req.body.activeBot === 'object'
+        ? {
+            id: String(req.body.activeBot.id || '').trim(),
+            provider: typeof req.body.activeBot.provider === 'string' ? req.body.activeBot.provider : '',
+            model: typeof req.body.activeBot.model === 'string' ? req.body.activeBot.model : '',
+            memoryMode: req.body.activeBot.memoryMode,
+          }
+        : null,
     });
 
     res.json(result);
