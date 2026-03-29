@@ -29,8 +29,14 @@ const PREFERRED_LOCAL_MODELS = [
 ];
 
 const DEFAULT_LOCAL_LLM_URL = 'http://localhost:11434';
+const SUPPORTED_CHAT_PROVIDERS = ['anthropic', 'google', 'openai', 'local'] as const;
 
 const COMBINABLE_FACT_PREFIXES = ['Prefers', 'Uses', 'Works on'] as const;
+
+export type ProviderRoute = {
+  provider: string;
+  model: string;
+};
 
 type FactRow = {
   id: string;
@@ -105,6 +111,10 @@ export function getDefaultModel(provider: string) {
   return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] || DEFAULT_MODELS.anthropic;
 }
 
+function isSupportedChatProvider(provider: string): provider is (typeof SUPPORTED_CHAT_PROVIDERS)[number] {
+  return SUPPORTED_CHAT_PROVIDERS.includes(provider as (typeof SUPPORTED_CHAT_PROVIDERS)[number]);
+}
+
 export async function getDefaultLocalModel(localUrl?: string) {
   const fallbackModel = getDefaultModel('local');
   const endpoint = `${normalizeLocalLlmUrl(localUrl || process.env.LOCAL_LLM_URL).replace(/\/$/, '')}/api/tags`;
@@ -145,7 +155,7 @@ export async function getAvailableProviders(uid: string) {
     providers.add('local');
   }
 
-  return Array.from(providers);
+  return Array.from(providers).filter(isSupportedChatProvider);
 }
 
 export async function getProviderApiKey(uid: string, provider: string) {
@@ -688,10 +698,9 @@ export function buildChatSystemPrompt(params: {
   if (sandboxMode) {
     parts.push([
       'You are operating in sandboxed mode.',
-      'Use only the information explicitly present in the current conversation plus the provided [KNOWN FACTS] and [KNOWN SITES] sections.',
-      'Treat all other background knowledge, internet knowledge, and unstated assumptions as unavailable.',
-      'Do not infer the contents of a site from its URL or title alone.',
-      'If the answer is not supported by the provided sources, say that you do not know in sandboxed mode.',
+      'The only external context available is the provided [KNOWN FACTS] and [KNOWN SITES] sections.',
+      'Do not use any file memory or any knowledge beyond those sources and the current conversation.',
+      'If the answer is not supported by those sources, say that you do not know in sandboxed mode.',
     ].join(' '));
   }
 
@@ -706,7 +715,7 @@ export function buildChatSystemPrompt(params: {
   return parts.join('\n\n');
 }
 
-export function getSmartRoute(prompt: string, availableProviders: string[]) {
+export function getSmartRoute(prompt: string, availableProviders: string[]): ProviderRoute {
   const lower = prompt.toLowerCase();
   const prefersReasoning = /code|debug|refactor|architecture|analyze|compare|explain|reason|typescript|react|sql/.test(lower);
 
@@ -730,6 +739,19 @@ export function getSmartRoute(prompt: string, availableProviders: string[]) {
   }
 
   throw new Error('No configured providers found. Add an API key in Settings or set ANTHROPIC_API_KEY in your environment.');
+}
+
+export function getAutoRouteCandidates(prompt: string, availableProviders: string[]): ProviderRoute[] {
+  const primaryRoute = getSmartRoute(prompt, availableProviders);
+  const remainingProviders = availableProviders.filter(provider => provider !== primaryRoute.provider);
+
+  return [
+    primaryRoute,
+    ...remainingProviders.map(provider => ({
+      provider,
+      model: getDefaultModel(provider),
+    })),
+  ];
 }
 
 export async function incrementDailyUsage(uid: string, model: string, tokensUsed: number) {
@@ -766,6 +788,60 @@ export async function incrementDailyUsage(uid: string, model: string, tokensUsed
     .where(eq(dailyUsage.id, row.id));
 }
 
+export class LLMProviderError extends Error {
+  provider: string;
+  statusCode?: number;
+  retryable: boolean;
+
+  constructor(provider: string, message: string, options?: { statusCode?: number; retryable?: boolean }) {
+    super(message);
+    this.name = 'LLMProviderError';
+    this.provider = provider;
+    this.statusCode = options?.statusCode;
+    this.retryable = options?.retryable === true;
+  }
+}
+
+function summarizeProviderErrorBody(body: string, fallbackMessage: string) {
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return fallbackMessage;
+  }
+
+  return trimmed.length > 400 ? `${trimmed.slice(0, 397)}...` : trimmed;
+}
+
+function isRetryableStatus(statusCode?: number) {
+  if (!statusCode) {
+    return false;
+  }
+
+  return statusCode === 408 || statusCode === 409 || statusCode === 425 || statusCode === 429 || statusCode >= 500;
+}
+
+function normalizeProviderError(provider: string, error: unknown, fallbackMessage: string) {
+  if (error instanceof LLMProviderError) {
+    return error;
+  }
+
+  const candidate = error as { message?: string; status?: number; code?: number | string } | undefined;
+  const rawMessage = candidate?.message?.trim() || fallbackMessage;
+  const lowerMessage = rawMessage.toLowerCase();
+  const statusCode = typeof candidate?.status === 'number'
+    ? candidate.status
+    : typeof candidate?.code === 'number'
+      ? candidate.code
+      : undefined;
+  const retryable = isRetryableStatus(statusCode)
+    || /429|rate limit|resource exhausted|too many requests|overloaded|temporar|timeout|timed out|fetch failed|econnreset|enotfound|eai_again|socket hang up/.test(lowerMessage);
+
+  return new LLMProviderError(provider, rawMessage, { statusCode, retryable });
+}
+
+export function shouldRetryWithAnotherProvider(error: unknown) {
+  return error instanceof LLMProviderError && error.retryable;
+}
+
 export async function callLLM(params: {
   prompt: string;
   provider: string;
@@ -780,109 +856,137 @@ export async function callLLM(params: {
   let tokensUsed = 0;
 
   if (provider === 'anthropic') {
-    const payloadMessages = messages.map(message => ({
-      role: message.role,
-      content: message.content,
-    }));
-    payloadMessages.push({ role: 'user', content: prompt });
+    try {
+      const payloadMessages = messages.map(message => ({
+        role: message.role,
+        content: message.content,
+      }));
+      payloadMessages.push({ role: 'user', content: prompt });
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model,
-        max_tokens: 2048,
-        system: systemPrompt || 'You are a helpful assistant.',
-        messages: payloadMessages,
-      }),
-    });
+      const response = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model,
+          max_tokens: 2048,
+          system: systemPrompt || 'You are a helpful assistant.',
+          messages: payloadMessages,
+        }),
+      });
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(body || `Anthropic request failed with ${response.status}`);
+      if (!response.ok) {
+        const body = await response.text();
+        throw new LLMProviderError(
+          provider,
+          summarizeProviderErrorBody(body, `Anthropic request failed with ${response.status}`),
+          { statusCode: response.status, retryable: isRetryableStatus(response.status) },
+        );
+      }
+
+      const data = await response.json() as any;
+      responseText = data.content?.map((item: any) => item.text || '').join('\n').trim();
+      tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
+    } catch (error) {
+      throw normalizeProviderError(provider, error, 'Anthropic request failed');
     }
-
-    const data = await response.json() as any;
-    responseText = data.content?.map((item: any) => item.text || '').join('\n').trim();
-    tokensUsed = (data.usage?.input_tokens || 0) + (data.usage?.output_tokens || 0);
   } else if (provider === 'google') {
-    const { GoogleGenAI } = await import('@google/genai');
-    const client = new GoogleGenAI({ apiKey });
-    const contents = messages.map(message => ({
-      role: message.role === 'assistant' ? 'model' : 'user',
-      parts: [{ text: message.content }],
-    }));
+    try {
+      const { GoogleGenAI } = await import('@google/genai');
+      const client = new GoogleGenAI({ apiKey });
+      const contents = messages.map(message => ({
+        role: message.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: message.content }],
+      }));
 
-    contents.push({
-      role: 'user',
-      parts: [{ text: prompt }],
-    });
+      contents.push({
+        role: 'user',
+        parts: [{ text: prompt }],
+      });
 
-    const result = await client.models.generateContent({
-      model,
-      contents,
-      config: {
-        systemInstruction: systemPrompt || 'You are a helpful assistant.',
-      },
-    });
+      const result = await client.models.generateContent({
+        model,
+        contents,
+        config: {
+          systemInstruction: systemPrompt || 'You are a helpful assistant.',
+        },
+      });
 
-    responseText = result.text || '';
-    tokensUsed = result.usageMetadata?.totalTokenCount || 0;
+      responseText = result.text || '';
+      tokensUsed = result.usageMetadata?.totalTokenCount || 0;
+    } catch (error) {
+      throw normalizeProviderError(provider, error, 'Google request failed');
+    }
   } else if (provider === 'openai') {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
-          ...messages,
-          { role: 'user', content: prompt },
-        ],
-      }),
-    });
+    try {
+      const response = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+            ...messages,
+            { role: 'user', content: prompt },
+          ],
+        }),
+      });
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(body || `OpenAI request failed with ${response.status}`);
+      if (!response.ok) {
+        const body = await response.text();
+        throw new LLMProviderError(
+          provider,
+          summarizeProviderErrorBody(body, `OpenAI request failed with ${response.status}`),
+          { statusCode: response.status, retryable: isRetryableStatus(response.status) },
+        );
+      }
+
+      const data = await response.json() as any;
+      responseText = data.choices?.[0]?.message?.content || '';
+      tokensUsed = data.usage?.total_tokens || 0;
+    } catch (error) {
+      throw normalizeProviderError(provider, error, 'OpenAI request failed');
     }
-
-    const data = await response.json() as any;
-    responseText = data.choices?.[0]?.message?.content || '';
-    tokensUsed = data.usage?.total_tokens || 0;
   } else if (provider === 'local') {
-    const endpoint = `${normalizeLocalLlmUrl(localUrl).replace(/\/$/, '')}/v1/chat/completions`;
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model,
-        stream: false,
-        messages: [
-          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
-          ...messages,
-          { role: 'user', content: prompt },
-        ],
-      }),
-    });
+    try {
+      const endpoint = `${normalizeLocalLlmUrl(localUrl).replace(/\/$/, '')}/v1/chat/completions`;
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model,
+          stream: false,
+          messages: [
+            { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+            ...messages,
+            { role: 'user', content: prompt },
+          ],
+        }),
+      });
 
-    if (!response.ok) {
-      const body = await response.text();
-      throw new Error(body || `Local LLM request failed with ${response.status}`);
+      if (!response.ok) {
+        const body = await response.text();
+        throw new LLMProviderError(
+          provider,
+          summarizeProviderErrorBody(body, `Local LLM request failed with ${response.status}`),
+          { statusCode: response.status, retryable: isRetryableStatus(response.status) },
+        );
+      }
+
+      const data = await response.json() as any;
+      responseText = data.choices?.[0]?.message?.content || '';
+      tokensUsed = data.usage?.total_tokens || Math.ceil((prompt.length + responseText.length) / 4);
+    } catch (error) {
+      throw normalizeProviderError(provider, error, 'Local LLM request failed');
     }
-
-    const data = await response.json() as any;
-    responseText = data.choices?.[0]?.message?.content || '';
-    tokensUsed = data.usage?.total_tokens || Math.ceil((prompt.length + responseText.length) / 4);
   } else {
     throw new Error(`Unsupported provider: ${provider}`);
   }

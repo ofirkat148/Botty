@@ -31,6 +31,7 @@ type Message = {
   role: 'user' | 'assistant';
   content: string;
   model?: string;
+  provider?: string;
 };
 
 type HistoryEntry = {
@@ -297,6 +298,18 @@ function AppShell() {
     Authorization: `Bearer ${token}`,
   }), [token]);
 
+  function formatProviderLabel(value?: string) {
+    if (!value) {
+      return '';
+    }
+
+    if (value === 'openai') {
+      return 'OpenAI';
+    }
+
+    return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
     window.localStorage.setItem('botty.theme', isDarkMode ? 'dark' : 'light');
@@ -530,7 +543,12 @@ function AppShell() {
       });
 
       setConversationId(response.conversationId);
-      setMessages(prev => [...prev, { role: 'assistant', content: response.text, model: response.model }]);
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: response.text,
+        model: response.model,
+        provider: response.provider,
+      }]);
       setDailyTokens(prev => prev + response.tokensUsed);
       await refreshAll();
     } catch (error) {
@@ -1078,7 +1096,11 @@ function AppShell() {
 
                     {messages.map((message, index) => (
                       <div key={`${message.role}-${index}`} className={`rounded-[1.5rem] px-4 py-4 ${message.role === 'user' ? 'bg-stone-900 text-white ml-auto max-w-[82%]' : isDarkMode ? 'bg-[#172131] border border-white/8 max-w-[92%]' : 'bg-white border border-stone-200 max-w-[92%]'}`}>
-                        <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">{message.role === 'user' ? 'You' : message.model || 'Assistant'}</div>
+                        <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
+                          {message.role === 'user'
+                            ? 'You'
+                            : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
+                        </div>
                         <div className="whitespace-pre-wrap leading-7 text-[15px]">{message.content}</div>
                       </div>
                     ))}
@@ -1560,7 +1582,7 @@ function AppShell() {
                     <input type="checkbox" checked={sandboxMode} onChange={event => setSandboxMode(event.target.checked)} className="mt-1" />
                     <span>
                       <span className="block">Enable sandboxed mode</span>
-                      <span className={`block text-xs ${subtleTextClass}`}>Restrict answers to the current conversation plus saved facts and known sites only. Botty should say it does not know instead of using general internet knowledge.</span>
+                      <span className={`block text-xs ${subtleTextClass}`}>Restrict answers to the current conversation plus saved facts and known sites only. Regular chat remains unconstrained.</span>
                     </span>
                   </label>
 

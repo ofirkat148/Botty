@@ -5,13 +5,14 @@ import {
   buildChatSystemPrompt,
   callLLM,
   getAvailableProviders,
+  getAutoRouteCandidates,
   getDefaultModel,
   getMemoryContext,
   getProviderApiKey,
   getRuntimeSettings,
-  getSmartRoute,
   incrementDailyUsage,
   learnFactsFromConversation,
+  shouldRetryWithAnotherProvider,
 } from '../utils/llm.js';
 
 type ChatMessage = {
@@ -51,21 +52,13 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
 
   const runtimeSettings = await getRuntimeSettings(uid);
   const availableProviders = await getAvailableProviders(uid);
-
-  const route = requestedProvider === 'auto' || !requestedProvider
-    ? getSmartRoute(prompt, availableProviders)
-    : {
+  const shouldAutoRoute = requestedProvider === 'auto' || !requestedProvider;
+  const routes = shouldAutoRoute
+    ? getAutoRouteCandidates(prompt, availableProviders)
+    : [{
         provider: requestedProvider,
         model: requestedModel || getDefaultModel(requestedProvider),
-      };
-
-  const provider = route.provider;
-  const model = route.model;
-  const apiKey = provider === 'local' ? '' : await getProviderApiKey(uid, provider);
-
-  if (provider !== 'local' && !apiKey) {
-    throw new Error(`No API key configured for ${provider}.`);
-  }
+      }];
 
   const memoryContext = runtimeSettings.useMemory || runtimeSettings.sandboxMode
     ? await getMemoryContext(uid, { sandboxMode: runtimeSettings.sandboxMode })
@@ -75,15 +68,63 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     memoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
-  const { responseText, tokensUsed } = await callLLM({
-    prompt,
-    provider,
-    model,
-    apiKey,
-    systemPrompt,
-    messages,
-    localUrl: runtimeSettings.localUrl,
-  });
+  const attemptErrors: string[] = [];
+  let responseText = '';
+  let tokensUsed = 0;
+  let provider = '';
+  let model = '';
+  let apiKey = '';
+
+  for (let index = 0; index < routes.length; index += 1) {
+    const route = routes[index];
+    const nextApiKey = route.provider === 'local' ? '' : await getProviderApiKey(uid, route.provider);
+
+    if (route.provider !== 'local' && !nextApiKey) {
+      if (shouldAutoRoute) {
+        attemptErrors.push(`${route.provider}: not configured`);
+        continue;
+      }
+
+      throw new Error(`No API key configured for ${route.provider}.`);
+    }
+
+    try {
+      const result = await callLLM({
+        prompt,
+        provider: route.provider,
+        model: route.model,
+        apiKey: nextApiKey,
+        systemPrompt,
+        messages,
+        localUrl: runtimeSettings.localUrl,
+      });
+
+      responseText = result.responseText;
+      tokensUsed = result.tokensUsed;
+      provider = route.provider;
+      model = route.model;
+      apiKey = nextApiKey;
+      break;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown provider failure';
+      attemptErrors.push(`${route.provider}: ${message}`);
+
+      const hasFallback = index < routes.length - 1;
+      if (!shouldAutoRoute || !hasFallback || !shouldRetryWithAnotherProvider(error)) {
+        if (shouldAutoRoute && attemptErrors.length > 1) {
+          throw new Error(`Auto route failed across configured providers. ${attemptErrors.join(' | ')}`);
+        }
+
+        throw error;
+      }
+
+      console.warn(`Auto route fallback: ${route.provider} failed, trying next provider.`, error);
+    }
+  }
+
+  if (!responseText || !provider || !model) {
+    throw new Error(`Auto route failed across configured providers. ${attemptErrors.join(' | ')}`);
+  }
 
   const db = getDatabase();
   const conversationId = incomingConversationId || randomUUID();
