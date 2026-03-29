@@ -3,6 +3,7 @@ services:
     image: node:20
     working_dir: /app
     restart: unless-stopped
+    network_mode: host
     depends_on:
       postgres:
         condition: service_healthy
@@ -10,38 +11,14 @@ services:
       - .env.local
     environment:
       NODE_ENV: production
+      NODE_OPTIONS: --dns-result-order=ipv4first
       HOST: 0.0.0.0
       PORT: 5000
-      DATABASE_URL: postgresql://botty_user:botty_pass@postgres:5432/botty_db
-      LOCAL_LLM_URL: ${LOCAL_LLM_URL_CONTAINER:-http://host.docker.internal:11434}
+      DATABASE_URL: postgresql://botty_user:botty_pass@127.0.0.1:5432/botty_db
+      LOCAL_LLM_URL: ${LOCAL_LLM_URL_CONTAINER:-http://127.0.0.1:11434}
     command:
       - sh
-      - -lc
-      - >-
-        mkdir -p node_modules &&
-        echo '[botty] startup: configuring npm' &&
-        npm config set fetch-timeout 120000 &&
-        npm config set fetch-retry-mintimeout 20000 &&
-        npm config set fetch-retry-maxtimeout 120000 &&
-        npm config set fetch-retries 5 &&
-        lockfile_hash="$$(sha256sum package-lock.json | awk '{print $$1}')" &&
-        cached_hash="$$(cat node_modules/.botty-package-lock.sha256 2>/dev/null || true)" &&
-        if [ ! -x node_modules/.bin/vite ] || [ ! -x node_modules/.bin/tsx ] || [ "$$lockfile_hash" != "$$cached_hash" ]; then
-          echo '[botty] startup: installing dependencies' &&
-          rm -rf node_modules/* node_modules/.[!.]* node_modules/..?* 2>/dev/null || true &&
-          npm install --prefer-offline --no-audit &&
-          printf '%s' "$$lockfile_hash" > node_modules/.botty-package-lock.sha256 ;
-        else
-          echo '[botty] startup: reusing cached dependencies' ;
-        fi &&
-        echo '[botty] startup: building frontend' &&
-        npm run build &&
-        echo '[botty] startup: launching server' &&
-        exec npm run start
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    ports:
-      - "5000:5000"
+      - /app/ops/container-start.sh
     volumes:
       - .:/app
       - botty_node_modules:/app/node_modules
