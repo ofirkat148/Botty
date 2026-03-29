@@ -1,4 +1,5 @@
-FROM node:20-alpine
+# syntax=docker/dockerfile:1.7
+FROM node:20
 
 WORKDIR /app
 
@@ -9,7 +10,7 @@ RUN npm config set fetch-timeout 120000 && \
 
 COPY package*.json ./
 
-RUN NODE_ENV=development npm install
+RUN --mount=type=cache,target=/root/.npm npm install
 
 COPY . .
 
