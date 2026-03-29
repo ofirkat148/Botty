@@ -28,6 +28,7 @@ services:
         cached_hash="$$(cat node_modules/.botty-package-lock.sha256 2>/dev/null || true)" &&
         if [ ! -x node_modules/.bin/vite ] || [ ! -x node_modules/.bin/tsx ] || [ "$$lockfile_hash" != "$$cached_hash" ]; then
           echo '[botty] startup: installing dependencies' &&
+          rm -rf node_modules/* node_modules/.[!.]* node_modules/..?* 2>/dev/null || true &&
           npm install --prefer-offline --no-audit &&
           printf '%s' "$$lockfile_hash" > node_modules/.botty-package-lock.sha256 ;
         else
