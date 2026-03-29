@@ -184,10 +184,6 @@ export async function getRuntimeSettings(uid: string) {
   };
 }
 
-export function normalizeFactContent(value: string) {
-  return value.trim().replace(/^[-*\d.)\s]+/, '').replace(/\s+/g, ' ').toLowerCase();
-}
-
 export function cleanFactContent(value: string) {
   return value
     .trim()
@@ -196,6 +192,37 @@ export function cleanFactContent(value: string) {
     .replace(/['"`,]+$/, '')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function standardizeFactContent(value: string) {
+  const cleaned = cleanFactContent(value);
+  if (!cleaned) {
+    return '';
+  }
+
+  const patterns: Array<[RegExp, string]> = [
+    [/^i prefer\s+(.+)$/i, 'Prefers'],
+    [/^i (?:mostly\s+)?use\s+(.+)$/i, 'Uses'],
+    [/^i work (?:mostly\s+)?on\s+(.+)$/i, 'Works on'],
+    [/^i[' ]?m\s+(.+)$/i, 'Is'],
+    [/^i am\s+(.+)$/i, 'Is'],
+    [/^my name is\s+(.+)$/i, 'Name is'],
+  ];
+
+  for (const [pattern, prefix] of patterns) {
+    const match = cleaned.match(pattern);
+    if (!match?.[1]) {
+      continue;
+    }
+
+    return `${prefix} ${cleanFactContent(match[1])}`;
+  }
+
+  return cleaned;
+}
+
+export function normalizeFactContent(value: string) {
+  return standardizeFactContent(value).replace(/\s+/g, ' ').toLowerCase();
 }
 
 function splitFactClauses(value: string) {
@@ -218,7 +245,7 @@ function joinFactClauses(clauses: string[]) {
 }
 
 function parseFactPrefix(value: string) {
-  const cleaned = cleanFactContent(value);
+  const cleaned = standardizeFactContent(value);
 
   for (const prefix of COMBINABLE_FACT_PREFIXES) {
     if (cleaned.toLowerCase().startsWith(`${prefix.toLowerCase()} `)) {
@@ -233,8 +260,8 @@ function parseFactPrefix(value: string) {
 }
 
 function combineFactContents(left: string, right: string) {
-  const cleanedLeft = cleanFactContent(left);
-  const cleanedRight = cleanFactContent(right);
+  const cleanedLeft = standardizeFactContent(left);
+  const cleanedRight = standardizeFactContent(right);
   const normalizedLeft = normalizeFactContent(cleanedLeft);
   const normalizedRight = normalizeFactContent(cleanedRight);
 
@@ -243,6 +270,14 @@ function combineFactContents(left: string, right: string) {
   }
 
   if (normalizedLeft === normalizedRight) {
+    const leftParsed = parseFactPrefix(cleanedLeft);
+    const rightParsed = parseFactPrefix(cleanedRight);
+    if (leftParsed && !rightParsed) {
+      return cleanedLeft;
+    }
+    if (rightParsed && !leftParsed) {
+      return cleanedRight;
+    }
     return cleanedLeft.length >= cleanedRight.length ? cleanedLeft : cleanedRight;
   }
 

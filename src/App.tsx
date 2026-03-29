@@ -120,6 +120,7 @@ type FunctionPreset = {
   kind: 'skill' | 'agent';
   title: string;
   description: string;
+  command: string;
   systemPrompt: string;
   starterPrompt: string;
 };
@@ -145,6 +146,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     kind: 'skill',
     title: 'Botty Development',
     description: 'Full-stack product work across React, Express, memory, local LLM, settings, and Telegram.',
+    command: 'development',
     systemPrompt: 'You are Botty’s full-stack development mode. Make focused, production-minded changes across the React frontend, Express backend, PostgreSQL persistence, memory features, local LLM integration, and Telegram support. Prefer shared-layer fixes over route-specific patches. Keep changes minimal, validate after edits, and explain tradeoffs concretely.',
     starterPrompt: 'Help me implement a Botty feature end to end.',
   },
@@ -153,6 +155,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     kind: 'skill',
     title: 'Runtime Debug',
     description: 'Diagnose fetch failures, localhost issues, service problems, Telegram startup, CORS, and Ollama connectivity.',
+    command: 'debug',
     systemPrompt: 'You are Botty’s runtime debugging mode. Diagnose issues methodically across systemd, localhost access, API behavior, CORS, Telegram startup, Ollama connectivity, and saved settings. Confirm whether the service is healthy before assuming an outage. Separate local application errors from upstream network failures, and prefer root-cause fixes over surface workarounds.',
     starterPrompt: 'Debug the current Botty runtime issue and find the root cause.',
   },
@@ -161,6 +164,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     kind: 'skill',
     title: 'Botty Ops',
     description: 'Operational mode for Docker, systemd, PostgreSQL, ports, persistence, and reverse proxy work.',
+    command: 'ops',
     systemPrompt: 'You are Botty’s operations mode. Focus on runtime configuration, Docker, PostgreSQL, systemd startup, reverse proxy setup, and production-style local serving. Use the smallest operational fix that restores service, avoid destructive resets, and verify outcomes with health checks and logs.',
     starterPrompt: 'Help me operate or deploy Botty safely.',
   },
@@ -169,6 +173,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     kind: 'agent',
     title: 'Botty Builder',
     description: 'Implementation-focused mode for feature work and bug fixes in this repository.',
+    command: 'builder',
     systemPrompt: 'You are Botty Builder. Implement requested features or fixes directly and precisely. Read the relevant route, service, utility, and UI code first. Do not stop at analysis when a concrete change is needed. Avoid unrelated refactors, keep persistence and UI contracts aligned, and validate the final result.',
     starterPrompt: 'Implement this change in Botty.',
   },
@@ -177,6 +182,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     kind: 'agent',
     title: 'Botty Reviewer',
     description: 'Review-focused mode for bugs, regressions, runtime risk, and missing tests.',
+    command: 'reviewer',
     systemPrompt: 'You are Botty Reviewer. Review changes for defects, regressions, runtime risk, broken settings flows, memory issues, local LLM failures, Telegram issues, and deployment mistakes. Findings come first. Focus on correctness and behavior, not style. Use concise, severity-ordered review output with concrete file-level reasoning.',
     starterPrompt: 'Review this Botty change for bugs and regressions.',
   },
@@ -185,10 +191,14 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     kind: 'agent',
     title: 'Botty Ops Agent',
     description: 'Operations-focused mode for service health, environment settings, and startup failures.',
+    command: 'ops-bot',
     systemPrompt: 'You are Botty Ops. Handle runtime operations for the Botty app: systemd, Docker, PostgreSQL, localhost health, reverse proxy setup, external exposure, and startup failures. Do not assume the service is down before checking health and logs. Distinguish local application faults from upstream network problems.',
     starterPrompt: 'Diagnose and fix this Botty runtime or deployment issue.',
   },
 ];
+
+const SKILL_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'skill');
+const BOT_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'agent');
 
 function getFunctionPresetForPrompt(value: string | null | undefined) {
   const trimmed = value?.trim() || '';
@@ -201,7 +211,8 @@ function getFunctionPresetForPrompt(value: string | null | undefined) {
 
 const TABS = [
   { value: 'chat', label: 'Chat', Icon: MessageSquare },
-  { value: 'functions', label: 'Functions', Icon: Sparkles },
+  { value: 'skills', label: 'Skills', Icon: Sparkles },
+  { value: 'bots', label: 'Bots', Icon: Bot },
   { value: 'history', label: 'History', Icon: History },
   { value: 'memory', label: 'Memory', Icon: MemoryStick },
   { value: 'settings', label: 'Settings', Icon: Settings },
@@ -261,6 +272,7 @@ function AppShell() {
   const [loadingTelegramStatus, setLoadingTelegramStatus] = useState(false);
   const [activeFunctionId, setActiveFunctionId] = useState('');
   const [applyingFunctionId, setApplyingFunctionId] = useState('');
+  const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
@@ -346,6 +358,10 @@ function AppShell() {
 
     void refreshTelegramStatus();
   }, [user, activeTab]);
+
+  useEffect(() => {
+    setSelectedSlashIndex(0);
+  }, [prompt]);
 
   async function apiGet<T>(path: string) {
     const response = await fetch(path, { headers: authHeaders });
@@ -523,6 +539,29 @@ function AppShell() {
   }
 
   function handlePromptKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
+    if (prompt.startsWith('/')) {
+      if (event.key === 'ArrowDown' && matchingSkillPresets.length > 0) {
+        event.preventDefault();
+        setSelectedSlashIndex(index => (index + 1) % matchingSkillPresets.length);
+        return;
+      }
+
+      if (event.key === 'ArrowUp' && matchingSkillPresets.length > 0) {
+        event.preventDefault();
+        setSelectedSlashIndex(index => (index - 1 + matchingSkillPresets.length) % matchingSkillPresets.length);
+        return;
+      }
+
+      if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
+        const preset = matchingSkillPresets[selectedSlashIndex] || matchingSkillPresets[0];
+        if (preset) {
+          event.preventDefault();
+          void activateSlashSkill(preset);
+          return;
+        }
+      }
+    }
+
     if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) {
       return;
     }
@@ -581,7 +620,7 @@ function AppShell() {
     setApplyingFunctionId(preset.id);
     try {
       await saveSystemPromptOnly(preset.systemPrompt);
-      setPrompt(currentPrompt => currentPrompt.trim() ? currentPrompt : preset.starterPrompt);
+      setPrompt(currentPrompt => currentPrompt.trim() && !currentPrompt.trim().startsWith('/') ? currentPrompt : preset.starterPrompt);
       setActiveTab('chat');
       setNotice(`${preset.title} is active in chat.`);
     } finally {
@@ -593,10 +632,28 @@ function AppShell() {
     setApplyingFunctionId('clear');
     try {
       await saveSystemPromptOnly('');
+      setActiveTab('chat');
       setNotice('Function mode cleared.');
     } finally {
       setApplyingFunctionId('');
     }
+  }
+
+  const slashQuery = prompt.startsWith('/') ? prompt.slice(1).trim().toLowerCase() : '';
+  const matchingSkillPresets = prompt.startsWith('/')
+    ? SKILL_PRESETS.filter(item => {
+        if (!slashQuery) {
+          return true;
+        }
+
+        return item.command.includes(slashQuery)
+          || item.title.toLowerCase().includes(slashQuery)
+          || item.description.toLowerCase().includes(slashQuery);
+      })
+    : [];
+
+  async function activateSlashSkill(preset: FunctionPreset) {
+    await activateFunctionPreset(preset);
   }
 
   async function deleteConversation(selectedConversationId: string | null | undefined) {
@@ -984,7 +1041,8 @@ function AppShell() {
                 <h2 className="text-2xl font-semibold capitalize">{activeTab}</h2>
                 <p className={`text-sm ${subtleTextClass}`}>
                   {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
-                  {activeTab === 'functions' ? 'Activate in-app Botty skills and agents as chat modes.' : null}
+                  {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
+                  {activeTab === 'bots' ? 'Launch specialized Botty bots for different kinds of tasks.' : null}
                   {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
                   {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
                   {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
@@ -1057,12 +1115,36 @@ function AppShell() {
                       onChange={event => setPrompt(event.target.value)}
                       onKeyDown={handlePromptKeyDown}
                       rows={5}
-                      placeholder="Ask Claude to debug, design, or write code..."
+                      placeholder="Ask Claude to debug, design, or write code... Use /development, /debug, or /ops for skills"
                       className={textareaClass}
                     />
 
+                    {prompt.startsWith('/') ? (
+                      <div className={`mt-3 rounded-2xl border ${isDarkMode ? 'border-white/8 bg-[#172131]' : 'border-stone-200 bg-stone-50'} p-2`}>
+                        <div className={`px-2 pb-2 text-xs ${subtleTextClass}`}>Slash skills</div>
+                        <div className="space-y-1">
+                          {matchingSkillPresets.length > 0 ? matchingSkillPresets.map((item, index) => (
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => void activateSlashSkill(item)}
+                              className={`w-full rounded-xl px-3 py-2 text-left ${index === selectedSlashIndex ? (isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-900 border border-stone-200') : (isDarkMode ? 'text-stone-300 hover:bg-white/5' : 'text-stone-700 hover:bg-white')}`}
+                            >
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="text-sm font-medium">/{item.command}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                              </div>
+                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                            </button>
+                          )) : (
+                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching skills.</div>
+                          )}
+                        </div>
+                      </div>
+                    ) : null}
+
                     <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}.</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. {activeFunctionId ? `Mode: ${FUNCTION_PRESETS.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}.</p>
                       <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
                         <Send className="w-4 h-4" />
                         {isSending ? 'Sending...' : 'Send'}
@@ -1096,12 +1178,12 @@ function AppShell() {
               </div>
             ) : null}
 
-            {activeTab === 'functions' ? (
+            {activeTab === 'skills' ? (
               <div className="space-y-4">
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
-                    <h3 className="font-medium">In-app functions</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>These bring the Botty skills and agents into the app as reusable chat modes by applying a targeted system prompt.</p>
+                    <h3 className="font-medium">Skills</h3>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>Use these in the menu or type `/` in chat to activate a Botty skill instantly.</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${FUNCTION_PRESETS.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
@@ -1111,54 +1193,107 @@ function AppShell() {
                   </div>
                 </section>
 
-                {(['skill', 'agent'] as const).map(kind => (
-                  <section key={kind} className={sectionCardClass}>
-                    <div className="flex items-center gap-2 mb-3">
-                      <Sparkles className="w-4 h-4" />
-                      <h3 className="font-medium capitalize">{kind === 'skill' ? 'Skills' : 'Agents'}</h3>
-                    </div>
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      {FUNCTION_PRESETS.filter(item => item.kind === kind).map(item => {
-                        const isActive = activeFunctionId === item.id;
+                <section className={sectionCardClass}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="w-4 h-4" />
+                    <h3 className="font-medium">Available slash skills</h3>
+                  </div>
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    {SKILL_PRESETS.map(item => {
+                      const isActive = activeFunctionId === item.id;
 
-                        return (
-                          <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-medium">{item.title}</div>
-                                <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
-                              </div>
-                              <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
-                                {isActive ? 'Active' : kind}
-                              </div>
+                      return (
+                        <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">{item.title}</div>
+                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
                             </div>
-
-                            <div className={`text-xs ${subtleTextClass}`}>Starter: {item.starterPrompt}</div>
-
-                            <div className="flex flex-wrap items-center gap-2">
-                              <button
-                                onClick={() => void activateFunctionPreset(item)}
-                                disabled={applyingFunctionId === item.id}
-                                className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
-                              >
-                                {applyingFunctionId === item.id ? 'Applying...' : 'Use in chat'}
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setPrompt(item.starterPrompt);
-                                  setActiveTab('chat');
-                                }}
-                                className={secondaryButtonClass}
-                              >
-                                Fill prompt
-                              </button>
+                            <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
+                              {isActive ? 'Active' : `/${item.command}`}
                             </div>
                           </div>
-                        );
-                      })}
-                    </div>
-                  </section>
-                ))}
+
+                          <div className={`text-xs ${subtleTextClass}`}>Slash command: /{item.command}</div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => void activateFunctionPreset(item)}
+                              disabled={applyingFunctionId === item.id}
+                              className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
+                            >
+                              {applyingFunctionId === item.id ? 'Applying...' : 'Use in chat'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPrompt(`/${item.command}`);
+                                setActiveTab('chat');
+                              }}
+                              className={secondaryButtonClass}
+                            >
+                              Insert slash command
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              </div>
+            ) : null}
+
+            {activeTab === 'bots' ? (
+              <div className="space-y-4">
+                <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
+                  <div>
+                    <h3 className="font-medium">Bots</h3>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>These agent-backed bots switch Botty into a specialized task mode for building, reviewing, or operating the app.</p>
+                  </div>
+                  <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active bot: ${BOT_PRESETS.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active bot'}</div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    {BOT_PRESETS.map(item => {
+                      const isActive = activeFunctionId === item.id;
+
+                      return (
+                        <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">{item.title}</div>
+                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                            </div>
+                            <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
+                              {isActive ? 'Active' : 'Bot'}
+                            </div>
+                          </div>
+
+                          <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => void activateFunctionPreset(item)}
+                              disabled={applyingFunctionId === item.id}
+                              className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
+                            >
+                              {applyingFunctionId === item.id ? 'Starting...' : 'Start bot'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setPrompt(item.starterPrompt);
+                                setActiveTab('chat');
+                              }}
+                              className={secondaryButtonClass}
+                            >
+                              Fill prompt
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
               </div>
             ) : null}
 
