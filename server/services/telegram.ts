@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
-import { users } from '../db/schema.js';
+import { appSettings, users } from '../db/schema.js';
 import { runChatForUser } from './chat.js';
 
 type TelegramUpdate = {
@@ -26,20 +26,29 @@ type TelegramUpdate = {
 };
 
 const TELEGRAM_API_BASE = 'https://api.telegram.org';
+const APP_SETTINGS_ID = 'global';
 const conversationByChatId = new Map<number, string>();
 let pollingPromise: Promise<void> | null = null;
 let pollingOffset = 0;
+let pollingSessionId = 0;
 
-function getTelegramToken() {
-  return process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+type TelegramRuntimeConfig = {
+  token: string;
+  enabled: boolean;
+  allowedChatIdsRaw: string;
+  requestedProvider: string;
+  requestedModel: string;
+};
+
+function decryptValue(value: string): string {
+  return Buffer.from(value, 'base64').toString();
 }
 
-function getTelegramApiUrl(method: string) {
-  return `${TELEGRAM_API_BASE}/bot${getTelegramToken()}/${method}`;
+function getTelegramApiUrl(token: string, method: string) {
+  return `${TELEGRAM_API_BASE}/bot${token}/${method}`;
 }
 
-function getAllowedChatIds() {
-  const raw = process.env.TELEGRAM_ALLOWED_CHAT_IDS?.trim();
+function parseAllowedChatIds(raw: string) {
   if (!raw) {
     return null;
   }
@@ -52,8 +61,44 @@ function getAllowedChatIds() {
   return allowed.length > 0 ? new Set(allowed) : null;
 }
 
-async function telegramRequest<T>(method: string, body?: Record<string, unknown>): Promise<T> {
-  const response = await fetch(getTelegramApiUrl(method), {
+async function loadTelegramConfig(): Promise<TelegramRuntimeConfig> {
+  let token = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+  let enabled = process.env.TELEGRAM_BOT_ENABLED !== 'false';
+  let allowedChatIdsRaw = process.env.TELEGRAM_ALLOWED_CHAT_IDS?.trim() || '';
+  let requestedProvider = process.env.TELEGRAM_PROVIDER?.trim() || 'auto';
+  let requestedModel = process.env.TELEGRAM_MODEL?.trim() || '';
+
+  try {
+    const db = getDatabase();
+    const rows = await db
+      .select()
+      .from(appSettings)
+      .where(eq(appSettings.id, APP_SETTINGS_ID))
+      .limit(1);
+
+    const row = rows[0];
+    if (row) {
+      token = row.telegramBotToken ? decryptValue(row.telegramBotToken) : '';
+      enabled = row.telegramBotEnabled !== false;
+      allowedChatIdsRaw = row.telegramAllowedChatIds?.trim() || '';
+      requestedProvider = row.telegramProvider?.trim() || 'auto';
+      requestedModel = row.telegramModel?.trim() || '';
+    }
+  } catch (error) {
+    console.error('Failed to load Telegram settings from database, falling back to env:', error);
+  }
+
+  return {
+    token,
+    enabled,
+    allowedChatIdsRaw,
+    requestedProvider,
+    requestedModel,
+  };
+}
+
+async function telegramRequest<T>(token: string, method: string, body?: Record<string, unknown>): Promise<T> {
+  const response = await fetch(getTelegramApiUrl(token, method), {
     method: body ? 'POST' : 'GET',
     headers: body ? { 'Content-Type': 'application/json' } : undefined,
     body: body ? JSON.stringify(body) : undefined,
@@ -72,15 +117,15 @@ async function telegramRequest<T>(method: string, body?: Record<string, unknown>
   return payload.result;
 }
 
-async function sendTelegramMessage(chatId: number, text: string) {
-  await telegramRequest('sendMessage', {
+async function sendTelegramMessage(token: string, chatId: number, text: string) {
+  await telegramRequest(token, 'sendMessage', {
     chat_id: chatId,
     text,
   });
 }
 
-async function sendTelegramTyping(chatId: number) {
-  await telegramRequest('sendChatAction', {
+async function sendTelegramTyping(token: string, chatId: number) {
+  await telegramRequest(token, 'sendChatAction', {
     chat_id: chatId,
     action: 'typing',
   });
@@ -132,14 +177,20 @@ async function handleTelegramMessage(update: TelegramUpdate) {
     return;
   }
 
-  const allowedChatIds = getAllowedChatIds();
+  const config = await loadTelegramConfig();
+  if (!config.enabled || !config.token) {
+    return;
+  }
+
+  const allowedChatIds = parseAllowedChatIds(config.allowedChatIdsRaw);
   if (allowedChatIds && !allowedChatIds.has(message.chat.id)) {
-    await sendTelegramMessage(message.chat.id, 'This chat is not allowed to use this bot.');
+    await sendTelegramMessage(config.token, message.chat.id, 'This chat is not allowed to use this bot.');
     return;
   }
 
   if (text === '/start' || text === '/help') {
     await sendTelegramMessage(
+      config.token,
       message.chat.id,
       'Botty is ready. Send a message to chat.\n\nCommands:\n/start\n/help\n/reset',
     );
@@ -148,39 +199,37 @@ async function handleTelegramMessage(update: TelegramUpdate) {
 
   if (text === '/reset') {
     conversationByChatId.delete(message.chat.id);
-    await sendTelegramMessage(message.chat.id, 'Conversation reset.');
+    await sendTelegramMessage(config.token, message.chat.id, 'Conversation reset.');
     return;
   }
 
   const uid = await ensureTelegramUser(message);
-  const requestedProvider = process.env.TELEGRAM_PROVIDER?.trim() || 'auto';
-  const requestedModel = process.env.TELEGRAM_MODEL?.trim() || '';
 
-  await sendTelegramTyping(message.chat.id);
+  await sendTelegramTyping(config.token, message.chat.id);
 
   try {
     const result = await runChatForUser({
       uid,
       prompt: text,
-      requestedProvider,
-      requestedModel,
+      requestedProvider: config.requestedProvider,
+      requestedModel: config.requestedModel,
       messages: [],
       incomingConversationId: conversationByChatId.get(message.chat.id) || null,
     });
 
     conversationByChatId.set(message.chat.id, result.conversationId);
-    await sendTelegramMessage(message.chat.id, result.text);
+    await sendTelegramMessage(config.token, message.chat.id, result.text);
   } catch (error) {
     const messageText = error instanceof Error ? error.message : 'Unknown error';
     console.error('Telegram bot chat error:', error);
-    await sendTelegramMessage(message.chat.id, `Botty error: ${messageText}`);
+    await sendTelegramMessage(config.token, message.chat.id, `Botty error: ${messageText}`);
   }
 }
 
-async function pollTelegramUpdates() {
-  while (true) {
+async function pollTelegramUpdates(token: string, sessionId: number) {
+  while (pollingSessionId === sessionId) {
     try {
-      const updates = await telegramRequest<TelegramUpdate[]>('getUpdates', {
+      const updates = await telegramRequest<TelegramUpdate[]>(token, 'getUpdates', {
         offset: pollingOffset,
         timeout: 50,
         allowed_updates: ['message'],
@@ -197,21 +246,63 @@ async function pollTelegramUpdates() {
   }
 }
 
-export async function startTelegramBot() {
-  if (process.env.TELEGRAM_BOT_ENABLED === 'false') {
+function sameConfig(left: TelegramRuntimeConfig, right: TelegramRuntimeConfig) {
+  return left.token === right.token
+    && left.enabled === right.enabled
+    && left.allowedChatIdsRaw === right.allowedChatIdsRaw
+    && left.requestedProvider === right.requestedProvider
+    && left.requestedModel === right.requestedModel;
+}
+
+let activeConfig: TelegramRuntimeConfig = {
+  token: '',
+  enabled: true,
+  allowedChatIdsRaw: '',
+  requestedProvider: 'auto',
+  requestedModel: '',
+};
+
+export async function refreshTelegramBot() {
+  const nextConfig = await loadTelegramConfig();
+
+  if (!nextConfig.enabled || !nextConfig.token) {
+    if (pollingPromise) {
+      pollingSessionId += 1;
+      pollingPromise = null;
+      console.log('Telegram bot disabled');
+    }
+    activeConfig = nextConfig;
     return;
   }
 
-  const token = getTelegramToken();
-  if (!token) {
+  if (pollingPromise && sameConfig(activeConfig, nextConfig)) {
     return;
   }
 
-  if (pollingPromise) {
-    return;
-  }
-
-  const me = await telegramRequest<{ username?: string }>('getMe');
+  pollingSessionId += 1;
+  const sessionId = pollingSessionId;
+  activeConfig = nextConfig;
+  const me = await telegramRequest<{ username?: string }>(nextConfig.token, 'getMe');
   console.log(`Telegram bot enabled${me.username ? ` as @${me.username}` : ''}`);
-  pollingPromise = pollTelegramUpdates();
+  pollingPromise = pollTelegramUpdates(nextConfig.token, sessionId)
+    .catch(error => {
+      console.error('Telegram bot stopped:', error);
+    })
+    .finally(() => {
+      if (pollingSessionId === sessionId) {
+        pollingPromise = null;
+      }
+    });
+}
+
+export async function startTelegramBot() {
+  try {
+    await refreshTelegramBot();
+  } catch (error) {
+    pollingPromise = null;
+    if (error instanceof Error) {
+      throw new Error(error.message);
+    }
+    throw error;
+  }
 }

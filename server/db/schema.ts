@@ -72,6 +72,16 @@ export const settings = pgTable('settings', {
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
+export const appSettings = pgTable('app_settings', {
+  id: varchar('id', { length: 64 }).primaryKey().notNull(),
+  telegramBotToken: text('telegram_bot_token'),
+  telegramBotEnabled: boolean('telegram_bot_enabled').default(true),
+  telegramAllowedChatIds: text('telegram_allowed_chat_ids'),
+  telegramProvider: varchar('telegram_provider', { length: 100 }),
+  telegramModel: varchar('telegram_model', { length: 255 }),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
 // User Settings table
 export const userSettings = pgTable('user_settings', {
   uid: varchar('uid', { length: 255 }).primaryKey().notNull(),

@@ -1,11 +1,21 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../db/index.js';
-import { settings, userSettings } from '../db/schema.js';
+import { appSettings, settings, userSettings } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
+import { refreshTelegramBot } from '../services/telegram.js';
 
 const router = Router();
 router.use(authMiddleware);
+const APP_SETTINGS_ID = 'global';
+
+function encryptValue(value: string): string {
+  return Buffer.from(value).toString('base64');
+}
+
+function decryptValue(value: string): string {
+  return Buffer.from(value, 'base64').toString();
+}
 
 // GET /api/settings - Get user settings
 router.get('/', async (req: Request, res: Response) => {
@@ -18,6 +28,17 @@ router.get('/', async (req: Request, res: Response) => {
       .from(settings)
       .where(eq(settings.uid, uid));
 
+    const appSettingsRows = await db
+      .select()
+      .from(appSettings)
+      .where(eq(appSettings.id, APP_SETTINGS_ID))
+      .limit(1);
+
+    const appSettingsRow = appSettingsRows[0];
+    const telegramBotToken = appSettingsRow?.telegramBotToken
+      ? decryptValue(appSettingsRow.telegramBotToken)
+      : null;
+
     if (userSettings.length === 0) {
       // Return default settings
       return res.json({
@@ -25,10 +46,22 @@ router.get('/', async (req: Request, res: Response) => {
         localUrl: null,
         useMemory: true,
         autoMemory: true,
+        telegramBotToken,
+        telegramBotEnabled: appSettingsRow?.telegramBotEnabled !== false,
+        telegramAllowedChatIds: appSettingsRow?.telegramAllowedChatIds || '',
+        telegramProvider: appSettingsRow?.telegramProvider || 'auto',
+        telegramModel: appSettingsRow?.telegramModel || '',
       });
     }
 
-    res.json(userSettings[0]);
+    res.json({
+      ...userSettings[0],
+      telegramBotToken,
+      telegramBotEnabled: appSettingsRow?.telegramBotEnabled !== false,
+      telegramAllowedChatIds: appSettingsRow?.telegramAllowedChatIds || '',
+      telegramProvider: appSettingsRow?.telegramProvider || 'auto',
+      telegramModel: appSettingsRow?.telegramModel || '',
+    });
   } catch (error) {
     console.error('Error fetching settings:', error);
     res.status(500).json({ error: 'Failed to fetch settings' });
@@ -38,7 +71,16 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/settings - Update user settings
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { localUrl, useMemory, autoMemory } = req.body;
+    const {
+      localUrl,
+      useMemory,
+      autoMemory,
+      telegramBotToken,
+      telegramBotEnabled,
+      telegramAllowedChatIds,
+      telegramProvider,
+      telegramModel,
+    } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
 
@@ -61,6 +103,47 @@ router.post('/', async (req: Request, res: Response) => {
           updatedAt: new Date(),
         },
       });
+
+    await db
+      .insert(appSettings)
+      .values({
+        id: APP_SETTINGS_ID,
+        telegramBotToken: typeof telegramBotToken === 'string' && telegramBotToken.trim()
+          ? encryptValue(telegramBotToken.trim())
+          : null,
+        telegramBotEnabled: telegramBotEnabled !== false,
+        telegramAllowedChatIds: typeof telegramAllowedChatIds === 'string' && telegramAllowedChatIds.trim()
+          ? telegramAllowedChatIds.trim()
+          : null,
+        telegramProvider: typeof telegramProvider === 'string' && telegramProvider.trim()
+          ? telegramProvider.trim()
+          : 'auto',
+        telegramModel: typeof telegramModel === 'string' && telegramModel.trim()
+          ? telegramModel.trim()
+          : null,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: appSettings.id,
+        set: {
+          telegramBotToken: typeof telegramBotToken === 'string' && telegramBotToken.trim()
+            ? encryptValue(telegramBotToken.trim())
+            : null,
+          telegramBotEnabled: telegramBotEnabled !== false,
+          telegramAllowedChatIds: typeof telegramAllowedChatIds === 'string' && telegramAllowedChatIds.trim()
+            ? telegramAllowedChatIds.trim()
+            : null,
+          telegramProvider: typeof telegramProvider === 'string' && telegramProvider.trim()
+            ? telegramProvider.trim()
+            : 'auto',
+          telegramModel: typeof telegramModel === 'string' && telegramModel.trim()
+            ? telegramModel.trim()
+            : null,
+          updatedAt: new Date(),
+        },
+      });
+
+    await refreshTelegramBot();
 
     res.json({ success: true });
   } catch (error) {

@@ -64,6 +64,11 @@ type SettingsResponse = {
   localUrl: string | null;
   useMemory: boolean;
   autoMemory: boolean;
+  telegramBotToken?: string | null;
+  telegramBotEnabled?: boolean;
+  telegramAllowedChatIds?: string | null;
+  telegramProvider?: string | null;
+  telegramModel?: string | null;
 };
 
 type ProvidersResponse = {
@@ -166,6 +171,11 @@ function AppShell() {
   const [localUrl, setLocalUrl] = useState('http://localhost:11434');
   const [useMemory, setUseMemory] = useState(true);
   const [autoMemory, setAutoMemory] = useState(true);
+  const [telegramBotToken, setTelegramBotToken] = useState('');
+  const [telegramBotEnabled, setTelegramBotEnabled] = useState(true);
+  const [telegramAllowedChatIds, setTelegramAllowedChatIds] = useState('');
+  const [telegramProvider, setTelegramProvider] = useState('auto');
+  const [telegramModel, setTelegramModel] = useState('');
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
@@ -290,6 +300,11 @@ function AppShell() {
     setLocalUrl(settingsData.localUrl || 'http://localhost:11434');
     setUseMemory(settingsData.useMemory !== false);
     setAutoMemory(settingsData.autoMemory !== false);
+    setTelegramBotToken(settingsData.telegramBotToken || '');
+    setTelegramBotEnabled(settingsData.telegramBotEnabled !== false);
+    setTelegramAllowedChatIds(settingsData.telegramAllowedChatIds || '');
+    setTelegramProvider(settingsData.telegramProvider || 'auto');
+    setTelegramModel(settingsData.telegramModel || '');
     setSystemPrompt(userSettingsData.systemPrompt || '');
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
@@ -490,11 +505,20 @@ function AppShell() {
     setSavingSettings(true);
     try {
       await Promise.all([
-        apiSend('/api/settings', 'POST', { localUrl, useMemory, autoMemory }),
+        apiSend('/api/settings', 'POST', {
+          localUrl,
+          useMemory,
+          autoMemory,
+          telegramBotToken,
+          telegramBotEnabled,
+          telegramAllowedChatIds,
+          telegramProvider,
+          telegramModel,
+        }),
         apiSend('/api/settings/user-settings', 'POST', { systemPrompt }),
       ]);
       await refreshAll();
-      setNotice('Settings updated.');
+      setNotice(telegramBotEnabled && telegramBotToken.trim() ? 'Settings updated. Telegram bot reloaded.' : 'Settings updated.');
     } finally {
       setSavingSettings(false);
     }
@@ -1054,6 +1078,61 @@ function AppShell() {
                   <div>
                     <label className={sectionLabelClass}>System prompt</label>
                     <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} rows={6} className={isDarkMode ? 'w-full rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100' : 'w-full rounded-2xl border border-stone-200 px-3 py-2'} />
+                  </div>
+
+                  <div className={`grid gap-4 lg:grid-cols-2 ${elevatedCardClass}`}>
+                    <div className="lg:col-span-2">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Bot className="w-4 h-4" />
+                        <h4 className="font-medium">Telegram bot</h4>
+                      </div>
+                      <p className={`text-sm ${subtleTextClass}`}>Save the bot token here and Botty will start or reload Telegram polling without editing environment files.</p>
+                    </div>
+
+                    <div className="lg:col-span-2">
+                      <label className={sectionLabelClass}>Bot token</label>
+                      <input
+                        type="password"
+                        value={telegramBotToken}
+                        onChange={event => setTelegramBotToken(event.target.value)}
+                        placeholder="1234567890:AA..."
+                        className={textInputClass}
+                      />
+                    </div>
+
+                    <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+                      <input type="checkbox" checked={telegramBotEnabled} onChange={event => setTelegramBotEnabled(event.target.checked)} />
+                      Enable Telegram bot polling
+                    </label>
+
+                    <div>
+                      <label className={sectionLabelClass}>Allowed chat IDs</label>
+                      <input
+                        value={telegramAllowedChatIds}
+                        onChange={event => setTelegramAllowedChatIds(event.target.value)}
+                        placeholder="123456789,987654321"
+                        className={textInputClass}
+                      />
+                    </div>
+
+                    <div>
+                      <label className={sectionLabelClass}>Telegram provider</label>
+                      <select value={telegramProvider} onChange={event => setTelegramProvider(event.target.value)} className={textInputClass}>
+                        {PROVIDERS.map(option => (
+                          <option key={option.value} value={option.value}>{option.label}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className={sectionLabelClass}>Telegram model override</label>
+                      <input
+                        value={telegramModel}
+                        onChange={event => setTelegramModel(event.target.value)}
+                        placeholder="Leave blank for provider default"
+                        className={textInputClass}
+                      />
+                    </div>
                   </div>
 
                   <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>

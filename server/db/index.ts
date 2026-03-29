@@ -91,6 +91,43 @@ async function bootstrapSchema(pool: Pool) {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      id VARCHAR(64) PRIMARY KEY,
+      telegram_bot_token TEXT,
+      telegram_bot_enabled BOOLEAN DEFAULT TRUE,
+      telegram_allowed_chat_ids TEXT,
+      telegram_provider VARCHAR(100),
+      telegram_model VARCHAR(255),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE app_settings
+    ADD COLUMN IF NOT EXISTS telegram_bot_token TEXT
+  `);
+
+  await pool.query(`
+    ALTER TABLE app_settings
+    ADD COLUMN IF NOT EXISTS telegram_bot_enabled BOOLEAN DEFAULT TRUE
+  `);
+
+  await pool.query(`
+    ALTER TABLE app_settings
+    ADD COLUMN IF NOT EXISTS telegram_allowed_chat_ids TEXT
+  `);
+
+  await pool.query(`
+    ALTER TABLE app_settings
+    ADD COLUMN IF NOT EXISTS telegram_provider VARCHAR(100)
+  `);
+
+  await pool.query(`
+    ALTER TABLE app_settings
+    ADD COLUMN IF NOT EXISTS telegram_model VARCHAR(255)
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS user_settings (
       uid VARCHAR(255) PRIMARY KEY,
       system_prompt TEXT,
