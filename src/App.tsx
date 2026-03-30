@@ -446,6 +446,13 @@ function AppShell() {
   });
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && Boolean(document.fullscreenElement));
   const [isSidebarDrawerOpen, setIsSidebarDrawerOpen] = useState(false);
+  const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+
+    return !window.matchMedia('(max-width: 1279px)').matches;
+  });
   const [recentSlashItemIds, setRecentSlashItemIds] = useState<string[]>(() => {
     if (typeof window === 'undefined') {
       return [];
@@ -966,8 +973,33 @@ function AppShell() {
   }, [isSidebarExpanded]);
 
   useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 1279px)');
+
+    function handleChatViewportChange(event: MediaQueryListEvent | MediaQueryList) {
+      if (document.fullscreenElement) {
+        setIsChatSidebarOpen(true);
+        return;
+      }
+
+      setIsChatSidebarOpen(!event.matches);
+    }
+
+    handleChatViewportChange(mediaQuery);
+    mediaQuery.addEventListener('change', handleChatViewportChange);
+    return () => mediaQuery.removeEventListener('change', handleChatViewportChange);
+  }, []);
+
+  useEffect(() => {
     function handleFullscreenChange() {
-      setIsFullscreen(Boolean(document.fullscreenElement));
+      const nextIsFullscreen = Boolean(document.fullscreenElement);
+      setIsFullscreen(nextIsFullscreen);
+
+      if (nextIsFullscreen) {
+        setIsChatSidebarOpen(true);
+        return;
+      }
+
+      setIsChatSidebarOpen(!window.matchMedia('(max-width: 1279px)').matches);
     }
 
     document.addEventListener('fullscreenchange', handleFullscreenChange);
@@ -2135,13 +2167,13 @@ function AppShell() {
   const appBackgroundClass = isDarkMode
     ? 'min-h-dvh w-full overflow-x-hidden bg-[#101214] text-stone-100'
     : 'min-h-dvh w-full overflow-x-hidden bg-[#f3f0ea] text-stone-900';
-  const workspaceShellClass = `grid min-h-dvh w-full gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[264px_minmax(0,1fr)]' : 'lg:grid-cols-[84px_minmax(0,1fr)]'} lg:gap-4 lg:transition-[grid-template-columns] lg:duration-200`;
+  const workspaceShellClass = `grid min-h-dvh w-full gap-3 md:gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[264px_minmax(0,1fr)]' : 'lg:grid-cols-[84px_minmax(0,1fr)]'} lg:gap-4 lg:transition-[grid-template-columns] lg:duration-200`;
   const sidebarPanelClass = isDarkMode
     ? `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-white/6 bg-[#15171a] p-4 text-stone-100 shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`
     : `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-stone-200 bg-[#f7f4ee] p-4 text-stone-900 shadow-[0_6px_16px_rgba(36,29,18,0.05)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`;
   const shellPanelClass = isDarkMode
-    ? `rounded-[1.5rem] bg-[#15181b] p-4 md:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] border border-white/8 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 lg:rounded-[1.5rem] lg:border' : ''}`
-    : `rounded-[1.5rem] bg-[#fcfbf8] p-4 md:p-6 shadow-[0_18px_42px_rgba(36,29,18,0.08)] border border-stone-200 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 lg:rounded-[1.5rem] lg:border' : ''}`;
+    ? `w-full rounded-[1.5rem] bg-[#15181b] p-4 md:p-5 lg:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] border border-white/8 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:min-h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`
+    : `w-full rounded-[1.5rem] bg-[#fcfbf8] p-4 md:p-5 lg:p-6 shadow-[0_18px_42px_rgba(36,29,18,0.08)] border border-stone-200 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:min-h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`;
   const sectionCardClass = isDarkMode
     ? 'rounded-[1.25rem] border border-white/8 bg-[#111417] p-4'
     : 'rounded-[1.25rem] border border-stone-200 bg-white p-4';
@@ -2295,7 +2327,7 @@ function AppShell() {
           <aside className={sidebarPanelClass}>
             <div className={`flex items-start gap-3 ${isSidebarExpanded ? 'justify-between' : 'justify-center'}`}>
               <div className={isSidebarExpanded ? '' : 'hidden'}>
-                <p className={`text-[11px] font-semibold uppercase tracking-[0.28em] ${subtleTextClass}`}>Botty</p>
+                <p className={`text-sm font-bold uppercase tracking-[0.24em] ${isDarkMode ? 'text-stone-100' : 'text-stone-950'}`}>Botty</p>
               </div>
 
               <button
@@ -2402,9 +2434,9 @@ function AppShell() {
             </button>
           </aside>
 
-          <main className={`${shellPanelClass} min-h-[calc(100dvh-1.5rem)]`}>
-            <div className="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
+          <main className={`${shellPanelClass} min-h-[calc(100dvh-1.5rem)] ${isFullscreen ? 'lg:min-h-[calc(100dvh-2rem)]' : ''}`}>
+            <div className="mb-5 flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex items-start gap-3 min-w-0">
                 <button
                   type="button"
                   onClick={() => setIsSidebarDrawerOpen(true)}
@@ -2415,8 +2447,8 @@ function AppShell() {
                   <Menu className="w-4 h-4" />
                 </button>
 
-                <div>
-                <h2 className="text-2xl font-semibold capitalize">{activeTab}</h2>
+                <div className="min-w-0">
+                <h2 className="text-xl font-semibold capitalize sm:text-2xl">{activeTab}</h2>
                 <p className={`text-sm ${subtleTextClass}`}>
                   {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
                   {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
@@ -2428,7 +2460,7 @@ function AppShell() {
                 </div>
               </div>
 
-              <button onClick={() => void refreshAll()} className={actionButtonClass}>
+              <button onClick={() => void refreshAll()} className={`${actionButtonClass} w-full justify-center md:w-auto`}>
                 <RefreshCw className="w-4 h-4" />
                 Refresh
               </button>
@@ -2437,9 +2469,25 @@ function AppShell() {
             {notice ? <div className={noticeClass}>{notice}</div> : null}
 
             {activeTab === 'chat' ? (
-              <div className="grid xl:grid-cols-[1fr_320px] gap-4">
-                <section className={`${sectionCardClass} min-h-[70vh] flex flex-col`}>
-                  <div className="flex-1 overflow-auto space-y-4 pr-2">
+              <div className={`grid gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
+                <section className={`${sectionCardClass} flex min-h-[62vh] flex-col sm:min-h-[70vh] ${isFullscreen ? 'lg:min-h-[calc(100dvh-11rem)]' : ''}`}>
+                  <div className={`items-center justify-between gap-3 pb-3 xl:hidden ${isFullscreen ? 'hidden' : 'flex'}`}>
+                    <div>
+                      <h3 className="text-sm font-medium">Chat tools</h3>
+                      <p className={`mt-1 text-xs ${subtleTextClass}`}>Toggle runtime details and recent conversations.</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setIsChatSidebarOpen(value => !value)}
+                      className={secondaryButtonClass}
+                      aria-expanded={isChatSidebarOpen}
+                      aria-label={isChatSidebarOpen ? 'Hide chat tools' : 'Show chat tools'}
+                    >
+                      {isChatSidebarOpen ? 'Hide tools' : 'Show tools'}
+                    </button>
+                  </div>
+
+                  <div className="flex-1 overflow-auto space-y-3 pr-1 sm:space-y-4 sm:pr-2">
                     {messages.length === 0 ? (
                       <div className={`h-full min-h-[360px] flex items-center justify-center ${emptyStateClass}`}>
                         <div className="max-w-md text-center">
@@ -2451,13 +2499,13 @@ function AppShell() {
                     ) : null}
 
                     {messages.map((message, index) => (
-                      <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-4 py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-[92%]'}`}>
+                      <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-3 py-3 sm:px-4 sm:py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[94%] sm:max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[94%] sm:max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-full sm:max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-full sm:max-w-[92%]'}`}>
                         <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
                           {message.role === 'user'
                             ? 'You'
                             : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
                         </div>
-                        <div className="whitespace-pre-wrap leading-7 text-[15px]">{message.content}</div>
+                        <div className="whitespace-pre-wrap text-[15px] leading-6 sm:leading-7">{message.content}</div>
                         {message.role === 'assistant' && formatTokenUsage(message.tokensUsed, message.provider, message.model) ? (
                           <div className={`mt-3 text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model)}</div>
                         ) : null}
@@ -2467,7 +2515,7 @@ function AppShell() {
 
                   {chatError ? <div className="mt-4 rounded-[1rem] bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">{chatError}</div> : null}
 
-                  <div ref={composerDropRef} className={`mt-4 rounded-[1.25rem] p-3 relative transition-colors ${isDarkMode ? 'border border-white/8 bg-[#111417]' : 'border border-stone-200 bg-[#faf8f3]'} ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-white/30 bg-[#1b2024]' : 'ring-2 ring-stone-400/60 bg-white') : ''}`}>
+                  <div ref={composerDropRef} className={`relative mt-4 rounded-[1.25rem] p-2.5 sm:p-3 transition-colors ${isDarkMode ? 'border border-white/8 bg-[#111417]' : 'border border-stone-200 bg-[#faf8f3]'} ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-white/30 bg-[#1b2024]' : 'ring-2 ring-stone-400/60 bg-white') : ''}`}>
                     {isDragOverComposer ? (
                       <div className={`pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-[1.1rem] border-2 border-dashed ${isDarkMode ? 'border-white/25 bg-[#111417]/92 text-stone-100' : 'border-stone-300 bg-white/92 text-stone-900'}`}>
                         <div className="text-center">
@@ -2477,7 +2525,7 @@ function AppShell() {
                         </div>
                       </div>
                     ) : null}
-                    <div className="grid md:grid-cols-[180px_1fr] gap-3 mb-3">
+                    <div className="mb-3 grid gap-3 sm:grid-cols-[minmax(0,180px)_1fr]">
                       <select
                         value={provider}
                         onChange={event => {
@@ -2513,7 +2561,7 @@ function AppShell() {
                       value={prompt}
                       onChange={event => setPrompt(event.target.value)}
                       onKeyDown={handlePromptKeyDown}
-                      rows={5}
+                      rows={4}
                       placeholder="Ask Claude to debug, design, or write code... Use /development for skills or /new-chat for commands"
                       className={textareaClass}
                     />
@@ -2680,9 +2728,9 @@ function AppShell() {
                       </div>
                     ) : null}
 
-                    <div className="mt-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                       <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.</p>
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
                         <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
                           <Upload className="w-4 h-4" />
                           Add files
@@ -2691,7 +2739,7 @@ function AppShell() {
                           {isListening ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                           {isListening ? 'Stop voice' : 'Voice'}
                         </button>
-                        <button onClick={() => void sendPrompt()} disabled={isSending} className="rounded-2xl bg-stone-900 text-white px-4 py-2.5 flex items-center gap-2 disabled:opacity-60">
+                        <button onClick={() => void sendPrompt()} disabled={isSending} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 px-4 py-2.5 text-white disabled:opacity-60 sm:w-auto">
                           <Send className="w-4 h-4" />
                           {isSending ? 'Sending...' : 'Send'}
                         </button>
@@ -2700,7 +2748,7 @@ function AppShell() {
                   </div>
                 </section>
 
-                <section className="space-y-4">
+                <section className={`${isChatSidebarOpen || isFullscreen ? 'space-y-4' : 'hidden'} ${isFullscreen ? 'grid gap-4 md:grid-cols-2 xl:grid-cols-2' : ''} xl:block`}>
                   <div className={sectionCardClass}>
                     <h3 className="font-medium">Current runtime</h3>
                     <ul className={`mt-3 text-sm ${mutedTextClass} space-y-2`}>
