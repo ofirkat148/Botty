@@ -45,6 +45,7 @@ type Message = {
   content: string;
   model?: string;
   provider?: string;
+  tokensUsed?: number | null;
 };
 
 type PendingAttachment = {
@@ -76,6 +77,15 @@ type MemoryUrl = {
   id: string;
   url: string;
   title?: string | null;
+  timestamp: string;
+};
+
+type MemoryFile = {
+  id: string;
+  name: string;
+  content: string;
+  type?: string | null;
+  size?: number | null;
   timestamp: string;
 };
 
@@ -119,6 +129,8 @@ type ModelUsageEntry = {
 type UsageResponse = {
   tokens: number;
   modelUsage: ModelUsageEntry[];
+  providerUsage: Array<{ provider: string; tokens: number }>;
+  trend: Array<{ date: string; tokens: number }>;
   date: string;
 };
 
@@ -186,6 +198,16 @@ const DEFAULT_MODELS: Record<string, string> = {
   openai: 'gpt-4o-mini',
   local: 'qwen2.5:3b',
 };
+
+const MODEL_TOKEN_LIMIT_RULES: Array<{ provider?: string; pattern: RegExp; limit: number }> = [
+  { provider: 'anthropic', pattern: /claude-3-(7|5)/i, limit: 200000 },
+  { provider: 'google', pattern: /gemini-(1\.5|2\.5)/i, limit: 1048576 },
+  { provider: 'openai', pattern: /gpt-4o(-mini)?|gpt-4\.1/i, limit: 128000 },
+  { provider: 'local', pattern: /qwen2\.5/i, limit: 32768 },
+  { provider: 'local', pattern: /gemma3/i, limit: 32768 },
+  { provider: 'local', pattern: /llama3\.2/i, limit: 8192 },
+  { provider: 'local', pattern: /smollm2/i, limit: 8192 },
+];
 
 const FUNCTION_PRESETS: FunctionPreset[] = [
   {
@@ -311,12 +333,15 @@ function AppShell() {
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
+  const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [memoryUrls, setMemoryUrls] = useState<MemoryUrl[]>([]);
   const [customSkills, setCustomSkills] = useState<FunctionPreset[]>([]);
   const [customBots, setCustomBots] = useState<FunctionPreset[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [dailyTokens, setDailyTokens] = useState(0);
   const [dailyModelUsage, setDailyModelUsage] = useState<ModelUsageEntry[]>([]);
+  const [dailyProviderUsage, setDailyProviderUsage] = useState<Array<{ provider: string; tokens: number }>>([]);
+  const [usageTrend, setUsageTrend] = useState<Array<{ date: string; tokens: number }>>([]);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [localUrl, setLocalUrl] = useState('http://127.0.0.1:11435');
   const [useMemory, setUseMemory] = useState(true);
@@ -334,6 +359,7 @@ function AppShell() {
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const factFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const [newSkillTitle, setNewSkillTitle] = useState('');
@@ -389,6 +415,67 @@ function AppShell() {
     }
 
     return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function inferProviderFromModel(modelValue?: string | null) {
+    const normalized = modelValue?.trim().toLowerCase() || '';
+
+    if (!normalized) {
+      return '';
+    }
+
+    if (normalized.includes('claude')) {
+      return 'anthropic';
+    }
+
+    if (normalized.includes('gemini')) {
+      return 'google';
+    }
+
+    if (normalized.includes('gpt') || normalized.startsWith('o1') || normalized.startsWith('o3')) {
+      return 'openai';
+    }
+
+    if (/(qwen|llama|gemma|smollm)/.test(normalized)) {
+      return 'local';
+    }
+
+    return '';
+  }
+
+  function getEstimatedModelTokenLimit(providerValue?: string | null, modelValue?: string | null) {
+    const normalizedModel = modelValue?.trim() || '';
+    const normalizedProvider = (providerValue?.trim().toLowerCase() || inferProviderFromModel(normalizedModel));
+
+    if (!normalizedModel) {
+      return null;
+    }
+
+    const matchingRule = MODEL_TOKEN_LIMIT_RULES.find(rule => {
+      if (rule.provider && rule.provider !== normalizedProvider) {
+        return false;
+      }
+
+      return rule.pattern.test(normalizedModel);
+    });
+
+    return matchingRule?.limit || null;
+  }
+
+  function formatTokenUsage(tokensUsed?: number | null, providerValue?: string | null, modelValue?: string | null) {
+    const used = typeof tokensUsed === 'number' && Number.isFinite(tokensUsed) ? Math.max(0, tokensUsed) : 0;
+    const limit = getEstimatedModelTokenLimit(providerValue, modelValue);
+
+    if (!used && !limit) {
+      return '';
+    }
+
+    if (!limit) {
+      return `Tokens: ${used.toLocaleString()} used`;
+    }
+
+    const percentage = Math.max(0, Math.min(100, Math.round((used / limit) * 100)));
+    return `Tokens: ${used.toLocaleString()} / ${limit.toLocaleString()} est. (${percentage}%)`;
   }
 
   function getSuggestedChatModel(providerValue: string, promptValue: string) {
@@ -720,9 +807,10 @@ function AppShell() {
   }
 
   async function refreshAll() {
-    const [historyRows, factRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData] = await Promise.all([
+    const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData] = await Promise.all([
       apiGet<HistoryEntry[]>('/api/history'),
       apiGet<Fact[]>('/api/memory/facts'),
+      apiGet<MemoryFile[]>('/api/memory/files'),
       apiGet<MemoryUrl[]>('/api/memory/urls'),
       apiGet<FunctionCatalogResponse>('/api/settings/functions'),
       apiGet<ApiKey[]>('/api/keys'),
@@ -734,12 +822,15 @@ function AppShell() {
 
     setHistory(historyRows);
     setFacts(factRows);
+    setMemoryFiles(fileRows);
     setMemoryUrls(urlRows);
     setCustomSkills(functionsData.skills || []);
     setCustomBots(functionsData.bots || []);
     setApiKeys(keyRows);
     setDailyTokens(usageData.tokens || 0);
     setDailyModelUsage(Array.isArray(usageData.modelUsage) ? usageData.modelUsage : []);
+    setDailyProviderUsage(Array.isArray(usageData.providerUsage) ? usageData.providerUsage : []);
+    setUsageTrend(Array.isArray(usageData.trend) ? usageData.trend : []);
     setLocalUrl(settingsData.localUrl || 'http://127.0.0.1:11435');
     setUseMemory(settingsData.useMemory !== false);
     setAutoMemory(settingsData.autoMemory !== false);
@@ -885,6 +976,7 @@ function AppShell() {
         content: response.text,
         model: response.model,
         provider: response.provider,
+        tokensUsed: response.tokensUsed,
       }]);
       setDailyTokens(prev => prev + response.tokensUsed);
       await refreshAll();
@@ -1068,7 +1160,7 @@ function AppShell() {
     const nextMessages: Message[] = [];
     conversationRows.forEach(item => {
       nextMessages.push({ role: 'user', content: item.prompt });
-      nextMessages.push({ role: 'assistant', content: item.response, model: item.model });
+      nextMessages.push({ role: 'assistant', content: item.response, model: item.model, tokensUsed: item.tokensUsed || 0 });
     });
 
     setConversationId(selectedConversationId);
@@ -1234,6 +1326,55 @@ function AppShell() {
 
   async function deleteFact(id: string) {
     await apiSend(`/api/memory/facts/${id}`, 'DELETE');
+    await refreshAll();
+  }
+
+  async function addFactFiles(fileList: FileList | null) {
+    const files = Array.from(fileList || []);
+    if (files.length === 0) {
+      return;
+    }
+
+    for (const file of files) {
+      if (!isReadableTextFile(file) && !isPdfFile(file) && !isImageFile(file)) {
+        setNotice(`Skipping ${file.name}: supported fact files are text, PDF, and images.`);
+        continue;
+      }
+
+      if (file.size > MAX_CHAT_ATTACHMENT_BYTES) {
+        setNotice(`Skipping ${file.name}: files must be under ${formatAttachmentSize(MAX_CHAT_ATTACHMENT_BYTES)}.`);
+        continue;
+      }
+
+      if (isPdfFile(file)) {
+        setNotice(`Extracting text from ${file.name}...`);
+      } else if (isImageFile(file)) {
+        setNotice(`Running OCR for ${file.name}...`);
+      }
+
+      const parsed = await parseAttachmentFile(file);
+      if (!parsed?.content) {
+        setNotice(`Skipping ${file.name}: no usable text found.`);
+        continue;
+      }
+
+      await apiSend('/api/memory/files', 'POST', {
+        name: file.name,
+        content: parsed.content.slice(0, MAX_CHAT_ATTACHMENT_CHARS * 4),
+        type: parsed.type,
+      });
+    }
+
+    if (factFileInputRef.current) {
+      factFileInputRef.current.value = '';
+    }
+
+    setNotice('Memory files added. They will be included in prompt context.');
+    await refreshAll();
+  }
+
+  async function deleteMemoryFile(id: string) {
+    await apiSend(`/api/memory/files/${id}`, 'DELETE');
     await refreshAll();
   }
 
@@ -1450,6 +1591,25 @@ function AppShell() {
       }))
       .sort((left, right) => new Date(right.items[0].timestamp).getTime() - new Date(left.items[0].timestamp).getTime());
   }, [history]);
+
+  const sortedModelUsage = useMemo(
+    () => [...dailyModelUsage].sort((left, right) => right.tokens - left.tokens || left.model.localeCompare(right.model)),
+    [dailyModelUsage],
+  );
+  const latestAssistantMessage = useMemo(
+    () => [...messages].reverse().find(message => message.role === 'assistant') || null,
+    [messages],
+  );
+  const currentRuntimeProvider = provider === 'auto' ? latestAssistantMessage?.provider || 'auto' : provider;
+  const currentRuntimeModel = provider === 'auto'
+    ? latestAssistantMessage?.model || 'auto-selected'
+    : model || getSuggestedChatModel(provider, prompt);
+  const currentRuntimeTokenUsage = provider === 'auto'
+    ? formatTokenUsage(latestAssistantMessage?.tokensUsed, latestAssistantMessage?.provider, latestAssistantMessage?.model)
+    : formatTokenUsage(latestAssistantMessage?.tokensUsed, currentRuntimeProvider, currentRuntimeModel);
+  const trendPeak = useMemo(() => Math.max(...usageTrend.map(entry => entry.tokens), 1), [usageTrend]);
+  const providerPeak = useMemo(() => Math.max(...dailyProviderUsage.map(entry => entry.tokens), 1), [dailyProviderUsage]);
+  const modelPeak = useMemo(() => Math.max(...sortedModelUsage.map(entry => entry.tokens), 1), [sortedModelUsage]);
 
   const appBackgroundClass = isDarkMode
     ? 'min-h-dvh w-full overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_24%),linear-gradient(180deg,_#0d1117_0%,_#111827_100%)] text-stone-100'
@@ -1695,6 +1855,9 @@ function AppShell() {
                             : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
                         </div>
                         <div className="whitespace-pre-wrap leading-7 text-[15px]">{message.content}</div>
+                        {message.role === 'assistant' && formatTokenUsage(message.tokensUsed, message.provider, message.model) ? (
+                          <div className={`mt-3 text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model)}</div>
+                        ) : null}
                       </div>
                     ))}
                   </div>
@@ -1818,8 +1981,9 @@ function AppShell() {
                   <div className={sectionCardClass}>
                     <h3 className="font-medium">Current runtime</h3>
                     <ul className={`mt-3 text-sm ${mutedTextClass} space-y-2`}>
-                      <li>Primary provider: {provider}</li>
-                      <li>Model: {provider === 'auto' ? 'auto-selected' : model}</li>
+                      <li>Primary provider: {currentRuntimeProvider}</li>
+                      <li>Model: {currentRuntimeModel}</li>
+                      <li>{currentRuntimeTokenUsage || `Estimated token window: ${getEstimatedModelTokenLimit(currentRuntimeProvider, currentRuntimeModel)?.toLocaleString() || 'unknown'}`}</li>
                       <li>Available providers: {availableProviders.length ? availableProviders.join(', ') : 'none'}</li>
                     </ul>
                   </div>
@@ -1830,6 +1994,7 @@ function AppShell() {
                       {conversations.slice(0, 8).map(item => (
                         <button key={item.id} onClick={() => loadConversation(item.id)} className={listButtonClass}>
                           <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
+                          <div className={`mt-2 text-xs ${subtleTextClass}`}>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</div>
                           <div className={`text-xs ${subtleTextClass} mt-2`}>{new Date(item.items[0].timestamp).toLocaleString()}</div>
                         </button>
                       ))}
@@ -2012,10 +2177,96 @@ function AppShell() {
 
             {activeTab === 'history' ? (
               <div className="space-y-3">
+                <section className={sectionCardClass}>
+                  <div className="flex flex-col gap-4">
+                    <div>
+                      <h3 className="font-medium">Usage overview</h3>
+                      <p className={`mt-1 text-sm ${subtleTextClass}`}>Track today&apos;s token usage by provider and model, plus the last 7 days of activity.</p>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className={elevatedCardClass}>
+                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Tokens today</div>
+                        <div className="mt-2 text-2xl font-semibold">{dailyTokens.toLocaleString()}</div>
+                      </div>
+                      <div className={elevatedCardClass}>
+                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Active providers</div>
+                        <div className="mt-2 text-2xl font-semibold">{dailyProviderUsage.length}</div>
+                      </div>
+                      <div className={elevatedCardClass}>
+                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Active models</div>
+                        <div className="mt-2 text-2xl font-semibold">{sortedModelUsage.length}</div>
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
+                      <div className={elevatedCardClass}>
+                        <div className="flex items-center justify-between gap-3">
+                          <h4 className="text-sm font-medium">7-day trend</h4>
+                          <span className={`text-xs ${subtleTextClass}`}>{usageTrend.length} day{usageTrend.length === 1 ? '' : 's'}</span>
+                        </div>
+                        <div className="mt-4 flex h-44 items-end gap-2">
+                          {usageTrend.length > 0 ? usageTrend.map(entry => {
+                            const height = Math.max((entry.tokens / trendPeak) * 100, entry.tokens > 0 ? 10 : 4);
+                            return (
+                              <div key={entry.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                                <div className="text-[11px] leading-none opacity-70">{entry.tokens.toLocaleString()}</div>
+                                <div className={`w-full rounded-t-2xl ${isDarkMode ? 'bg-amber-300/70' : 'bg-stone-900/75'}`} style={{ height: `${height}%` }} />
+                                <div className={`text-[11px] ${subtleTextClass}`}>{entry.date.slice(5)}</div>
+                              </div>
+                            );
+                          }) : <div className={`text-sm ${subtleTextClass}`}>No usage yet.</div>}
+                        </div>
+                      </div>
+
+                      <div className={elevatedCardClass}>
+                        <h4 className="text-sm font-medium">By provider</h4>
+                        <div className="mt-4 space-y-3">
+                          {dailyProviderUsage.length > 0 ? dailyProviderUsage.map(entry => (
+                            <div key={entry.provider} className="space-y-1">
+                              <div className="flex items-center justify-between gap-3 text-sm">
+                                <span>{formatProviderLabel(entry.provider)}</span>
+                                <span className={subtleTextClass}>{entry.tokens.toLocaleString()}</span>
+                              </div>
+                              <div className={`h-2 rounded-full ${isDarkMode ? 'bg-white/8' : 'bg-stone-200'}`}>
+                                <div
+                                  className={`h-full rounded-full ${isDarkMode ? 'bg-emerald-300' : 'bg-stone-900'}`}
+                                  style={{ width: `${Math.max((entry.tokens / providerPeak) * 100, 8)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )) : <div className={`text-sm ${subtleTextClass}`}>No provider usage recorded yet.</div>}
+                        </div>
+                      </div>
+
+                      <div className={elevatedCardClass}>
+                        <h4 className="text-sm font-medium">Top models</h4>
+                        <div className="mt-4 space-y-3">
+                          {sortedModelUsage.length > 0 ? sortedModelUsage.slice(0, 6).map(entry => (
+                            <div key={entry.key} className="space-y-1">
+                              <div className="flex items-start justify-between gap-3 text-sm">
+                                <span className="pr-3">{[formatProviderLabel(entry.provider || undefined), entry.model].filter(Boolean).join(' · ')}</span>
+                                <span className={subtleTextClass}>{entry.tokens.toLocaleString()}</span>
+                              </div>
+                              <div className={`h-2 rounded-full ${isDarkMode ? 'bg-white/8' : 'bg-stone-200'}`}>
+                                <div
+                                  className={`h-full rounded-full ${isDarkMode ? 'bg-amber-300' : 'bg-stone-900'}`}
+                                  style={{ width: `${Math.max((entry.tokens / modelPeak) * 100, 8)}%` }}
+                                />
+                              </div>
+                            </div>
+                          )) : <div className={`text-sm ${subtleTextClass}`}>No model usage recorded yet.</div>}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
                 {conversations.map(item => (
                   <div key={item.id} className={`${sectionCardClass} flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between`}>
                     <div>
                       <div className="text-sm font-medium">{item.items[0].prompt}</div>
+                      <div className={`mt-2 text-xs ${subtleTextClass}`}>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</div>
                       <div className={`text-xs ${subtleTextClass} mt-2`}>{new Date(item.items[0].timestamp).toLocaleString()} · {item.items.length} message pair(s)</div>
                     </div>
                     <div className="flex items-center gap-2">
@@ -2106,41 +2357,86 @@ function AppShell() {
                   </div>
                 ) : null}
 
-                <div className="grid xl:grid-cols-2 gap-4">
-                <section className={sectionCardClass}>
-                  <h3 className="font-medium mb-3">Facts</h3>
-                  <form onSubmit={addFact} className="mb-4 flex flex-col gap-2 sm:flex-row">
-                    <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
-                    <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
-                  </form>
-                  <div className="space-y-2">
-                    {facts.map(item => (
-                      <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
-                        <div className="text-sm">{item.content}</div>
-                        <button onClick={() => void deleteFact(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section className={sectionCardClass}>
-                  <h3 className="font-medium mb-3">Saved URLs</h3>
-                  <form onSubmit={addUrl} className="mb-4 flex flex-col gap-2 sm:flex-row">
-                    <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className={`flex-1 ${inputClass}`} />
-                    <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
-                  </form>
-                  <div className="space-y-2">
-                    {memoryUrls.map(item => (
-                      <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
-                        <div>
-                          <div className="text-sm font-medium">{item.title || item.url}</div>
-                          <div className={`text-xs ${subtleTextClass} mt-1`}>{item.url}</div>
+                <div className="grid gap-4 xl:grid-cols-3">
+                  <section className={sectionCardClass}>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="font-medium">Facts</h3>
+                      <span className={`text-xs ${subtleTextClass}`}>{facts.length} stored</span>
+                    </div>
+                    <form onSubmit={addFact} className="mb-4 flex flex-col gap-2 sm:flex-row">
+                      <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
+                      <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
+                    </form>
+                    <div className="space-y-2">
+                      {facts.map(item => (
+                        <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
+                          <div className="text-sm">{item.content}</div>
+                          <button onClick={() => void deleteFact(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
                         </div>
-                        <button onClick={() => void deleteUrl(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
+                      ))}
+                      {facts.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved facts yet.</div> : null}
+                    </div>
+                  </section>
+
+                  <section className={sectionCardClass}>
+                    <div className="mb-3 flex items-start justify-between gap-3">
+                      <div>
+                        <h3 className="font-medium">Fact files</h3>
+                        <p className={`mt-1 text-sm ${subtleTextClass}`}>Upload text, PDF, or image files. Botty extracts text and includes it alongside your saved facts.</p>
                       </div>
-                    ))}
-                  </div>
-                </section>
+                      <span className={`text-xs ${subtleTextClass}`}>{memoryFiles.length} stored</span>
+                    </div>
+                    <input
+                      ref={factFileInputRef}
+                      type="file"
+                      multiple
+                      accept=".txt,.md,.csv,.json,.pdf,image/*,.log,.yaml,.yml,.xml"
+                      className="hidden"
+                      onChange={event => {
+                        void addFactFiles(event.target.files);
+                      }}
+                    />
+                    <button type="button" onClick={() => factFileInputRef.current?.click()} className="mb-4 rounded-2xl bg-stone-900 px-3 py-2 text-white">
+                      Add files
+                    </button>
+                    <div className="space-y-2">
+                      {memoryFiles.map(item => (
+                        <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-medium">{item.name}</div>
+                            <div className={`mt-1 text-xs ${subtleTextClass}`}>
+                              {[item.type || 'text', typeof item.size === 'number' ? formatAttachmentSize(item.size) : null].filter(Boolean).join(' · ')}
+                            </div>
+                          </div>
+                          <button onClick={() => void deleteMemoryFile(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      ))}
+                      {memoryFiles.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved files yet.</div> : null}
+                    </div>
+                  </section>
+
+                  <section className={sectionCardClass}>
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <h3 className="font-medium">Saved URLs</h3>
+                      <span className={`text-xs ${subtleTextClass}`}>{memoryUrls.length} stored</span>
+                    </div>
+                    <form onSubmit={addUrl} className="mb-4 flex flex-col gap-2 sm:flex-row">
+                      <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className={`flex-1 ${inputClass}`} />
+                      <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
+                    </form>
+                    <div className="space-y-2">
+                      {memoryUrls.map(item => (
+                        <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
+                          <div>
+                            <div className="text-sm font-medium">{item.title || item.url}</div>
+                            <div className={`mt-1 text-xs ${subtleTextClass}`}>{item.url}</div>
+                          </div>
+                          <button onClick={() => void deleteUrl(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
+                        </div>
+                      ))}
+                      {memoryUrls.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved URLs yet.</div> : null}
+                    </div>
+                  </section>
                 </div>
               </div>
             ) : null}
