@@ -9,6 +9,7 @@ import {
   KeyRound,
   LogOut,
   Maximize2,
+  Menu,
   MemoryStick,
   Mic,
   Minimize2,
@@ -26,6 +27,7 @@ import {
   SunMedium,
   Trash2,
   Upload,
+  X,
 } from 'lucide-react';
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
@@ -443,6 +445,7 @@ function AppShell() {
     return savedValue !== 'false';
   });
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && Boolean(document.fullscreenElement));
+  const [isSidebarDrawerOpen, setIsSidebarDrawerOpen] = useState(false);
   const [recentSlashItemIds, setRecentSlashItemIds] = useState<string[]>(() => {
     if (typeof window === 'undefined') {
       return [];
@@ -955,6 +958,12 @@ function AppShell() {
     mediaQuery.addEventListener('change', handleViewportChange);
     return () => mediaQuery.removeEventListener('change', handleViewportChange);
   }, [hasSidebarPreference]);
+
+  useEffect(() => {
+    if (isSidebarExpanded) {
+      setIsSidebarDrawerOpen(false);
+    }
+  }, [isSidebarExpanded]);
 
   useEffect(() => {
     function handleFullscreenChange() {
@@ -1501,6 +1510,7 @@ function AppShell() {
     setMessages([]);
     setChatError('');
     setActiveTab('chat');
+    setIsSidebarDrawerOpen(false);
   }
 
   function loadConversation(selectedConversationId: string | null | undefined) {
@@ -1569,6 +1579,15 @@ function AppShell() {
     } catch (error) {
       setNotice(error instanceof Error ? error.message : 'Failed to toggle fullscreen mode.');
     }
+  }
+
+  function toggleSidebarPreference() {
+    setHasSidebarPreference(true);
+    setIsSidebarExpanded(value => !value);
+  }
+
+  function closeMobileSidebar() {
+    setIsSidebarDrawerOpen(false);
   }
 
   async function clearFunctionPreset() {
@@ -2116,10 +2135,10 @@ function AppShell() {
   const appBackgroundClass = isDarkMode
     ? 'min-h-dvh w-full overflow-x-hidden bg-[#101214] text-stone-100'
     : 'min-h-dvh w-full overflow-x-hidden bg-[#f3f0ea] text-stone-900';
-  const workspaceShellClass = `grid min-h-dvh w-full gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[280px_minmax(0,1fr)]' : 'lg:grid-cols-[92px_minmax(0,1fr)]'} lg:gap-4`;
+  const workspaceShellClass = `grid min-h-dvh w-full gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[264px_minmax(0,1fr)]' : 'lg:grid-cols-[84px_minmax(0,1fr)]'} lg:gap-4 lg:transition-[grid-template-columns] lg:duration-200`;
   const sidebarPanelClass = isDarkMode
-    ? `flex min-h-[240px] flex-col gap-4 rounded-[1.5rem] border border-white/8 bg-[#17191c] p-4 text-stone-100 shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:sticky lg:top-5 lg:max-h-[calc(100dvh-2.5rem)] ${isSidebarExpanded ? '' : 'lg:px-3'}`
-    : `flex min-h-[240px] flex-col gap-4 rounded-[1.5rem] border border-stone-200 bg-[#fbfaf7] p-4 text-stone-900 shadow-[0_16px_36px_rgba(36,29,18,0.08)] lg:sticky lg:top-5 lg:max-h-[calc(100dvh-2.5rem)] ${isSidebarExpanded ? '' : 'lg:px-3'}`;
+    ? `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-white/6 bg-[#15171a] p-4 text-stone-100 shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`
+    : `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-stone-200 bg-[#f7f4ee] p-4 text-stone-900 shadow-[0_6px_16px_rgba(36,29,18,0.05)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`;
   const shellPanelClass = isDarkMode
     ? `rounded-[1.5rem] bg-[#15181b] p-4 md:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] border border-white/8 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 lg:rounded-[1.5rem] lg:border' : ''}`
     : `rounded-[1.5rem] bg-[#fcfbf8] p-4 md:p-6 shadow-[0_18px_42px_rgba(36,29,18,0.08)] border border-stone-200 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 lg:rounded-[1.5rem] lg:border' : ''}`;
@@ -2142,18 +2161,21 @@ function AppShell() {
   const mutedTextClass = isDarkMode ? 'text-stone-300' : 'text-stone-600';
   const sectionLabelClass = isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-600 mb-2';
   const navButtonClass = (tabValue: TabValue) => isDarkMode
-    ? `w-full rounded-[1rem] px-4 py-3 flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 text-sm transition-colors ${activeTab === tabValue ? 'bg-white text-stone-950' : 'text-stone-300 hover:bg-white/6'} ${isSidebarExpanded ? '' : 'px-3'}`
-    : `w-full rounded-[1rem] px-4 py-3 flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 text-sm transition-colors ${activeTab === tabValue ? 'bg-stone-900 text-white' : 'text-stone-700 hover:bg-stone-100'} ${isSidebarExpanded ? '' : 'px-3'}`;
+    ? `w-full rounded-[0.95rem] px-3.5 py-2.5 flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 text-sm transition-colors ${activeTab === tabValue ? 'bg-white/8 text-stone-100' : 'text-stone-300 hover:bg-white/6'} ${isSidebarExpanded ? '' : 'px-2.5'}`
+    : `w-full rounded-[0.95rem] px-3.5 py-2.5 flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 text-sm transition-colors ${activeTab === tabValue ? 'bg-stone-200 text-stone-900' : 'text-stone-700 hover:bg-stone-100'} ${isSidebarExpanded ? '' : 'px-2.5'}`;
+  const sidebarPrimaryButtonClass = isDarkMode
+    ? `rounded-[0.95rem] border border-white/10 bg-white/4 text-stone-100 px-3.5 py-2.5 font-medium flex items-center gap-2 hover:bg-white/8 transition-colors ${isSidebarExpanded ? 'justify-start' : 'justify-center'}`
+    : `rounded-[0.95rem] border border-stone-200 bg-white/70 text-stone-900 px-3.5 py-2.5 font-medium flex items-center gap-2 hover:bg-white transition-colors ${isSidebarExpanded ? 'justify-start' : 'justify-center'}`;
   const primaryButtonClass = isDarkMode
     ? 'rounded-[1rem] bg-white text-stone-950 px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-stone-200 transition-colors'
     : 'rounded-[1rem] bg-stone-900 text-white px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-stone-800 transition-colors';
   const shellUtilityButtonClass = isDarkMode
-    ? 'rounded-[1rem] border border-white/10 px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/6 transition-colors'
-    : 'rounded-[1rem] border border-stone-200 px-4 py-3 text-left flex items-center gap-3 text-stone-700 hover:bg-stone-100 transition-colors';
+    ? 'rounded-[1rem] border border-transparent px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/6 transition-colors'
+    : 'rounded-[1rem] border border-transparent px-4 py-3 text-left flex items-center gap-3 text-stone-700 hover:bg-stone-100 transition-colors';
   const sidebarTextClass = isSidebarExpanded ? 'inline' : 'hidden';
   const sidebarBlockClass = isSidebarExpanded ? 'block' : 'hidden';
   const sidebarStatsClass = isSidebarExpanded ? 'block' : 'hidden';
-  const sidebarCompactButtonClass = `${shellUtilityButtonClass} ${isSidebarExpanded ? 'justify-start' : 'justify-center px-3'}`;
+  const sidebarCompactButtonClass = `${shellUtilityButtonClass} ${isSidebarExpanded ? 'justify-start px-3.5 py-2.5' : 'justify-center px-2.5 py-2.5'}`;
   const telegramStatusToneClass = telegramStatus?.error
     ? (isDarkMode ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-700')
     : telegramStatus?.running
@@ -2261,40 +2283,55 @@ function AppShell() {
     <div className={appBackgroundClass}>
       <div className={`${isFullscreen ? 'min-h-dvh w-full p-0' : 'min-h-dvh w-full p-3 sm:p-4 lg:p-5'}`}>
         <div className={workspaceShellClass}>
+          {isSidebarDrawerOpen ? (
+            <button
+              type="button"
+              aria-label="Close menu overlay"
+              className={`fixed inset-0 z-30 lg:hidden ${isDarkMode ? 'bg-black/55' : 'bg-stone-900/20'}`}
+              onClick={closeMobileSidebar}
+            />
+          ) : null}
+
           <aside className={sidebarPanelClass}>
             <div className={`flex items-start gap-3 ${isSidebarExpanded ? 'justify-between' : 'justify-center'}`}>
               <div className={isSidebarExpanded ? '' : 'hidden'}>
-                <p className={`text-xs uppercase tracking-[0.35em] ${subtleTextClass}`}>Botty</p>
-                <h1 className="mt-2 text-3xl font-semibold">Local OSS</h1>
-                <p className={`mt-2 text-sm ${subtleTextClass}`}>{user.displayName || user.email}</p>
+                <p className={`text-[11px] font-semibold uppercase tracking-[0.28em] ${subtleTextClass}`}>Botty</p>
               </div>
-              {!isSidebarExpanded ? <div className={`flex h-11 w-11 items-center justify-center rounded-[1rem] border ${isDarkMode ? 'border-white/10 bg-[#111417] text-stone-100' : 'border-stone-200 bg-white text-stone-900'} text-lg font-semibold`}>B</div> : null}
 
               <button
                 type="button"
-                onClick={() => {
-                  setHasSidebarPreference(true);
-                  setIsSidebarExpanded(value => !value);
-                }}
-                className={`${shellUtilityButtonClass} shrink-0 ${isSidebarExpanded ? 'px-3' : 'flex px-3'}`}
+                onClick={closeMobileSidebar}
+                className={`${shellUtilityButtonClass} shrink-0 px-3 lg:hidden`}
+                aria-label="Close menu"
+                title="Close menu"
+              >
+                <X className="w-4 h-4" />
+              </button>
+
+              <button
+                type="button"
+                onClick={toggleSidebarPreference}
+                className={`${shellUtilityButtonClass} shrink-0 justify-center px-3`}
                 aria-label={isSidebarExpanded ? 'Compact sidebar' : 'Expand sidebar'}
                 title={isSidebarExpanded ? 'Compact sidebar' : 'Expand sidebar'}
               >
                 {isSidebarExpanded ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
-                <span className={sidebarTextClass}>{isSidebarExpanded ? 'Compact menu' : 'Expand menu'}</span>
               </button>
             </div>
 
-            <button onClick={startNewChat} className={`${primaryButtonClass} ${isSidebarExpanded ? '' : 'px-3'}`} title="New chat" aria-label="New chat">
+            <button onClick={startNewChat} className={`${sidebarPrimaryButtonClass} ${isSidebarExpanded ? '' : 'px-2.5'}`} title="New chat" aria-label="New chat">
               <Plus className="w-4 h-4" />
               <span className={sidebarTextClass}>New chat</span>
             </button>
 
-            <nav className="space-y-2 text-sm">
+            <nav className="space-y-1.5 text-sm">
               {TABS.map(({ value, label, Icon }) => (
                 <button
                   key={value}
-                  onClick={() => openTab(value)}
+                  onClick={() => {
+                    openTab(value);
+                    closeMobileSidebar();
+                  }}
                   className={navButtonClass(value)}
                   title={label}
                   aria-label={label}
@@ -2311,7 +2348,7 @@ function AppShell() {
             <button
               onClick={() => void toggleSandboxModeFromMenu()}
               disabled={savingSettings}
-              className={`rounded-[1rem] border px-4 py-3 text-left flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 transition-colors disabled:opacity-60 ${sandboxMode ? (isDarkMode ? 'border-white/16 bg-white text-stone-950' : 'border-stone-900 bg-stone-900 text-white') : (isDarkMode ? 'border-white/10 text-stone-300 hover:bg-white/6' : 'border-stone-200 text-stone-700 hover:bg-stone-100')} ${isSidebarExpanded ? '' : 'px-3'}`}
+              className={`rounded-[0.95rem] border px-3.5 py-2.5 text-left flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 transition-colors disabled:opacity-60 ${sandboxMode ? (isDarkMode ? 'border-white/16 bg-white text-stone-950' : 'border-stone-900 bg-stone-900 text-white') : (isDarkMode ? 'border-white/10 text-stone-300 hover:bg-white/6' : 'border-stone-200 text-stone-700 hover:bg-stone-100')} ${isSidebarExpanded ? '' : 'px-2.5'}`}
               title={sandboxMode ? 'Sandbox mode is on' : 'Sandbox mode is off'}
               aria-label="Toggle sandbox mode"
             >
@@ -2337,7 +2374,7 @@ function AppShell() {
               <span className={sidebarTextClass}>{isDarkMode ? 'Light mode' : 'Dark mode'}</span>
             </button>
 
-            <div className={`${sidebarStatsClass} mt-auto rounded-[1rem] border p-4 text-sm ${isDarkMode ? 'border-white/8 bg-[#111417] text-stone-300' : 'border-stone-200 bg-white text-stone-700'}`}>
+            <div className={`${sidebarStatsClass} mt-auto rounded-[0.95rem] border p-3.5 text-sm ${isDarkMode ? 'border-white/8 bg-[#111417] text-stone-300' : 'border-stone-200 bg-white text-stone-700'}`}>
               <p>Providers: {availableProviders.length ? availableProviders.join(', ') : 'none configured'}</p>
               <p className="mt-2">Tokens today: {dailyTokens.toLocaleString()}</p>
               {dailyModelUsage.length > 0 ? (
@@ -2354,6 +2391,11 @@ function AppShell() {
               <p className="mt-2">Stored keys: {apiKeys.length}</p>
             </div>
 
+            <div className={`rounded-[0.95rem] px-3.5 py-2.5 ${isDarkMode ? 'bg-white/4 text-stone-200' : 'bg-white/70 text-stone-700'} ${isSidebarExpanded ? '' : 'hidden'}`}>
+              <p className="text-sm font-medium leading-none">{user.displayName || user.email}</p>
+              {user.displayName && user.email ? <p className={`mt-1 text-xs ${subtleTextClass}`}>{user.email}</p> : null}
+            </div>
+
             <button onClick={handleLogout} className={sidebarCompactButtonClass} title="Sign out" aria-label="Sign out">
               <LogOut className="w-4 h-4" />
               <span className={sidebarTextClass}>Sign out</span>
@@ -2362,7 +2404,18 @@ function AppShell() {
 
           <main className={`${shellPanelClass} min-h-[calc(100dvh-1.5rem)]`}>
             <div className="mb-5 flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
+              <div className="flex items-start gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsSidebarDrawerOpen(true)}
+                  className={`${actionButtonClass} lg:hidden`}
+                  aria-label="Open menu"
+                  title="Open menu"
+                >
+                  <Menu className="w-4 h-4" />
+                </button>
+
+                <div>
                 <h2 className="text-2xl font-semibold capitalize">{activeTab}</h2>
                 <p className={`text-sm ${subtleTextClass}`}>
                   {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
@@ -2372,6 +2425,7 @@ function AppShell() {
                   {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
                   {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
                 </p>
+                </div>
               </div>
 
               <button onClick={() => void refreshAll()} className={actionButtonClass}>
