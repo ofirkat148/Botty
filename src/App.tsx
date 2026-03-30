@@ -117,6 +117,7 @@ type TelegramStatusResponse = {
 type ProvidersResponse = {
   providers: string[];
   defaultLocalModel?: string | null;
+  modelCatalog?: Record<string, string[]>;
 };
 
 type ModelUsageEntry = {
@@ -171,6 +172,8 @@ type FunctionPreset = {
   title: string;
   description: string;
   command: string;
+  useWhen: string;
+  boundaries: string;
   systemPrompt: string;
   starterPrompt: string;
   provider?: string | null;
@@ -182,6 +185,23 @@ type FunctionPreset = {
 type FunctionCatalogResponse = {
   skills: FunctionPreset[];
   bots: FunctionPreset[];
+};
+
+type SlashCommand = {
+  id: string;
+  command: string;
+  title: string;
+  description: string;
+  category: 'command';
+};
+
+type SlashMenuItem = {
+  id: string;
+  command: string;
+  title: string;
+  description: string;
+  category: 'command' | 'skill';
+  preset?: FunctionPreset;
 };
 
 const PROVIDERS = [
@@ -209,6 +229,28 @@ const MODEL_TOKEN_LIMIT_RULES: Array<{ provider?: string; pattern: RegExp; limit
   { provider: 'local', pattern: /smollm2/i, limit: 8192 },
 ];
 
+const DEFAULT_MODEL_CATALOG: Record<string, string[]> = {
+  anthropic: ['claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest'],
+  google: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+  local: [DEFAULT_MODELS.local],
+};
+
+const MODEL_LABELS: Record<string, { label: string; hint?: string }> = {
+  'claude-3-7-sonnet-latest': { label: 'Claude 3.7 Sonnet', hint: 'strong reasoning' },
+  'claude-3-5-haiku-latest': { label: 'Claude 3.5 Haiku', hint: 'fast and lightweight' },
+  'gemini-2.5-flash': { label: 'Gemini 2.5 Flash', hint: 'fast general use' },
+  'gemini-2.5-pro': { label: 'Gemini 2.5 Pro', hint: 'deeper reasoning' },
+  'gpt-4o-mini': { label: 'GPT-4o Mini', hint: 'fast and cheap' },
+  'gpt-4o': { label: 'GPT-4o', hint: 'balanced quality' },
+  'gpt-4.1-mini': { label: 'GPT-4.1 Mini', hint: 'strong coding' },
+  'qwen2.5:3b': { label: 'Qwen 2.5 3B', hint: 'balanced local' },
+  'qwen2.5:1.5b': { label: 'Qwen 2.5 1.5B', hint: 'faster local' },
+  'llama3.2:1b': { label: 'Llama 3.2 1B', hint: 'small local' },
+  'gemma3:1b': { label: 'Gemma 3 1B', hint: 'small local' },
+  'smollm2:135m': { label: 'SmolLM2 135M', hint: 'tiny and fastest' },
+};
+
 const FUNCTION_PRESETS: FunctionPreset[] = [
   {
     id: 'skill-botty-development',
@@ -217,6 +259,8 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     title: 'Botty Development',
     description: 'Full-stack product work across React, Express, memory, local LLM, settings, and Telegram.',
     command: 'development',
+    useWhen: 'Use for focused implementation work, architecture changes, or debugging that should stay within the current chat session.',
+    boundaries: 'Acts as a capability overlay. It should inherit the current chat provider, memory, and session context rather than taking over the whole workflow.',
     systemPrompt: 'You are Botty’s full-stack development mode. Make focused, production-minded changes across the React frontend, Express backend, PostgreSQL persistence, memory features, local LLM integration, and Telegram support. Prefer shared-layer fixes over route-specific patches. Keep changes minimal, validate after edits, and explain tradeoffs concretely.',
     starterPrompt: 'Help me implement a Botty feature end to end.',
   },
@@ -227,6 +271,8 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     title: 'Runtime Debug',
     description: 'Diagnose fetch failures, localhost issues, service problems, Telegram startup, CORS, and Ollama connectivity.',
     command: 'debug',
+    useWhen: 'Use for targeted runtime investigations where you want Botty to stay in your current thread and debug a concrete issue.',
+    boundaries: 'Acts as a diagnostic overlay. It should keep the current chat context and avoid behaving like a long-running autonomous specialist.',
     systemPrompt: 'You are Botty’s runtime debugging mode. Diagnose issues methodically across systemd, localhost access, API behavior, CORS, Telegram startup, Ollama connectivity, and saved settings. Confirm whether the service is healthy before assuming an outage. Separate local application errors from upstream network failures, and prefer root-cause fixes over surface workarounds.',
     starterPrompt: 'Debug the current Botty runtime issue and find the root cause.',
   },
@@ -237,6 +283,8 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     title: 'Botty Ops',
     description: 'Operational mode for Docker, systemd, PostgreSQL, ports, persistence, and reverse proxy work.',
     command: 'ops',
+    useWhen: 'Use for focused operational tasks such as startup, deployment, persistence, ports, or reverse proxy changes inside the current chat.',
+    boundaries: 'Acts as an ops overlay. It should inherit the current session rather than becoming a persistent specialist with its own routing rules.',
     systemPrompt: 'You are Botty’s operations mode. Focus on runtime configuration, Docker, PostgreSQL, systemd startup, reverse proxy setup, and production-style local serving. Use the smallest operational fix that restores service, avoid destructive resets, and verify outcomes with health checks and logs.',
     starterPrompt: 'Help me operate or deploy Botty safely.',
   },
@@ -247,6 +295,8 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     title: 'Botty Builder',
     description: 'Implementation-focused mode for feature work and bug fixes in this repository.',
     command: 'builder',
+    useWhen: 'Use when you want a dedicated specialist to own implementation work across multiple turns, files, and follow-up refinements.',
+    boundaries: 'Behaves like a specialist bot. It can own the session workflow and may use its own provider, model, or memory strategy when configured.',
     systemPrompt: 'You are Botty Builder. Implement requested features or fixes directly and precisely. Read the relevant route, service, utility, and UI code first. Do not stop at analysis when a concrete change is needed. Avoid unrelated refactors, keep persistence and UI contracts aligned, and validate the final result.',
     starterPrompt: 'Implement this change in Botty.',
   },
@@ -257,6 +307,8 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     title: 'Botty Reviewer',
     description: 'Review-focused mode for bugs, regressions, runtime risk, and missing tests.',
     command: 'reviewer',
+    useWhen: 'Use when you want a dedicated review specialist to inspect changes, surface risks, and stay in review mode across the session.',
+    boundaries: 'Behaves like a review bot. It should own the review workflow rather than acting as a lightweight slash-command overlay.',
     systemPrompt: 'You are Botty Reviewer. Review changes for defects, regressions, runtime risk, broken settings flows, memory issues, local LLM failures, Telegram issues, and deployment mistakes. Findings come first. Focus on correctness and behavior, not style. Use concise, severity-ordered review output with concrete file-level reasoning.',
     starterPrompt: 'Review this Botty change for bugs and regressions.',
   },
@@ -267,6 +319,8 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     title: 'Botty Ops Agent',
     description: 'Operations-focused mode for service health, environment settings, and startup failures.',
     command: 'ops-bot',
+    useWhen: 'Use when an operations specialist should own a multi-step runtime or deployment task across several checks and fixes.',
+    boundaries: 'Behaves like an ops bot. It can steer the session and use dedicated provider or memory behavior, unlike a transient skill overlay.',
     systemPrompt: 'You are Botty Ops. Handle runtime operations for the Botty app: systemd, Docker, PostgreSQL, localhost health, reverse proxy setup, external exposure, and startup failures. Do not assume the service is down before checking health and logs. Distinguish local application faults from upstream network problems.',
     starterPrompt: 'Diagnose and fix this Botty runtime or deployment issue.',
   },
@@ -330,6 +384,7 @@ function AppShell() {
   const [chatError, setChatError] = useState('');
   const [availableProviders, setAvailableProviders] = useState<string[]>([]);
   const [defaultLocalModel, setDefaultLocalModel] = useState(DEFAULT_MODELS.local);
+  const [modelCatalog, setModelCatalog] = useState<Record<string, string[]>>(DEFAULT_MODEL_CATALOG);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -365,10 +420,14 @@ function AppShell() {
   const [newSkillTitle, setNewSkillTitle] = useState('');
   const [newSkillDescription, setNewSkillDescription] = useState('');
   const [newSkillCommand, setNewSkillCommand] = useState('');
+  const [newSkillUseWhen, setNewSkillUseWhen] = useState('');
+  const [newSkillBoundaries, setNewSkillBoundaries] = useState('');
   const [newSkillSystemPrompt, setNewSkillSystemPrompt] = useState('');
   const [newSkillStarterPrompt, setNewSkillStarterPrompt] = useState('');
   const [newBotTitle, setNewBotTitle] = useState('');
   const [newBotDescription, setNewBotDescription] = useState('');
+  const [newBotUseWhen, setNewBotUseWhen] = useState('');
+  const [newBotBoundaries, setNewBotBoundaries] = useState('');
   const [newBotProvider, setNewBotProvider] = useState('');
   const [newBotModel, setNewBotModel] = useState('');
   const [newBotMemoryMode, setNewBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
@@ -400,6 +459,43 @@ function AppShell() {
   const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
   const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
   const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
+  const slashCommands = useMemo<SlashCommand[]>(() => [
+    {
+      id: 'command-new-chat',
+      command: 'new-chat',
+      title: 'New Chat',
+      description: 'Clear the current conversation and start a fresh chat.',
+      category: 'command',
+    },
+    {
+      id: 'command-clear-mode',
+      command: 'clear-mode',
+      title: 'Clear Mode',
+      description: 'Remove the active skill or bot and return to default chat mode.',
+      category: 'command',
+    },
+    {
+      id: 'command-refresh',
+      command: 'refresh',
+      title: 'Refresh Data',
+      description: 'Reload history, memory, settings, and provider metadata.',
+      category: 'command',
+    },
+    {
+      id: 'command-sandbox',
+      command: 'sandbox',
+      title: sandboxMode ? 'Turn Sandbox Off' : 'Turn Sandbox On',
+      description: sandboxMode ? 'Disable sandbox mode and restore regular chat access.' : 'Enable sandbox mode so prompts only rely on saved facts and known sites.',
+      category: 'command',
+    },
+    ...TABS.filter(tab => tab.value !== 'chat').map(tab => ({
+      id: `command-open-${tab.value}`,
+      command: tab.value,
+      title: `Open ${tab.label}`,
+      description: `Switch to the ${tab.label.toLowerCase()} tab.`,
+      category: 'command' as const,
+    })),
+  ], [sandboxMode]);
   const activeBotPreset = useMemo(() => {
     const activePreset = allFunctionPresets.find(item => item.id === activeFunctionId) || null;
     return activePreset?.kind === 'agent' ? activePreset : null;
@@ -415,6 +511,70 @@ function AppShell() {
     }
 
     return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function humanizeFallbackModelName(modelValue: string) {
+    return modelValue
+      .replace(/[-_:]+/g, ' ')
+      .replace(/\b([a-z])/g, (_, letter: string) => letter.toUpperCase())
+      .replace(/\b(\d+)b\b/gi, '$1B')
+      .trim();
+  }
+
+  function formatModelOptionLabel(modelValue: string, providerValue?: string) {
+    if (!modelValue) {
+      return providerValue && providerValue !== 'auto' ? 'Provider default' : 'Chosen automatically';
+    }
+
+    const known = MODEL_LABELS[modelValue];
+    const label = known?.label || humanizeFallbackModelName(modelValue);
+    const hint = known?.hint;
+
+    return hint ? `${label} - ${hint}` : label;
+  }
+
+  function formatModelDisplay(modelValue?: string | null, providerValue?: string) {
+    if (!modelValue) {
+      return providerValue === 'auto' ? 'auto-selected' : 'provider default';
+    }
+
+    return formatModelOptionLabel(modelValue, providerValue);
+  }
+
+  function getPresetActivationLabel(preset: FunctionPreset) {
+    return preset.kind === 'skill' ? 'Activation: slash command or quick menu apply' : 'Activation: dedicated bot session';
+  }
+
+  function getPresetAutonomyLabel(preset: FunctionPreset) {
+    return preset.kind === 'skill' ? 'Autonomy: low, task-scoped overlay' : 'Autonomy: higher, specialist session owner';
+  }
+
+  function getPresetRoutingLabel(preset: FunctionPreset) {
+    if (preset.kind === 'skill') {
+      return 'Routing: inherits current chat provider and model';
+    }
+
+    if (!preset.provider || preset.provider === 'auto') {
+      return 'Routing: inherits current chat or auto route';
+    }
+
+    return `Routing: prefers ${formatProviderLabel(preset.provider)}${preset.model ? ` · ${preset.model}` : ''}`;
+  }
+
+  function getPresetMemoryLabel(preset: FunctionPreset) {
+    if (preset.kind === 'skill') {
+      return 'Memory: uses the current chat and memory settings';
+    }
+
+    if (preset.memoryMode === 'isolated') {
+      return 'Memory: isolated bot memory';
+    }
+
+    if (preset.memoryMode === 'none') {
+      return 'Memory: disabled';
+    }
+
+    return 'Memory: shared with the main Botty context';
   }
 
   function inferProviderFromModel(modelValue?: string | null) {
@@ -492,6 +652,40 @@ function AppShell() {
     }
 
     return DEFAULT_MODELS[providerValue] || '';
+  }
+
+  function getSelectableModels(providerValue: string, currentValue?: string | null, includeBlankOption = false, catalog?: Record<string, string[]>) {
+    if (!providerValue || providerValue === 'auto') {
+      return includeBlankOption ? [''] : [];
+    }
+
+    const configuredOptions = (catalog || modelCatalog)[providerValue] || DEFAULT_MODEL_CATALOG[providerValue] || [];
+    const options = [...configuredOptions];
+
+    if (currentValue?.trim() && !options.includes(currentValue.trim())) {
+      options.unshift(currentValue.trim());
+    }
+
+    if (includeBlankOption && !options.includes('')) {
+      options.unshift('');
+    }
+
+    return options;
+  }
+
+  function getPreferredSelectableModel(providerValue: string, promptValue: string, currentValue?: string | null, catalog?: Record<string, string[]>) {
+    const options = getSelectableModels(providerValue, currentValue, false, catalog);
+    const suggested = getSuggestedChatModel(providerValue, promptValue);
+
+    if (suggested && options.includes(suggested)) {
+      return suggested;
+    }
+
+    if (currentValue?.trim() && options.includes(currentValue.trim())) {
+      return currentValue.trim();
+    }
+
+    return options[0] || '';
   }
 
   function supportsSpeechRecognition() {
@@ -838,14 +1032,27 @@ function AppShell() {
     setTelegramBotToken(settingsData.telegramBotToken || '');
     setTelegramBotEnabled(settingsData.telegramBotEnabled !== false);
     setTelegramAllowedChatIds(settingsData.telegramAllowedChatIds || '');
-    setTelegramProvider(settingsData.telegramProvider || 'auto');
-    setTelegramModel(settingsData.telegramModel || '');
     setSystemPrompt(userSettingsData.systemPrompt || '');
     setActiveFunctionId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...FUNCTION_PRESETS, ...(functionsData.skills || []), ...(functionsData.bots || [])])?.id || '');
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
+    const nextModelCatalog = {
+      ...DEFAULT_MODEL_CATALOG,
+      ...(providersData.modelCatalog || {}),
+      local: providersData.modelCatalog?.local?.length ? providersData.modelCatalog.local : [nextLocalModel],
+    };
     setAvailableProviders(nextProviders);
     setDefaultLocalModel(nextLocalModel);
+    setModelCatalog(nextModelCatalog);
+    const nextTelegramProvider = settingsData.telegramProvider || 'auto';
+    setTelegramProvider(nextTelegramProvider);
+    setTelegramModel(
+      nextTelegramProvider !== 'auto'
+        ? (getSelectableModels(nextTelegramProvider, settingsData.telegramModel || '', true, nextModelCatalog).includes(settingsData.telegramModel || '')
+          ? (settingsData.telegramModel || '')
+          : '')
+        : '',
+    );
     setKeyInputs({
       anthropic: keyRows.find(item => item.provider === 'anthropic')?.key || '',
       google: keyRows.find(item => item.provider === 'google')?.key || '',
@@ -858,8 +1065,8 @@ function AppShell() {
       return;
     }
 
-    if (provider === 'local' && nextProviders.includes('local') && (!model || model === defaultLocalModel)) {
-      setModel(nextLocalModel);
+    if (provider !== 'auto' && nextProviders.includes(provider)) {
+      setModel(currentModel => getPreferredSelectableModel(provider, prompt, currentModel, nextModelCatalog));
     }
 
     if (provider !== 'auto' && !nextProviders.includes(provider)) {
@@ -1102,23 +1309,23 @@ function AppShell() {
 
   function handlePromptKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (prompt.startsWith('/')) {
-      if (event.key === 'ArrowDown' && matchingSkillPresets.length > 0) {
+      if (event.key === 'ArrowDown' && slashMenuItems.length > 0) {
         event.preventDefault();
-        setSelectedSlashIndex(index => (index + 1) % matchingSkillPresets.length);
+        setSelectedSlashIndex(index => (index + 1) % slashMenuItems.length);
         return;
       }
 
-      if (event.key === 'ArrowUp' && matchingSkillPresets.length > 0) {
+      if (event.key === 'ArrowUp' && slashMenuItems.length > 0) {
         event.preventDefault();
-        setSelectedSlashIndex(index => (index - 1 + matchingSkillPresets.length) % matchingSkillPresets.length);
+        setSelectedSlashIndex(index => (index - 1 + slashMenuItems.length) % slashMenuItems.length);
         return;
       }
 
       if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {
-        const preset = matchingSkillPresets[selectedSlashIndex] || matchingSkillPresets[0];
-        if (preset) {
+        const item = slashMenuItems[selectedSlashIndex] || slashMenuItems[0];
+        if (item) {
           event.preventDefault();
-          void activateSlashSkill(preset);
+          void activateSlashItem(item);
           return;
         }
       }
@@ -1201,9 +1408,62 @@ function AppShell() {
     }
   }
 
+  async function executeSlashCommand(command: SlashCommand) {
+    setPrompt('');
+
+    if (command.command === 'new-chat') {
+      startNewChat();
+      setNotice('Started a new chat.');
+      return;
+    }
+
+    if (command.command === 'clear-mode') {
+      await clearFunctionPreset();
+      return;
+    }
+
+    if (command.command === 'refresh') {
+      await refreshAll();
+      setNotice('App data refreshed.');
+      return;
+    }
+
+    if (command.command === 'sandbox') {
+      await toggleSandboxModeFromMenu();
+      return;
+    }
+
+    const targetTab = TABS.find(tab => tab.value === command.command)?.value;
+    if (targetTab) {
+      openTab(targetTab);
+      setNotice(`Opened ${command.title.replace(/^Open\s+/, '')}.`);
+    }
+  }
+
+  async function activateSlashItem(item: SlashMenuItem) {
+    if (item.category === 'command') {
+      await executeSlashCommand(item as SlashCommand);
+      return;
+    }
+
+    if (item.preset) {
+      await activateFunctionPreset(item.preset);
+    }
+  }
+
   const slashQuery = prompt.startsWith('/') ? prompt.slice(1).trim().toLowerCase() : '';
-  const matchingSkillPresets = prompt.startsWith('/')
-    ? skillPresets.filter(item => {
+  const slashMenuItems = prompt.startsWith('/')
+    ? [
+        ...slashCommands,
+        ...skillPresets.map(item => ({
+          id: item.id,
+          command: item.command,
+          title: item.title,
+          description: item.description,
+          category: 'skill' as const,
+          preset: item,
+        })),
+      ].filter(item => {
         if (!slashQuery) {
           return true;
         }
@@ -1213,6 +1473,10 @@ function AppShell() {
           || item.description.toLowerCase().includes(slashQuery);
       })
     : [];
+  const groupedSlashItems = useMemo(() => ({
+    commands: slashMenuItems.filter(item => item.category === 'command'),
+    skills: slashMenuItems.filter(item => item.category === 'skill'),
+  }), [slashMenuItems]);
 
   async function createCustomSkill(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1220,6 +1484,8 @@ function AppShell() {
     const title = newSkillTitle.trim();
     const description = newSkillDescription.trim();
     const command = newSkillCommand.trim().toLowerCase();
+    const useWhenValue = newSkillUseWhen.trim();
+    const boundariesValue = newSkillBoundaries.trim();
     const systemPromptValue = newSkillSystemPrompt.trim();
     const starterPromptValue = newSkillStarterPrompt.trim();
 
@@ -1240,12 +1506,16 @@ function AppShell() {
         title,
         description,
         command,
+        useWhen: useWhenValue || null,
+        boundaries: boundariesValue || null,
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
       });
       setNewSkillTitle('');
       setNewSkillDescription('');
       setNewSkillCommand('');
+      setNewSkillUseWhen('');
+      setNewSkillBoundaries('');
       setNewSkillSystemPrompt('');
       setNewSkillStarterPrompt('');
       await refreshAll();
@@ -1260,6 +1530,8 @@ function AppShell() {
 
     const title = newBotTitle.trim();
     const description = newBotDescription.trim();
+    const useWhenValue = newBotUseWhen.trim();
+    const boundariesValue = newBotBoundaries.trim();
     const providerValue = newBotProvider.trim().toLowerCase();
     const modelValue = newBotModel.trim();
     const systemPromptValue = newBotSystemPrompt.trim();
@@ -1277,6 +1549,8 @@ function AppShell() {
         title,
         description,
         command: title,
+        useWhen: useWhenValue || null,
+        boundaries: boundariesValue || null,
         provider: providerValue || null,
         model: modelValue || null,
         memoryMode: newBotMemoryMode,
@@ -1285,6 +1559,8 @@ function AppShell() {
       });
       setNewBotTitle('');
       setNewBotDescription('');
+      setNewBotUseWhen('');
+      setNewBotBoundaries('');
       setNewBotProvider('');
       setNewBotModel('');
       setNewBotMemoryMode('shared');
@@ -1881,7 +2157,7 @@ function AppShell() {
                           const nextProvider = event.target.value;
                           setProvider(nextProvider);
                           if (nextProvider !== 'auto') {
-                            setModel(getSuggestedChatModel(nextProvider, prompt));
+                            setModel(getPreferredSelectableModel(nextProvider, prompt));
                           } else {
                             setModel('');
                           }
@@ -1893,13 +2169,17 @@ function AppShell() {
                         ))}
                       </select>
 
-                      <input
+                      <select
                         value={model}
                         onChange={event => setModel(event.target.value)}
                         disabled={provider === 'auto'}
-                        placeholder={provider === 'auto' ? 'Chosen automatically' : 'Model name'}
                         className={`${inputClass} ${isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400'}`}
-                      />
+                      >
+                        {provider === 'auto' ? <option value="">Chosen automatically</option> : null}
+                        {provider !== 'auto' ? getSelectableModels(provider, model).map(option => (
+                          <option key={option} value={option}>{formatModelOptionLabel(option, provider)}</option>
+                        )) : null}
+                      </select>
                     </div>
 
                     <textarea
@@ -1907,7 +2187,7 @@ function AppShell() {
                       onChange={event => setPrompt(event.target.value)}
                       onKeyDown={handlePromptKeyDown}
                       rows={5}
-                      placeholder="Ask Claude to debug, design, or write code... Use /development, /debug, or /ops for skills"
+                      placeholder="Ask Claude to debug, design, or write code... Use /development for skills or /new-chat for commands"
                       className={textareaClass}
                     />
 
@@ -1935,23 +2215,62 @@ function AppShell() {
 
                     {prompt.startsWith('/') ? (
                       <div className={`mt-3 rounded-2xl border ${isDarkMode ? 'border-white/8 bg-[#172131]' : 'border-stone-200 bg-stone-50'} p-2`}>
-                        <div className={`px-2 pb-2 text-xs ${subtleTextClass}`}>Slash skills</div>
-                        <div className="space-y-1">
-                          {matchingSkillPresets.length > 0 ? matchingSkillPresets.map((item, index) => (
-                            <button
-                              key={item.id}
-                              type="button"
-                              onClick={() => void activateSlashSkill(item)}
-                              className={`w-full rounded-xl px-3 py-2 text-left ${index === selectedSlashIndex ? (isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-900 border border-stone-200') : (isDarkMode ? 'text-stone-300 hover:bg-white/5' : 'text-stone-700 hover:bg-white')}`}
-                            >
-                              <div className="flex items-center justify-between gap-3">
-                                <div className="text-sm font-medium">/{item.command}</div>
-                                <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
-                              </div>
-                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
-                            </button>
-                          )) : (
-                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching skills.</div>
+                        <div className={`px-2 pb-2 text-xs ${subtleTextClass}`}>Slash autocomplete</div>
+                        <div className="space-y-3">
+                          {slashMenuItems.length > 0 ? (
+                            <>
+                              {groupedSlashItems.commands.length > 0 ? (
+                                <div>
+                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Commands</div>
+                                  <div className="space-y-1">
+                                    {groupedSlashItems.commands.map(item => {
+                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
+                                      return (
+                                        <button
+                                          key={item.id}
+                                          type="button"
+                                          onClick={() => void activateSlashItem(item)}
+                                          className={`w-full rounded-xl px-3 py-2 text-left ${index === selectedSlashIndex ? (isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-900 border border-stone-200') : (isDarkMode ? 'text-stone-300 hover:bg-white/5' : 'text-stone-700 hover:bg-white')}`}
+                                        >
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div className="text-sm font-medium">/{item.command}</div>
+                                            <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                          </div>
+                                          <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {groupedSlashItems.skills.length > 0 ? (
+                                <div>
+                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Skills</div>
+                                  <div className="space-y-1">
+                                    {groupedSlashItems.skills.map(item => {
+                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
+                                      return (
+                                        <button
+                                          key={item.id}
+                                          type="button"
+                                          onClick={() => void activateSlashItem(item)}
+                                          className={`w-full rounded-xl px-3 py-2 text-left ${index === selectedSlashIndex ? (isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-900 border border-stone-200') : (isDarkMode ? 'text-stone-300 hover:bg-white/5' : 'text-stone-700 hover:bg-white')}`}
+                                        >
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div className="text-sm font-medium">/{item.command}</div>
+                                            <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                          </div>
+                                          <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching commands or skills.</div>
                           )}
                         </div>
                       </div>
@@ -1982,7 +2301,7 @@ function AppShell() {
                     <h3 className="font-medium">Current runtime</h3>
                     <ul className={`mt-3 text-sm ${mutedTextClass} space-y-2`}>
                       <li>Primary provider: {currentRuntimeProvider}</li>
-                      <li>Model: {currentRuntimeModel}</li>
+                      <li>Model: {formatModelDisplay(currentRuntimeModel, currentRuntimeProvider)}</li>
                       <li>{currentRuntimeTokenUsage || `Estimated token window: ${getEstimatedModelTokenLimit(currentRuntimeProvider, currentRuntimeModel)?.toLocaleString() || 'unknown'}`}</li>
                       <li>Available providers: {availableProviders.length ? availableProviders.join(', ') : 'none'}</li>
                     </ul>
@@ -2009,7 +2328,7 @@ function AppShell() {
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Skills</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>Use these in the menu or type `/` in chat to activate a Botty skill instantly.</p>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>Skills are best-practice overlays: reusable, narrow capabilities that keep the current chat&apos;s provider, memory, and session context.</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
@@ -2020,21 +2339,44 @@ function AppShell() {
                 </section>
 
                 <section className={sectionCardClass}>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">What a skill is</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>A reusable instruction overlay for a focused job like debugging, drafting, analysis, or formatting.</p>
+                    </div>
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">Best when</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>You want a quick capability boost inside the same conversation, not a specialist that owns the whole workflow.</p>
+                    </div>
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">Expected attributes</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>Slash-triggered, low autonomy, inherits chat routing, and uses the current memory setup.</p>
+                    </div>
+                  </div>
+                </section>
+
+                <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
                     <Plus className="w-4 h-4" />
                     <h3 className="font-medium">Create skill</h3>
                   </div>
                   <form onSubmit={createCustomSkill} className="grid gap-3 md:grid-cols-2">
-                    <input value={newSkillTitle} onChange={event => setNewSkillTitle(event.target.value)} placeholder="Skill title" className={textInputClass} />
-                    <input value={newSkillCommand} onChange={event => setNewSkillCommand(event.target.value)} placeholder="Slash command, e.g. research" className={textInputClass} />
+                    <input value={newSkillTitle} onChange={event => setNewSkillTitle(event.target.value)} placeholder="Skill title, e.g. Architecture Critic" className={textInputClass} />
+                    <input value={newSkillCommand} onChange={event => setNewSkillCommand(event.target.value)} placeholder="Slash command, e.g. architecture" className={textInputClass} />
                     <div className="md:col-span-2">
-                      <input value={newSkillDescription} onChange={event => setNewSkillDescription(event.target.value)} placeholder="Short description" className={textInputClass} />
+                      <input value={newSkillDescription} onChange={event => setNewSkillDescription(event.target.value)} placeholder="Capability summary, e.g. critiques designs and tradeoffs" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillSystemPrompt} onChange={event => setNewSkillSystemPrompt(event.target.value)} rows={4} placeholder="System prompt" className={textareaClass} />
+                      <input value={newSkillUseWhen} onChange={event => setNewSkillUseWhen(event.target.value)} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillStarterPrompt} onChange={event => setNewSkillStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt" className={textareaClass} />
+                      <textarea value={newSkillBoundaries} onChange={event => setNewSkillBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, and should not take over the whole session" className={textareaClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newSkillSystemPrompt} onChange={event => setNewSkillSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this focused capability" className={textareaClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newSkillStarterPrompt} onChange={event => setNewSkillStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
                     </div>
                     <div>
                       <button type="submit" disabled={creatingFunction === 'skill'} className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60">
@@ -2066,6 +2408,12 @@ function AppShell() {
                           </div>
 
                           <div className={`text-xs ${subtleTextClass}`}>Slash command: /{item.command}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>Use when: {item.useWhen}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>Operating bounds: {item.boundaries}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetActivationLabel(item)}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetAutonomyLabel(item)}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
 
                           <div className="flex flex-wrap items-center gap-2">
                             <button
@@ -2089,9 +2437,26 @@ function AppShell() {
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Bots</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>These agent-backed bots switch Botty into a specialized task mode for building, reviewing, or operating the app.</p>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>Bots are best-practice specialists: they can own a longer task, optionally use their own routing, and choose how memory should behave across the session.</p>
                   </div>
                   <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active bot: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active bot'}</div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">What a bot is</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>A persistent specialist that owns a multi-turn workflow such as building, reviewing, operating, or researching.</p>
+                    </div>
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">Best when</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>You want Botty to stay in a stable specialist role, potentially with its own provider, model, and memory policy.</p>
+                    </div>
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">Expected attributes</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>Higher autonomy, explicit task ownership, optional routing override, and configurable shared, isolated, or no memory.</p>
+                    </div>
+                  </div>
                 </section>
 
                 <section className={sectionCardClass}>
@@ -2100,11 +2465,21 @@ function AppShell() {
                     <h3 className="font-medium">Create bot</h3>
                   </div>
                   <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2">
-                    <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Bot title" className={textInputClass} />
+                    <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Bot title, e.g. Security Reviewer" className={textInputClass} />
                     <div className="md:col-span-2">
-                      <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Short description" className={textInputClass} />
+                      <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                     </div>
-                    <select value={newBotProvider} onChange={event => setNewBotProvider(event.target.value)} className={textInputClass}>
+                    <div className="md:col-span-2">
+                      <input value={newBotUseWhen} onChange={event => setNewBotUseWhen(event.target.value)} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newBotBoundaries} onChange={event => setNewBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
+                    </div>
+                    <select value={newBotProvider} onChange={event => {
+                      const nextProvider = event.target.value;
+                      setNewBotProvider(nextProvider);
+                      setNewBotModel(nextProvider && nextProvider !== 'auto' ? getPreferredSelectableModel(nextProvider, newBotStarterPrompt) : '');
+                    }} className={textInputClass}>
                       <option value="">Inherit chat provider</option>
                       {PROVIDERS.map(option => (
                         <option key={option.value} value={option.value}>{option.label}</option>
@@ -2116,13 +2491,18 @@ function AppShell() {
                       <option value="none">No memory</option>
                     </select>
                     <div className="md:col-span-2">
-                      <input value={newBotModel} onChange={event => setNewBotModel(event.target.value)} placeholder="Optional model override" className={textInputClass} />
+                      <select value={newBotModel} onChange={event => setNewBotModel(event.target.value)} disabled={!newBotProvider || newBotProvider === 'auto'} className={textInputClass}>
+                        {(!newBotProvider || newBotProvider === 'auto') ? <option value="">Inherit provider default</option> : null}
+                        {newBotProvider && newBotProvider !== 'auto' ? getSelectableModels(newBotProvider, newBotModel, true).map(option => (
+                          <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, newBotProvider)}</option>
+                        )) : null}
+                      </select>
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotSystemPrompt} onChange={event => setNewBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt" className={textareaClass} />
+                      <textarea value={newBotSystemPrompt} onChange={event => setNewBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotStarterPrompt} onChange={event => setNewBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt" className={textareaClass} />
+                      <textarea value={newBotStarterPrompt} onChange={event => setNewBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
                     </div>
                     <div>
                       <button type="submit" disabled={creatingFunction === 'agent'} className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60">
@@ -2150,10 +2530,16 @@ function AppShell() {
                           </div>
 
                           <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>Use when: {item.useWhen}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>Operating bounds: {item.boundaries}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetActivationLabel(item)}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetAutonomyLabel(item)}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
                           <div className={`text-xs ${subtleTextClass}`}>
                             Provider: {item.provider ? (item.provider === 'auto' ? 'Auto route' : formatProviderLabel(item.provider)) : 'Inherit chat'}
                             {' · '}
-                            Model: {item.model || 'Inherit chat'}
+                            Model: {item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat'}
                             {' · '}
                             Memory: {item.memoryMode || 'shared'}
                           </div>
@@ -2537,7 +2923,11 @@ function AppShell() {
 
                     <div>
                       <label className={sectionLabelClass}>Telegram provider</label>
-                      <select value={telegramProvider} onChange={event => setTelegramProvider(event.target.value)} className={textInputClass}>
+                      <select value={telegramProvider} onChange={event => {
+                        const nextProvider = event.target.value;
+                        setTelegramProvider(nextProvider);
+                        setTelegramModel(nextProvider && nextProvider !== 'auto' ? '' : '');
+                      }} className={textInputClass}>
                         {PROVIDERS.map(option => (
                           <option key={option.value} value={option.value}>{option.label}</option>
                         ))}
@@ -2546,12 +2936,17 @@ function AppShell() {
 
                     <div>
                       <label className={sectionLabelClass}>Telegram model override</label>
-                      <input
+                      <select
                         value={telegramModel}
                         onChange={event => setTelegramModel(event.target.value)}
-                        placeholder="Leave blank for provider default"
+                        disabled={telegramProvider === 'auto'}
                         className={textInputClass}
-                      />
+                      >
+                        {telegramProvider === 'auto' ? <option value="">Chosen automatically</option> : null}
+                        {telegramProvider !== 'auto' ? getSelectableModels(telegramProvider, telegramModel, true).map(option => (
+                          <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, telegramProvider)}</option>
+                        )) : null}
+                      </select>
                     </div>
                   </div>
 

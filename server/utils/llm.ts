@@ -20,6 +20,12 @@ const DEFAULT_MODELS = {
   local: 'qwen2.5:3b',
 };
 
+const PROVIDER_MODEL_OPTIONS: Record<string, string[]> = {
+  anthropic: ['claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest'],
+  google: ['gemini-2.5-flash', 'gemini-2.5-pro'],
+  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+};
+
 const PREFERRED_LOCAL_MODELS = [
   'qwen2.5:3b',
   'qwen2.5:1.5b',
@@ -124,6 +130,22 @@ function normalizeLocalLlmUrl(value?: string | null) {
   }
 }
 
+function getCandidateLocalLlmUrls(preferredUrl?: string | null) {
+  const candidates = [
+    preferredUrl,
+    process.env.LOCAL_LLM_URL,
+    process.env.LOCAL_LLM_URL_CONTAINER,
+    'http://127.0.0.1:11435',
+    'http://localhost:11435',
+    'http://127.0.0.1:11434',
+    'http://localhost:11434',
+  ]
+    .map(value => normalizeLocalLlmUrl(value))
+    .filter(Boolean);
+
+  return Array.from(new Set(candidates));
+}
+
 export function getDefaultModel(provider: string) {
   return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] || DEFAULT_MODELS.anthropic;
 }
@@ -162,24 +184,46 @@ function isSupportedChatProvider(provider: string): provider is (typeof SUPPORTE
 
 export async function getDefaultLocalModel(localUrl?: string) {
   const fallbackModel = getDefaultModel('local');
-  const endpoint = `${normalizeLocalLlmUrl(localUrl || process.env.LOCAL_LLM_URL).replace(/\/$/, '')}/api/tags`;
+  const localModels = await getLocalModelOptions(localUrl || process.env.LOCAL_LLM_URL);
 
-  try {
-    const response = await fetch(endpoint);
-    if (!response.ok) {
-      return fallbackModel;
+  return localModels[0] || fallbackModel;
+}
+
+export async function getLocalModelOptions(localUrl?: string) {
+  const fallbackModel = getDefaultModel('local');
+  const candidateUrls = getCandidateLocalLlmUrls(localUrl || process.env.LOCAL_LLM_URL);
+
+  for (const candidateUrl of candidateUrls) {
+    try {
+      const response = await fetch(`${candidateUrl.replace(/\/$/, '')}/api/tags`);
+      if (!response.ok) {
+        continue;
+      }
+
+      const data = await response.json() as { models?: Array<{ name?: string }> };
+      const installedModels = data.models
+        ?.map(model => model.name?.trim())
+        .filter((modelName): modelName is string => Boolean(modelName)) || [];
+
+      const orderedInstalledModels = [
+        ...PREFERRED_LOCAL_MODELS.filter(modelName => installedModels.includes(modelName)),
+        ...installedModels.filter(modelName => !PREFERRED_LOCAL_MODELS.includes(modelName as (typeof PREFERRED_LOCAL_MODELS)[number])),
+      ];
+
+      return orderedInstalledModels.length > 0 ? orderedInstalledModels : [fallbackModel];
+    } catch {
+      continue;
     }
-
-    const data = await response.json() as { models?: Array<{ name?: string }> };
-    const installedModels = data.models
-      ?.map(model => model.name?.trim())
-      .filter((modelName): modelName is string => Boolean(modelName)) || [];
-
-    const preferredInstalledModel = PREFERRED_LOCAL_MODELS.find(modelName => installedModels.includes(modelName));
-    return preferredInstalledModel || installedModels[0] || fallbackModel;
-  } catch {
-    return fallbackModel;
   }
+
+  return [fallbackModel];
+}
+
+export async function getProviderModelCatalog(localUrl?: string) {
+  return {
+    ...PROVIDER_MODEL_OPTIONS,
+    local: await getLocalModelOptions(localUrl),
+  };
 }
 
 export async function getAvailableProviders(uid: string) {
@@ -1125,38 +1169,66 @@ export async function callLLM(params: {
       throw normalizeProviderError(provider, error, 'OpenAI request failed');
     }
   } else if (provider === 'local') {
-    try {
-      const endpoint = `${normalizeLocalLlmUrl(localUrl).replace(/\/$/, '')}/v1/chat/completions`;
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          model,
-          stream: false,
-          messages: [
-            { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
-            ...messages,
-            { role: 'user', content: prompt },
-          ],
-        }),
-      });
+    const candidateUrls = getCandidateLocalLlmUrls(localUrl);
+    const attemptedEndpoints: string[] = [];
+    let lastError: unknown = null;
 
-      if (!response.ok) {
-        const body = await response.text();
-        throw new LLMProviderError(
-          provider,
-          summarizeProviderErrorBody(body, `Local LLM request failed with ${response.status}`),
-          { statusCode: response.status, retryable: isRetryableStatus(response.status) },
-        );
+    for (const candidateUrl of candidateUrls) {
+      const openAiEndpoint = `${candidateUrl.replace(/\/$/, '')}/v1/chat/completions`;
+      attemptedEndpoints.push(openAiEndpoint);
+
+      try {
+        const response = await fetch(openAiEndpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model,
+            stream: false,
+            messages: [
+              { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+              ...messages,
+              { role: 'user', content: prompt },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new LLMProviderError(
+            provider,
+            summarizeProviderErrorBody(body, `Local LLM request failed with ${response.status}`),
+            { statusCode: response.status, retryable: isRetryableStatus(response.status) },
+          );
+        }
+
+        const data = await response.json() as any;
+        responseText = data.choices?.[0]?.message?.content || '';
+        tokensUsed = data.usage?.total_tokens || Math.ceil((prompt.length + responseText.length) / 4);
+        lastError = null;
+        break;
+      } catch (error) {
+        lastError = error;
+
+        const normalizedError = normalizeProviderError(provider, error, 'Local LLM request failed');
+        if (!normalizedError.retryable) {
+          throw normalizedError;
+        }
       }
+    }
 
-      const data = await response.json() as any;
-      responseText = data.choices?.[0]?.message?.content || '';
-      tokensUsed = data.usage?.total_tokens || Math.ceil((prompt.length + responseText.length) / 4);
-    } catch (error) {
-      throw normalizeProviderError(provider, error, 'Local LLM request failed');
+    if (!responseText) {
+      const normalizedError = normalizeProviderError(provider, lastError, 'Local LLM request failed');
+      const attemptSummary = attemptedEndpoints.length > 0
+        ? ` Attempted: ${attemptedEndpoints.join(', ')}`
+        : '';
+
+      throw new LLMProviderError(
+        provider,
+        `${normalizedError.message}.${attemptSummary}`.trim(),
+        { statusCode: normalizedError.statusCode, retryable: normalizedError.retryable },
+      );
     }
   } else {
     throw new Error(`Unsupported provider: ${provider}`);

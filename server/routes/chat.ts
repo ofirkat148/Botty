@@ -3,6 +3,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import {
   getAvailableProviders,
   getDefaultLocalModel,
+  getProviderModelCatalog,
   getRuntimeSettings,
 } from '../utils/llm.js';
 import { runChatForUser } from '../services/chat.js';
@@ -14,11 +15,14 @@ router.get('/providers', async (req: Request, res: Response) => {
   try {
     const providers = await getAvailableProviders(req.userId!);
     const runtimeSettings = await getRuntimeSettings(req.userId!);
-    const defaultLocalModel = providers.includes('local')
-      ? await getDefaultLocalModel(runtimeSettings.localUrl)
-      : null;
+    const [defaultLocalModel, modelCatalog] = await Promise.all([
+      providers.includes('local')
+        ? getDefaultLocalModel(runtimeSettings.localUrl)
+        : Promise.resolve(null),
+      getProviderModelCatalog(runtimeSettings.localUrl),
+    ]);
 
-    res.json({ providers, defaultLocalModel });
+    res.json({ providers, defaultLocalModel, modelCatalog });
   } catch (error) {
     console.error('Error fetching providers:', error);
     res.status(500).json({ error: 'Failed to fetch providers' });

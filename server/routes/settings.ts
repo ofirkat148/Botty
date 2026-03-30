@@ -24,12 +24,26 @@ type StoredFunctionPreset = {
   title: string;
   description: string;
   command: string;
+  useWhen?: string;
+  boundaries?: string;
   systemPrompt: string;
   starterPrompt: string;
   provider?: string | null;
   model?: string | null;
   memoryMode?: 'shared' | 'isolated' | 'none';
 };
+
+function defaultUseWhen(kind: 'skill' | 'agent', title: string) {
+  return kind === 'skill'
+    ? `Use ${title || 'this skill'} for a narrow, repeatable capability inside the current chat.`
+    : `Use ${title || 'this bot'} when a specialist should own a multi-turn task from start to finish.`;
+}
+
+function defaultBoundaries(kind: 'skill' | 'agent') {
+  return kind === 'skill'
+    ? 'Keeps the current provider, model, memory, and conversation context. Best for overlays, not full session control.'
+    : 'Can steer provider, model, and memory for the session. Best for specialist ownership, not quick one-off overlays.';
+}
 
 function slugifyCommand(value: string) {
   return value
@@ -44,6 +58,8 @@ function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | '
   const candidate = value as Partial<StoredFunctionPreset> | null;
   const title = String(candidate?.title || '').trim();
   const description = String(candidate?.description || '').trim();
+  const useWhen = String(candidate?.useWhen || '').trim() || defaultUseWhen(expectedKind, title);
+  const boundaries = String(candidate?.boundaries || '').trim() || defaultBoundaries(expectedKind);
   const systemPrompt = String(candidate?.systemPrompt || '').trim();
   const starterPrompt = String(candidate?.starterPrompt || '').trim();
   const rawCommand = String(candidate?.command || '').trim();
@@ -68,6 +84,8 @@ function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | '
     title,
     description,
     command,
+    useWhen,
+    boundaries,
     systemPrompt,
     starterPrompt,
     provider: expectedKind === 'agent' ? provider : null,
@@ -344,6 +362,8 @@ router.post('/functions', async (req: Request, res: Response) => {
       title: req.body?.title,
       description: req.body?.description,
       command: req.body?.command,
+      useWhen: req.body?.useWhen,
+      boundaries: req.body?.boundaries,
       systemPrompt: req.body?.systemPrompt,
       starterPrompt: req.body?.starterPrompt,
       provider: req.body?.provider,
