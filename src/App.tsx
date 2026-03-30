@@ -1450,7 +1450,7 @@ function AppShell() {
   const telegramStatusLabel = loadingTelegramStatus
     ? 'Checking Telegram status...'
     : telegramStatus?.error
-      ? 'Telegram error'
+      ? 'Telegram reconnect pending'
       : telegramStatus?.running
         ? `Connected${telegramStatus.username ? ` as @${telegramStatus.username}` : ''}`
         : telegramStatus?.enabled === false
@@ -1461,7 +1461,7 @@ function AppShell() {
   const telegramStatusDetails = loadingTelegramStatus
     ? 'Verifying the current Telegram bot state.'
     : telegramStatus?.error
-      ? telegramStatus.error
+      ? `Last Telegram error: ${telegramStatus.error}. Botty will keep retrying in the background.`
       : telegramStatus?.running
         ? 'Polling is active and the bot is ready to receive messages.'
         : telegramStatus?.enabled === false
@@ -2218,14 +2218,6 @@ function AppShell() {
                   <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
                     <input type="checkbox" checked={useMemory} onChange={event => setUseMemory(event.target.checked)} />
                     Include saved memory in prompt construction
-                  </label>
-
-                  <label className={`flex items-start gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
-                    <input type="checkbox" checked={sandboxMode} onChange={event => setSandboxMode(event.target.checked)} className="mt-1" />
-                    <span>
-                      <span className="block">Enable sandboxed mode</span>
-                      <span className={`block text-xs ${subtleTextClass}`}>Restrict answers to the current conversation plus saved facts and known sites only. Regular chat remains unconstrained.</span>
-                    </span>
                   </label>
 
                   <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>

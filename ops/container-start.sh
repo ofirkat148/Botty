@@ -44,6 +44,7 @@ fi
 
 echo '[botty] startup: building frontend'
 npm run build
+chmod -R a+rwX dist
 
 echo '[botty] startup: launching server'
 exec npm run start
