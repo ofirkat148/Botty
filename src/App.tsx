@@ -29,6 +29,7 @@ GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
 const MAX_CHAT_ATTACHMENT_BYTES = 6 * 1024 * 1024;
 const MAX_CHAT_ATTACHMENT_CHARS = 12000;
 const MAX_CHAT_ATTACHMENT_PAGES = 20;
+const MAX_RECENT_SLASH_ITEMS = 4;
 
 let imageOcrWorkerPromise: Promise<Awaited<ReturnType<typeof createWorker>>> | null = null;
 
@@ -192,6 +193,9 @@ type SlashCommand = {
   command: string;
   title: string;
   description: string;
+  detail?: string;
+  badge: string;
+  keywords?: string[];
   category: 'command';
 };
 
@@ -200,7 +204,10 @@ type SlashMenuItem = {
   command: string;
   title: string;
   description: string;
-  category: 'command' | 'skill';
+  detail?: string;
+  badge: string;
+  keywords?: string[];
+  category: 'command' | 'skill' | 'bot';
   preset?: FunctionPreset;
 };
 
@@ -412,6 +419,23 @@ function AppShell() {
   const [activeFunctionId, setActiveFunctionId] = useState('');
   const [applyingFunctionId, setApplyingFunctionId] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [recentSlashItemIds, setRecentSlashItemIds] = useState<string[]>(() => {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+
+    try {
+      const rawValue = window.localStorage.getItem('botty.recentSlashItems');
+      if (!rawValue) {
+        return [];
+      }
+
+      const parsedValue = JSON.parse(rawValue);
+      return Array.isArray(parsedValue) ? parsedValue.filter(value => typeof value === 'string').slice(0, MAX_RECENT_SLASH_ITEMS) : [];
+    } catch {
+      return [];
+    }
+  });
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
   const factFileInputRef = useRef<HTMLInputElement | null>(null);
@@ -459,19 +483,26 @@ function AppShell() {
   const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
   const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
   const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
+  const activePresetTitle = allFunctionPresets.find(item => item.id === activeFunctionId)?.title || '';
   const slashCommands = useMemo<SlashCommand[]>(() => [
     {
       id: 'command-new-chat',
       command: 'new-chat',
       title: 'New Chat',
-      description: 'Clear the current conversation and start a fresh chat.',
+      description: messages.length > 0 ? `Clear ${messages.length} messages and start a fresh chat.` : 'Start a fresh chat in the composer.',
+      detail: activeTab === 'chat' ? 'You are already in chat.' : 'Switches back to chat after resetting the thread.',
+      badge: messages.length > 0 ? `${messages.length} msgs` : 'Chat',
+      keywords: ['reset', 'clear conversation', 'fresh start', 'chat'],
       category: 'command',
     },
     {
       id: 'command-clear-mode',
       command: 'clear-mode',
       title: 'Clear Mode',
-      description: 'Remove the active skill or bot and return to default chat mode.',
+      description: activePresetTitle ? `Turn off ${activePresetTitle} and return to default chat mode.` : 'Stay in default chat mode with no active skill or bot overlay.',
+      detail: activePresetTitle ? 'Useful when a specialized mode is changing the assistant behavior.' : 'No skill or bot is active right now.',
+      badge: activePresetTitle ? 'Active mode' : 'Default',
+      keywords: ['mode', 'skill', 'bot', 'default chat', 'reset mode'],
       category: 'command',
     },
     {
@@ -479,6 +510,9 @@ function AppShell() {
       command: 'refresh',
       title: 'Refresh Data',
       description: 'Reload history, memory, settings, and provider metadata.',
+      detail: `Sync ${history.length} history rows, ${facts.length} facts, and ${memoryFiles.length} files with the server.`,
+      badge: 'Sync',
+      keywords: ['reload', 'sync', 'refetch', 'update data'],
       category: 'command',
     },
     {
@@ -486,16 +520,22 @@ function AppShell() {
       command: 'sandbox',
       title: sandboxMode ? 'Turn Sandbox Off' : 'Turn Sandbox On',
       description: sandboxMode ? 'Disable sandbox mode and restore regular chat access.' : 'Enable sandbox mode so prompts only rely on saved facts and known sites.',
+      detail: sandboxMode ? 'Current state: sandbox is on.' : 'Current state: sandbox is off.',
+      badge: sandboxMode ? 'On' : 'Off',
+      keywords: ['safe mode', 'toggle sandbox', 'memory only', 'restricted'],
       category: 'command',
     },
     ...TABS.filter(tab => tab.value !== 'chat').map(tab => ({
       id: `command-open-${tab.value}`,
       command: tab.value,
       title: `Open ${tab.label}`,
-      description: `Switch to the ${tab.label.toLowerCase()} tab.`,
+      description: activeTab === tab.value ? `${tab.label} is already open.` : `Switch to the ${tab.label.toLowerCase()} tab.`,
+      detail: `Jump directly to ${tab.label.toLowerCase()} from the composer.`,
+      badge: activeTab === tab.value ? 'Current' : 'Tab',
+      keywords: ['open tab', 'navigate', tab.label.toLowerCase()],
       category: 'command' as const,
     })),
-  ], [sandboxMode]);
+  ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
   const activeBotPreset = useMemo(() => {
     const activePreset = allFunctionPresets.find(item => item.id === activeFunctionId) || null;
     return activePreset?.kind === 'agent' ? activePreset : null;
@@ -575,6 +615,26 @@ function AppShell() {
     }
 
     return 'Memory: shared with the main Botty context';
+  }
+
+  function getSlashItemPanelClass(isSelected: boolean) {
+    if (isSelected) {
+      return isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-900 border border-stone-200';
+    }
+
+    return isDarkMode ? 'text-stone-300 hover:bg-white/5' : 'text-stone-700 hover:bg-white';
+  }
+
+  function getSlashItemBadgeClass(item: SlashMenuItem) {
+    if (item.category === 'command') {
+      return isDarkMode ? 'bg-sky-500/15 text-sky-100 border border-sky-400/20' : 'bg-sky-50 text-sky-700 border border-sky-200';
+    }
+
+    if (item.preset && activeFunctionId === item.preset.id) {
+      return isDarkMode ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-400/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+    }
+
+    return isDarkMode ? 'bg-amber-500/15 text-amber-100 border border-amber-400/20' : 'bg-amber-50 text-amber-700 border border-amber-200';
   }
 
   function inferProviderFromModel(modelValue?: string | null) {
@@ -847,6 +907,10 @@ function AppShell() {
     const timer = window.setTimeout(() => setNotice(''), 3000);
     return () => window.clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    window.localStorage.setItem('botty.recentSlashItems', JSON.stringify(recentSlashItemIds));
+  }, [recentSlashItemIds]);
 
   useEffect(() => () => {
     if (speechRecognitionRef.current) {
@@ -1309,6 +1373,12 @@ function AppShell() {
 
   function handlePromptKeyDown(event: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (prompt.startsWith('/')) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        dismissSlashMode();
+        return;
+      }
+
       if (event.key === 'ArrowDown' && slashMenuItems.length > 0) {
         event.preventDefault();
         setSelectedSlashIndex(index => (index + 1) % slashMenuItems.length);
@@ -1397,6 +1467,19 @@ function AppShell() {
     }
   }
 
+  function dismissSlashMode() {
+    if (!prompt.startsWith('/')) {
+      return;
+    }
+
+    setPrompt(prompt.slice(1));
+    setSelectedSlashIndex(0);
+  }
+
+  function rememberSlashItem(itemId: string) {
+    setRecentSlashItemIds(currentIds => [itemId, ...currentIds.filter(value => value !== itemId)].slice(0, MAX_RECENT_SLASH_ITEMS));
+  }
+
   async function clearFunctionPreset() {
     setApplyingFunctionId('clear');
     try {
@@ -1441,6 +1524,8 @@ function AppShell() {
   }
 
   async function activateSlashItem(item: SlashMenuItem) {
+    rememberSlashItem(item.id);
+
     if (item.category === 'command') {
       await executeSlashCommand(item as SlashCommand);
       return;
@@ -1452,31 +1537,81 @@ function AppShell() {
   }
 
   const slashQuery = prompt.startsWith('/') ? prompt.slice(1).trim().toLowerCase() : '';
-  const slashMenuItems = prompt.startsWith('/')
-    ? [
-        ...slashCommands,
-        ...skillPresets.map(item => ({
+  const slashMenuItems = useMemo(() => {
+    if (!prompt.startsWith('/')) {
+      return [] as SlashMenuItem[];
+    }
+
+    const items: SlashMenuItem[] = [
+      ...slashCommands,
+      ...skillPresets.map(item => ({
           id: item.id,
           command: item.command,
           title: item.title,
           description: item.description,
+          detail: item.useWhen || getPresetAutonomyLabel(item),
+          badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in' : 'Custom',
+          keywords: [
+            item.useWhen,
+            item.boundaries,
+            item.kind,
+            item.provider || '',
+            item.model || '',
+            item.memoryMode || '',
+          ].filter(Boolean),
           category: 'skill' as const,
           preset: item,
         })),
-      ].filter(item => {
-        if (!slashQuery) {
-          return true;
-        }
+      ...botPresets.map(item => ({
+        id: item.id,
+        command: item.command,
+        title: item.title,
+        description: item.description,
+        detail: item.useWhen || `${getPresetRoutingLabel(item)}. ${getPresetMemoryLabel(item)}`,
+        badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in bot' : 'Custom bot',
+        keywords: [
+          item.useWhen,
+          item.boundaries,
+          item.kind,
+          item.provider || '',
+          item.model || '',
+          item.memoryMode || '',
+          'bot',
+          'specialist',
+        ].filter(Boolean),
+        category: 'bot' as const,
+        preset: item,
+      })),
+    ];
 
-        return item.command.includes(slashQuery)
-          || item.title.toLowerCase().includes(slashQuery)
-          || item.description.toLowerCase().includes(slashQuery);
-      })
-    : [];
-  const groupedSlashItems = useMemo(() => ({
-    commands: slashMenuItems.filter(item => item.category === 'command'),
-    skills: slashMenuItems.filter(item => item.category === 'skill'),
-  }), [slashMenuItems]);
+    return items.filter(item => {
+      if (!slashQuery) {
+        return true;
+      }
+
+      return item.command.includes(slashQuery)
+        || item.title.toLowerCase().includes(slashQuery)
+        || item.description.toLowerCase().includes(slashQuery)
+        || item.detail?.toLowerCase().includes(slashQuery)
+        || item.keywords?.some(keyword => keyword.toLowerCase().includes(slashQuery));
+    });
+  }, [activeFunctionId, botPresets, botPresets.length, prompt, skillPresets, slashCommands, slashQuery]);
+  const groupedSlashItems = useMemo(() => {
+    const recentItems = !slashQuery
+      ? recentSlashItemIds
+          .map(itemId => slashMenuItems.find(item => item.id === itemId) || null)
+          .filter((item): item is SlashMenuItem => Boolean(item))
+      : [];
+    const recentItemIds = new Set(recentItems.map(item => item.id));
+    const nonRecentItems = slashMenuItems.filter(item => !recentItemIds.has(item.id));
+
+    return {
+      recent: recentItems,
+      commands: nonRecentItems.filter(item => item.category === 'command'),
+      skills: nonRecentItems.filter(item => item.category === 'skill'),
+      bots: nonRecentItems.filter(item => item.category === 'bot'),
+    };
+  }, [recentSlashItemIds, slashMenuItems, slashQuery]);
 
   async function createCustomSkill(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2215,10 +2350,44 @@ function AppShell() {
 
                     {prompt.startsWith('/') ? (
                       <div className={`mt-3 rounded-2xl border ${isDarkMode ? 'border-white/8 bg-[#172131]' : 'border-stone-200 bg-stone-50'} p-2`}>
-                        <div className={`px-2 pb-2 text-xs ${subtleTextClass}`}>Slash autocomplete</div>
+                        <div className="flex items-center justify-between gap-3 px-2 pb-2">
+                          <div className={`text-xs ${subtleTextClass}`}>Slash autocomplete</div>
+                          <div className={`text-[11px] ${subtleTextClass}`}>Arrow keys to move, Enter to apply, Esc to keep text</div>
+                        </div>
                         <div className="space-y-3">
                           {slashMenuItems.length > 0 ? (
                             <>
+                              {groupedSlashItems.recent.length > 0 ? (
+                                <div>
+                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Recent</div>
+                                  <div className="space-y-1">
+                                    {groupedSlashItems.recent.map(item => {
+                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
+                                      return (
+                                        <button
+                                          key={item.id}
+                                          type="button"
+                                          onClick={() => void activateSlashItem(item)}
+                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
+                                        >
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                              <div className="text-sm font-medium">/{item.command}</div>
+                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
+                                            </div>
+                                            <div className="flex flex-col items-end gap-2">
+                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
+                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                            </div>
+                                          </div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+
                               {groupedSlashItems.commands.length > 0 ? (
                                 <div>
                                   <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Commands</div>
@@ -2230,13 +2399,19 @@ function AppShell() {
                                           key={item.id}
                                           type="button"
                                           onClick={() => void activateSlashItem(item)}
-                                          className={`w-full rounded-xl px-3 py-2 text-left ${index === selectedSlashIndex ? (isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-900 border border-stone-200') : (isDarkMode ? 'text-stone-300 hover:bg-white/5' : 'text-stone-700 hover:bg-white')}`}
+                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
                                         >
-                                          <div className="flex items-center justify-between gap-3">
-                                            <div className="text-sm font-medium">/{item.command}</div>
-                                            <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                              <div className="text-sm font-medium">/{item.command}</div>
+                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
+                                            </div>
+                                            <div className="flex flex-col items-end gap-2">
+                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
+                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                            </div>
                                           </div>
-                                          <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
                                         </button>
                                       );
                                     })}
@@ -2255,13 +2430,50 @@ function AppShell() {
                                           key={item.id}
                                           type="button"
                                           onClick={() => void activateSlashItem(item)}
-                                          className={`w-full rounded-xl px-3 py-2 text-left ${index === selectedSlashIndex ? (isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-900 border border-stone-200') : (isDarkMode ? 'text-stone-300 hover:bg-white/5' : 'text-stone-700 hover:bg-white')}`}
+                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
                                         >
-                                          <div className="flex items-center justify-between gap-3">
-                                            <div className="text-sm font-medium">/{item.command}</div>
-                                            <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                              <div className="text-sm font-medium">/{item.command}</div>
+                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
+                                            </div>
+                                            <div className="flex flex-col items-end gap-2">
+                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
+                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                            </div>
                                           </div>
-                                          <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {groupedSlashItems.bots.length > 0 ? (
+                                <div>
+                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Bots</div>
+                                  <div className="space-y-1">
+                                    {groupedSlashItems.bots.map(item => {
+                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
+                                      return (
+                                        <button
+                                          key={item.id}
+                                          type="button"
+                                          onClick={() => void activateSlashItem(item)}
+                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
+                                        >
+                                          <div className="flex items-start justify-between gap-3">
+                                            <div>
+                                              <div className="text-sm font-medium">/{item.command}</div>
+                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
+                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
+                                            </div>
+                                            <div className="flex flex-col items-end gap-2">
+                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
+                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
+                                            </div>
+                                          </div>
                                         </button>
                                       );
                                     })}
@@ -2270,7 +2482,7 @@ function AppShell() {
                               ) : null}
                             </>
                           ) : (
-                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching commands or skills.</div>
+                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching commands, skills, or bots.</div>
                           )}
                         </div>
                       </div>
