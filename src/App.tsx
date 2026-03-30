@@ -2175,15 +2175,15 @@ function AppShell() {
   const modelPeak = useMemo(() => Math.max(...sortedModelUsage.map(entry => entry.tokens), 1), [sortedModelUsage]);
 
   const appBackgroundClass = isDarkMode
-    ? 'min-h-dvh w-full overflow-x-hidden bg-[#101214] text-stone-100'
-    : 'min-h-dvh w-full overflow-x-hidden bg-[#f3f0ea] text-stone-900';
-  const workspaceShellClass = `grid min-h-dvh w-full gap-3 md:gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[264px_minmax(0,1fr)]' : 'lg:grid-cols-[84px_minmax(0,1fr)]'} lg:gap-4 lg:transition-[grid-template-columns] lg:duration-200`;
+    ? `w-full overflow-x-hidden bg-[#101214] text-stone-100 ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'}`
+    : `w-full overflow-x-hidden bg-[#f3f0ea] text-stone-900 ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'}`;
+  const workspaceShellClass = `grid w-full gap-3 md:gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[264px_minmax(0,1fr)]' : 'lg:grid-cols-[84px_minmax(0,1fr)]'} ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'} lg:gap-4 lg:transition-[grid-template-columns] lg:duration-200`;
   const sidebarPanelClass = isDarkMode
     ? `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-white/6 bg-[#15171a] p-4 text-stone-100 shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`
     : `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-stone-200 bg-[#f7f4ee] p-4 text-stone-900 shadow-[0_6px_16px_rgba(36,29,18,0.05)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`;
   const shellPanelClass = isDarkMode
-    ? `w-full rounded-[1.5rem] bg-[#15181b] p-4 md:p-5 lg:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] border border-white/8 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:min-h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`
-    : `w-full rounded-[1.5rem] bg-[#fcfbf8] p-4 md:p-5 lg:p-6 shadow-[0_18px_42px_rgba(36,29,18,0.08)] border border-stone-200 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:min-h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`;
+    ? `w-full rounded-[1.5rem] bg-[#15181b] p-4 md:p-5 lg:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] border border-white/8 ${isFullscreen ? 'h-dvh overflow-hidden rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`
+    : `w-full rounded-[1.5rem] bg-[#fcfbf8] p-4 md:p-5 lg:p-6 shadow-[0_18px_42px_rgba(36,29,18,0.08)] border border-stone-200 ${isFullscreen ? 'h-dvh overflow-hidden rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`;
   const sectionCardClass = isDarkMode
     ? 'rounded-[1.25rem] border border-white/8 bg-[#111417] p-4'
     : 'rounded-[1.25rem] border border-stone-200 bg-white p-4';
@@ -2209,8 +2209,8 @@ function AppShell() {
     ? `rounded-[0.95rem] border border-white/10 bg-white/4 text-stone-100 px-3.5 py-2.5 font-medium flex items-center gap-2 hover:bg-white/8 transition-colors ${isSidebarExpanded ? 'justify-start' : 'justify-center'}`
     : `rounded-[0.95rem] border border-stone-200 bg-white/70 text-stone-900 px-3.5 py-2.5 font-medium flex items-center gap-2 hover:bg-white transition-colors ${isSidebarExpanded ? 'justify-start' : 'justify-center'}`;
   const primaryButtonClass = isDarkMode
-    ? 'rounded-[1rem] bg-white text-stone-950 px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-stone-200 transition-colors'
-    : 'rounded-[1rem] bg-stone-900 text-white px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-stone-800 transition-colors';
+    ? 'rounded-[1rem] bg-white text-stone-950 px-4 py-3 font-medium flex items-center justify-center gap-2 text-center leading-tight hover:bg-stone-200 transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-[1rem] bg-stone-900 text-white px-4 py-3 font-medium flex items-center justify-center gap-2 text-center leading-tight hover:bg-stone-800 transition-colors disabled:cursor-not-allowed disabled:opacity-60';
   const shellUtilityButtonClass = isDarkMode
     ? 'rounded-[1rem] border border-transparent px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/6 transition-colors'
     : 'rounded-[1rem] border border-transparent px-4 py-3 text-left flex items-center gap-3 text-stone-700 hover:bg-stone-100 transition-colors';
@@ -2246,17 +2246,21 @@ function AppShell() {
             ? 'The bot has a saved token but is not currently connected.'
             : 'Save a BotFather token to start Telegram polling.';
   const actionButtonClass = isDarkMode
-    ? 'rounded-[1rem] border border-white/10 px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/6 transition-colors'
-    : 'rounded-[1rem] border border-stone-200 px-4 py-2 text-sm flex items-center gap-2 hover:bg-stone-100 transition-colors';
+    ? 'rounded-[1rem] border border-white/10 px-4 py-2 text-sm flex items-center justify-center gap-2 text-center leading-tight hover:bg-white/6 transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-[1rem] border border-stone-200 px-4 py-2 text-sm flex items-center justify-center gap-2 text-center leading-tight hover:bg-stone-100 transition-colors disabled:cursor-not-allowed disabled:opacity-60';
   const listButtonClass = isDarkMode
     ? 'w-full text-left rounded-[1rem] border border-white/8 bg-[#1a1d20] px-3 py-3 hover:border-white/20 transition-colors'
     : 'w-full text-left rounded-[1rem] border border-stone-200 bg-white px-3 py-3 hover:border-stone-300 transition-colors';
   const secondaryButtonClass = isDarkMode
-    ? 'rounded-[1rem] border border-white/10 bg-[#1a1d20] px-3 py-2 text-sm hover:bg-[#202428] transition-colors'
-    : 'rounded-[1rem] border border-stone-200 bg-white px-3 py-2 text-sm hover:bg-stone-100 transition-colors';
+    ? 'rounded-[1rem] border border-white/10 bg-[#1a1d20] px-3 py-2 text-sm inline-flex items-center justify-center gap-2 text-center leading-tight hover:bg-[#202428] transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-[1rem] border border-stone-200 bg-white px-3 py-2 text-sm inline-flex items-center justify-center gap-2 text-center leading-tight hover:bg-stone-100 transition-colors disabled:cursor-not-allowed disabled:opacity-60';
   const destructiveButtonClass = isDarkMode
-    ? 'rounded-[1rem] border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300 hover:bg-red-950/60 transition-colors'
-    : 'rounded-[1rem] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100 transition-colors';
+    ? 'rounded-[1rem] border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300 inline-flex items-center justify-center gap-2 text-center leading-tight hover:bg-red-950/60 transition-colors disabled:cursor-not-allowed disabled:opacity-60'
+    : 'rounded-[1rem] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 inline-flex items-center justify-center gap-2 text-center leading-tight hover:bg-red-100 transition-colors disabled:cursor-not-allowed disabled:opacity-60';
+  const responsiveButtonClass = 'w-full sm:w-auto';
+  const responsivePrimaryButtonClass = `${primaryButtonClass} ${responsiveButtonClass}`;
+  const responsiveSecondaryButtonClass = `${secondaryButtonClass} ${responsiveButtonClass}`;
+  const responsiveDestructiveButtonClass = `${destructiveButtonClass} ${responsiveButtonClass}`;
   const noticeClass = isDarkMode
     ? 'mb-4 rounded-[1rem] bg-emerald-950/40 border border-emerald-900 text-emerald-200 px-4 py-3 text-sm'
     : 'mb-4 rounded-[1rem] bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 text-sm';
@@ -2323,7 +2327,7 @@ function AppShell() {
 
   return (
     <div className={appBackgroundClass}>
-      <div className={`${isFullscreen ? 'min-h-dvh w-full p-0' : 'min-h-dvh w-full p-3 sm:p-4 lg:p-5'}`}>
+      <div className={`${isFullscreen ? 'h-dvh w-full overflow-hidden p-0' : 'min-h-dvh w-full p-3 sm:p-4 lg:p-5'}`}>
         <div className={workspaceShellClass}>
           {isSidebarDrawerOpen ? (
             <button
@@ -2443,9 +2447,9 @@ function AppShell() {
             </button>
           </aside>
 
-          <main className={`${shellPanelClass} min-h-[calc(100dvh-1.5rem)] ${isFullscreen ? 'lg:min-h-[calc(100dvh-2rem)]' : ''}`}>
-            <div className="mb-5 flex flex-col items-start gap-3 md:flex-row md:items-center md:justify-between">
-              <div className="flex items-start gap-3 min-w-0">
+          <main className={`${shellPanelClass} flex min-h-[calc(100dvh-1.5rem)] flex-col ${isFullscreen ? 'h-dvh min-h-0 overflow-hidden lg:h-[calc(100dvh-2rem)]' : activeTab === 'chat' ? 'overflow-hidden' : ''}`}>
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
                 <button
                   type="button"
                   onClick={() => setIsSidebarDrawerOpen(true)}
@@ -2457,19 +2461,19 @@ function AppShell() {
                 </button>
 
                 <div className="min-w-0">
-                <h2 className="text-xl font-semibold sm:text-2xl">{activeTabLabel}</h2>
-                <p className={`text-sm ${subtleTextClass}`}>
-                  {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
-                  {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
-                  {activeTab === 'bots' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
-                  {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
-                  {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
-                  {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
-                </p>
+                  <h2 className="text-xl font-semibold sm:text-2xl">{activeTabLabel}</h2>
+                  <p className={`text-sm ${subtleTextClass}`}>
+                    {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
+                    {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
+                    {activeTab === 'bots' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
+                    {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
+                    {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
+                    {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
+                  </p>
                 </div>
               </div>
 
-              <button onClick={() => void refreshAll()} className={`${actionButtonClass} w-full justify-center md:w-auto`}>
+              <button onClick={() => void refreshAll()} className={`${actionButtonClass} w-full md:w-auto`}>
                 <RefreshCw className="w-4 h-4" />
                 Refresh
               </button>
@@ -2478,8 +2482,8 @@ function AppShell() {
             {notice ? <div className={noticeClass}>{notice}</div> : null}
 
             {activeTab === 'chat' ? (
-              <div className={`grid gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
-                <section className={`${sectionCardClass} flex min-h-[62vh] flex-col sm:min-h-[70vh] ${isFullscreen ? 'lg:min-h-[calc(100dvh-11rem)]' : ''}`}>
+              <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
+                <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh]'}`}>
                   {activeFunctionPreset ? (
                     <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${isDarkMode ? 'border-white/8 bg-white/4 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
                       <div>
@@ -2498,17 +2502,17 @@ function AppShell() {
 
                   <div className={`items-center justify-between gap-3 pb-3 xl:hidden ${isFullscreen ? 'hidden' : 'flex'}`}>
                     <div>
-                      <h3 className="text-sm font-medium">Chat tools</h3>
-                      <p className={`mt-1 text-xs ${subtleTextClass}`}>Toggle runtime details and recent conversations.</p>
+                      <h3 className="text-sm font-medium">Runtime</h3>
+                      <p className={`mt-1 text-xs ${subtleTextClass}`}>Toggle runtime details.</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => setIsChatSidebarOpen(value => !value)}
                       className={secondaryButtonClass}
                       aria-expanded={isChatSidebarOpen}
-                      aria-label={isChatSidebarOpen ? 'Hide chat tools' : 'Show chat tools'}
+                      aria-label={isChatSidebarOpen ? 'Hide runtime details' : 'Show runtime details'}
                     >
-                      {isChatSidebarOpen ? 'Hide tools' : 'Show tools'}
+                      {isChatSidebarOpen ? 'Hide runtime' : 'Show runtime'}
                     </button>
                   </div>
 
@@ -2783,19 +2787,6 @@ function AppShell() {
                       <li>Available providers: {availableProviders.length ? availableProviders.join(', ') : 'none'}</li>
                     </ul>
                   </div>
-
-                  <div className={sectionCardClass}>
-                    <h3 className="font-medium">Recent conversations</h3>
-                    <div className="mt-3 space-y-2 max-h-[420px] overflow-auto">
-                      {conversations.slice(0, 8).map(item => (
-                        <button key={item.id} onClick={() => loadConversation(item.id)} className={listButtonClass}>
-                          <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
-                          <div className={`mt-2 text-xs ${subtleTextClass}`}>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</div>
-                          <div className={`text-xs ${subtleTextClass} mt-2`}>{new Date(item.items[0].timestamp).toLocaleString()}</div>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
                 </section>
               </div>
             ) : null}
@@ -2868,8 +2859,8 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <textarea value={newSkillStarterPrompt} onChange={event => setNewSkillStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
                     </div>
-                    <div>
-                      <button type="submit" disabled={creatingFunction === 'skill'} className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60">
+                    <div className="md:col-span-2 flex">
+                      <button type="submit" disabled={creatingFunction === 'skill'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'skill' ? 'Adding...' : 'Add skill'}
                       </button>
                     </div>
@@ -2905,11 +2896,11 @@ function AppShell() {
                           <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
                           <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
 
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                             <button
                               onClick={() => void activateFunctionPreset(item)}
                               disabled={applyingFunctionId === item.id}
-                              className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
+                              className={responsivePrimaryButtonClass}
                             >
                               {applyingFunctionId === item.id ? 'Applying...' : 'Use in current chat'}
                             </button>
@@ -2994,8 +2985,8 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <textarea value={newBotStarterPrompt} onChange={event => setNewBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
                     </div>
-                    <div>
-                      <button type="submit" disabled={creatingFunction === 'agent'} className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60">
+                    <div className="md:col-span-2 flex">
+                      <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
                       </button>
                     </div>
@@ -3038,18 +3029,18 @@ function AppShell() {
                             Memory: {item.memoryMode || 'shared'}
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                             <button
                               onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
                               disabled={applyingFunctionId === item.id}
-                              className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
+                              className={responsivePrimaryButtonClass}
                             >
                               {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
                             </button>
                             <button
                               onClick={() => void activateFunctionPreset(item)}
                               disabled={applyingFunctionId === item.id}
-                              className={secondaryButtonClass}
+                              className={responsiveSecondaryButtonClass}
                             >
                               {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
                             </button>
@@ -3097,18 +3088,18 @@ function AppShell() {
                               Memory: {item.memoryMode || 'shared'}
                             </div>
 
-                            <div className="flex flex-wrap items-center gap-2">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                               <button
                                 onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
                                 disabled={applyingFunctionId === item.id}
-                                className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
+                                className={responsivePrimaryButtonClass}
                               >
                                 {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
                               </button>
                               <button
                                 onClick={() => void activateFunctionPreset(item)}
                                 disabled={applyingFunctionId === item.id}
-                                className={secondaryButtonClass}
+                                className={responsiveSecondaryButtonClass}
                               >
                                 {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
                               </button>
@@ -3221,9 +3212,9 @@ function AppShell() {
                         <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 self-start lg:self-center">
-                      <button onClick={() => loadConversation(item.id)} className={secondaryButtonClass}>Open</button>
-                      <button onClick={() => void deleteConversation(item.id)} className={destructiveButtonClass}>
+                    <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
+                      <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
+                      <button onClick={() => void deleteConversation(item.id)} className={responsiveDestructiveButtonClass}>
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
@@ -3253,11 +3244,11 @@ function AppShell() {
                         }
                       }}
                     />
-                    <button onClick={() => importMemoryInputRef.current?.click()} disabled={isImportingMemory} className={secondaryButtonClass}>
+                    <button onClick={() => importMemoryInputRef.current?.click()} disabled={isImportingMemory} className={responsiveSecondaryButtonClass}>
                       <Upload className="w-4 h-4" />
                       {isImportingMemory ? 'Restoring...' : 'Restore backup'}
                     </button>
-                    <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className={primaryButtonClass}>
+                    <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className={responsivePrimaryButtonClass}>
                       <Download className="w-4 h-4" />
                       {isExportingMemory ? 'Exporting...' : 'Backup memory now'}
                     </button>
@@ -3298,11 +3289,11 @@ function AppShell() {
                     </div>
 
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <button onClick={() => void importMemoryBackup()} disabled={isImportingMemory} className={primaryButtonClass}>
+                      <button onClick={() => void importMemoryBackup()} disabled={isImportingMemory} className={responsivePrimaryButtonClass}>
                         <Upload className="w-4 h-4" />
                         {isImportingMemory ? 'Restoring...' : 'Confirm restore'}
                       </button>
-                      <button onClick={resetMemoryRestoreSelection} disabled={isImportingMemory} className={secondaryButtonClass}>
+                      <button onClick={resetMemoryRestoreSelection} disabled={isImportingMemory} className={responsiveSecondaryButtonClass}>
                         Cancel
                       </button>
                     </div>
@@ -3317,7 +3308,7 @@ function AppShell() {
                     </div>
                     <form onSubmit={addFact} className="mb-4 flex flex-col gap-2 sm:flex-row">
                       <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
-                      <button className={primaryButtonClass}>Add</button>
+                      <button className={responsivePrimaryButtonClass}>Add</button>
                     </form>
                     <div className="space-y-2">
                       {facts.map(item => (
@@ -3348,7 +3339,7 @@ function AppShell() {
                         void addFactFiles(event.target.files);
                       }}
                     />
-                    <button type="button" onClick={() => factFileInputRef.current?.click()} className={`mb-4 ${primaryButtonClass}`}>
+                    <button type="button" onClick={() => factFileInputRef.current?.click()} className={`mb-4 ${responsivePrimaryButtonClass}`}>
                       Add files
                     </button>
                     <div className="space-y-2">
@@ -3374,7 +3365,7 @@ function AppShell() {
                     </div>
                     <form onSubmit={addUrl} className="mb-4 flex flex-col gap-2 sm:flex-row">
                       <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className={`flex-1 ${inputClass}`} />
-                      <button className={primaryButtonClass}>Add</button>
+                      <button className={responsivePrimaryButtonClass}>Add</button>
                     </form>
                     <div className="space-y-2">
                       {memoryUrls.map(item => (
@@ -3400,9 +3391,9 @@ function AppShell() {
                     <KeyRound className="w-4 h-4" />
                     <h3 className="font-medium">Provider keys</h3>
                   </div>
-                  <div className="grid md:grid-cols-3 gap-3">
+                  <div className="grid gap-3 md:grid-cols-3">
                     {['anthropic', 'google', 'openai'].map(providerName => (
-                      <div key={providerName} className={elevatedCardClass}>
+                      <div key={providerName} className={`${elevatedCardClass} flex flex-col gap-3`}>
                         <div className="text-sm font-medium capitalize mb-2">{providerName}</div>
                         <input
                           value={keyInputs[providerName] || ''}
@@ -3410,7 +3401,7 @@ function AppShell() {
                           placeholder={`${providerName.toUpperCase()}_API_KEY`}
                           className={textInputClass}
                         />
-                        <button onClick={() => void saveKey(providerName)} className={`mt-3 w-full ${primaryButtonClass} disabled:opacity-60`} disabled={savingKey === providerName}>
+                        <button onClick={() => void saveKey(providerName)} className={responsivePrimaryButtonClass} disabled={savingKey === providerName}>
                           {savingKey === providerName ? 'Saving...' : 'Save key'}
                         </button>
                       </div>
@@ -3444,7 +3435,7 @@ function AppShell() {
                     </div>
 
                     <div className={`lg:col-span-2 rounded-[1rem] border px-4 py-3 ${telegramStatusToneClass}`}>
-                      <div className="flex items-center justify-between gap-3">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <div className="text-sm font-medium">{telegramStatusLabel}</div>
                           <div className="text-xs mt-1 opacity-90">{telegramStatusDetails}</div>
@@ -3452,7 +3443,7 @@ function AppShell() {
                         <button
                           type="button"
                           onClick={() => void refreshTelegramStatus()}
-                          className={`inline-flex items-center gap-2 ${secondaryButtonClass}`}
+                          className={responsiveSecondaryButtonClass}
                           disabled={loadingTelegramStatus}
                         >
                           <RefreshCw className={`w-4 h-4 ${loadingTelegramStatus ? 'animate-spin' : ''}`} />
@@ -3472,9 +3463,9 @@ function AppShell() {
                       />
                     </div>
 
-                    <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+                    <label className={`flex items-start gap-3 rounded-[1rem] px-1 py-1 text-sm sm:items-center ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
                       <input type="checkbox" checked={telegramBotEnabled} onChange={event => setTelegramBotEnabled(event.target.checked)} />
-                      Enable Telegram bot polling
+                      <span>Enable Telegram bot polling</span>
                     </label>
 
                     <div>
@@ -3516,17 +3507,17 @@ function AppShell() {
                     </div>
                   </div>
 
-                  <label className={`flex items-center gap-3 rounded-[1rem] ${elevatedCardClass} text-sm`}>
+                  <label className={`flex items-start gap-3 rounded-[1rem] ${elevatedCardClass} text-sm sm:items-center`}>
                     <input type="checkbox" checked={useMemory} onChange={event => setUseMemory(event.target.checked)} />
-                    Include saved memory in prompt construction
+                    <span>Include saved memory in prompt construction</span>
                   </label>
 
-                  <label className={`flex items-center gap-3 rounded-[1rem] ${elevatedCardClass} text-sm`}>
+                  <label className={`flex items-start gap-3 rounded-[1rem] ${elevatedCardClass} text-sm sm:items-center`}>
                     <input type="checkbox" checked={autoMemory} onChange={event => setAutoMemory(event.target.checked)} />
-                    Learn durable facts about me automatically from successful chats
+                    <span>Learn durable facts about me automatically from successful chats</span>
                   </label>
 
-                  <button onClick={() => void saveSettings()} disabled={savingSettings} className={`${primaryButtonClass} disabled:opacity-60`}>
+                  <button onClick={() => void saveSettings()} disabled={savingSettings} className={responsivePrimaryButtonClass}>
                     <Save className="w-4 h-4" />
                     {savingSettings ? 'Saving...' : 'Save settings'}
                   </button>
