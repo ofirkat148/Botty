@@ -4,6 +4,8 @@ import {
   getAvailableProviders,
   getDefaultLocalModel,
   getProviderModelCatalog,
+  getProviderStatuses,
+  isAbortError,
   getRuntimeSettings,
 } from '../utils/llm.js';
 import { runChatForUser } from '../services/chat.js';
@@ -15,14 +17,15 @@ router.get('/providers', async (req: Request, res: Response) => {
   try {
     const providers = await getAvailableProviders(req.userId!);
     const runtimeSettings = await getRuntimeSettings(req.userId!);
-    const [defaultLocalModel, modelCatalog] = await Promise.all([
+    const [defaultLocalModel, modelCatalog, providerStatuses] = await Promise.all([
       providers.includes('local')
         ? getDefaultLocalModel(runtimeSettings.localUrl)
         : Promise.resolve(null),
       getProviderModelCatalog(runtimeSettings.localUrl),
+      getProviderStatuses(req.userId!, runtimeSettings.localUrl),
     ]);
 
-    res.json({ providers, defaultLocalModel, modelCatalog });
+    res.json({ providers, defaultLocalModel, modelCatalog, providerStatuses });
   } catch (error) {
     console.error('Error fetching providers:', error);
     res.status(500).json({ error: 'Failed to fetch providers' });
@@ -30,6 +33,11 @@ router.get('/providers', async (req: Request, res: Response) => {
 });
 
 router.post('/', async (req: Request, res: Response) => {
+  const abortController = new AbortController();
+  const abortRequest = () => abortController.abort();
+  req.once('aborted', abortRequest);
+  req.once('close', abortRequest);
+
   try {
     const result = await runChatForUser({
       uid: req.userId!,
@@ -48,13 +56,24 @@ router.post('/', async (req: Request, res: Response) => {
           }
         : null,
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
+      signal: abortController.signal,
     });
 
     res.json(result);
   } catch (error) {
+    if (isAbortError(error)) {
+      if (!res.headersSent && !res.writableEnded) {
+        res.status(499).json({ error: 'Request cancelled' });
+      }
+      return;
+    }
+
     const message = error instanceof Error ? error.message : 'Chat request failed';
     console.error('Chat route error:', error);
     res.status(message === 'Prompt is required' || /^No API key configured/.test(message) ? 400 : 500).json({ error: message });
+  } finally {
+    req.off('aborted', abortRequest);
+    req.off('close', abortRequest);
   }
 });
 

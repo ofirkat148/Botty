@@ -10,6 +10,7 @@ import {
   getRouteCandidatesForMode,
   getDefaultModel,
   getSuggestedModel,
+  isAbortError,
   isRoutingModeValue,
   getMemoryContext,
   normalizeRoutingMode,
@@ -48,6 +49,7 @@ export type RunChatForUserInput = {
   incomingConversationId?: string | null;
   activeBot?: ActiveBotConfig | null;
   attachments?: ChatAttachment[];
+  signal?: AbortSignal;
 };
 
 export type RunChatForUserResult = {
@@ -92,6 +94,10 @@ function buildPromptWithAttachments(prompt: string, attachments: ChatAttachment[
 }
 
 export async function runChatForUser(input: RunChatForUserInput): Promise<RunChatForUserResult> {
+  if (input.signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
+  }
+
   const uid = input.uid;
   const prompt = String(input.prompt || '').trim();
   const requestedProvider = String(input.requestedProvider || '').trim().toLowerCase();
@@ -174,6 +180,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
         systemPrompt,
         messages,
         localUrl: runtimeSettings.localUrl,
+        signal: input.signal,
       });
 
       responseText = result.responseText;
@@ -183,6 +190,10 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
       apiKey = nextApiKey;
       break;
     } catch (error) {
+      if (isAbortError(error)) {
+        throw error;
+      }
+
       const message = error instanceof Error ? error.message : 'Unknown provider failure';
       attemptErrors.push(`${route.provider}: ${message}`);
 
@@ -201,6 +212,10 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
 
   if (!responseText || !provider || !model) {
     throw new Error(`Auto route failed across configured providers. ${attemptErrors.join(' | ')}`);
+  }
+
+  if (input.signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
   }
 
   const db = getDatabase();

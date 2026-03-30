@@ -126,6 +126,19 @@ type ProvidersResponse = {
   providers: string[];
   defaultLocalModel?: string | null;
   modelCatalog?: Record<string, string[]>;
+  providerStatuses?: ProviderStatus[];
+};
+
+type ProviderStatus = {
+  provider: string;
+  readiness: 'ready' | 'missing' | 'unreachable';
+  configured: boolean;
+  available: boolean;
+  source: 'saved-key' | 'environment' | 'runtime-url' | 'default-local' | 'not-configured';
+  detail: string;
+  localUrl?: string | null;
+  defaultModel?: string | null;
+  modelCount?: number;
 };
 
 type ModelUsageEntry = {
@@ -409,6 +422,7 @@ function AppShell() {
   const [availableProviders, setAvailableProviders] = useState<string[]>([]);
   const [defaultLocalModel, setDefaultLocalModel] = useState(DEFAULT_MODELS.local);
   const [modelCatalog, setModelCatalog] = useState<Record<string, string[]>>(DEFAULT_MODEL_CATALOG);
+  const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -519,6 +533,7 @@ function AppShell() {
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const composerDropRef = useRef<HTMLDivElement | null>(null);
   const speechRecognitionRef = useRef<any>(null);
+  const chatAbortControllerRef = useRef<AbortController | null>(null);
 
   const authHeaders = useMemo(() => ({
     'Content-Type': 'application/json',
@@ -644,6 +659,56 @@ function AppShell() {
     }
 
     return formatProviderLabel(value || undefined);
+  }
+
+  function formatProviderSourceLabel(source: ProviderStatus['source']) {
+    if (source === 'saved-key') {
+      return 'Saved key';
+    }
+
+    if (source === 'environment') {
+      return 'Environment';
+    }
+
+    if (source === 'runtime-url') {
+      return 'Configured URL';
+    }
+
+    if (source === 'default-local') {
+      return 'Default local';
+    }
+
+    return 'Not configured';
+  }
+
+  function getProviderStatusTone(readiness: ProviderStatus['readiness']) {
+    if (readiness === 'ready') {
+      return isDarkMode
+        ? 'border-emerald-400/20 bg-emerald-500/10 text-emerald-100'
+        : 'border-emerald-200 bg-emerald-50 text-emerald-800';
+    }
+
+    if (readiness === 'missing') {
+      return isDarkMode
+        ? 'border-amber-400/20 bg-amber-500/10 text-amber-100'
+        : 'border-amber-200 bg-amber-50 text-amber-800';
+    }
+
+    return isDarkMode
+      ? 'border-rose-400/20 bg-rose-500/10 text-rose-100'
+      : 'border-rose-200 bg-rose-50 text-rose-800';
+  }
+
+  function formatProviderReadinessLabel(readiness: ProviderStatus['readiness']) {
+    if (readiness === 'ready') {
+      return 'Ready';
+    }
+
+    if (readiness === 'missing') {
+      return 'Missing config';
+    }
+
+    return 'Unreachable';
   }
 
   function humanizeFallbackModelName(modelValue: string) {
@@ -1233,11 +1298,12 @@ function AppShell() {
     return response.json() as Promise<T>;
   }
 
-  async function apiSend<T>(path: string, method: 'POST' | 'DELETE', body?: unknown) {
+  async function apiSend<T>(path: string, method: 'POST' | 'DELETE', body?: unknown, options?: { signal?: AbortSignal }) {
     const response = await fetch(path, {
       method,
       headers: authHeaders,
       body: body ? JSON.stringify(body) : undefined,
+      signal: options?.signal,
     });
 
     if (!response.ok) {
@@ -1248,6 +1314,15 @@ function AppShell() {
     return response.headers.get('content-type')?.includes('application/json')
       ? (response.json() as Promise<T>)
       : (undefined as T);
+  }
+
+  function stopCurrentResponse() {
+    if (!chatAbortControllerRef.current) {
+      return;
+    }
+
+    chatAbortControllerRef.current.abort();
+    chatAbortControllerRef.current = null;
   }
 
   async function refreshAll() {
@@ -1294,6 +1369,7 @@ function AppShell() {
     setAvailableProviders(nextProviders);
     setDefaultLocalModel(nextLocalModel);
     setModelCatalog(nextModelCatalog);
+    setProviderStatuses(Array.isArray(providersData.providerStatuses) ? providersData.providerStatuses : []);
     const nextTelegramProvider = settingsData.telegramProvider || 'auto';
     setTelegramProvider(nextTelegramProvider);
     setTelegramModel(
@@ -1394,6 +1470,8 @@ function AppShell() {
     setPrompt('');
     setChatError('');
     setIsSending(true);
+    const abortController = new AbortController();
+    chatAbortControllerRef.current = abortController;
 
     try {
       const response = await apiSend<{
@@ -1423,7 +1501,7 @@ function AppShell() {
               memoryMode: activeBotPreset.memoryMode || 'shared',
             }
           : null,
-      });
+      }, { signal: abortController.signal });
 
       setConversationId(response.conversationId);
       setPendingAttachments([]);
@@ -1441,10 +1519,18 @@ function AppShell() {
       setDailyTokens(prev => prev + response.tokensUsed);
       await refreshAll();
     } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setChatError('Response stopped.');
+        return;
+      }
+
       const message = error instanceof Error ? error.message : 'Chat request failed';
       setChatError(message);
       setMessages(prev => prev.slice(0, -1));
     } finally {
+      if (chatAbortControllerRef.current === abortController) {
+        chatAbortControllerRef.current = null;
+      }
       setIsSending(false);
     }
   }
@@ -2850,10 +2936,17 @@ function AppShell() {
                           {isListening ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                           {isListening ? 'Stop voice' : 'Voice'}
                         </button>
-                        <button onClick={() => void sendPrompt()} disabled={isSending} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 px-4 py-2.5 text-white disabled:opacity-60 sm:w-auto">
-                          <Send className="w-4 h-4" />
-                          {isSending ? 'Sending...' : 'Send'}
-                        </button>
+                        {isSending ? (
+                          <button type="button" onClick={stopCurrentResponse} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 px-4 py-2.5 text-white sm:w-auto">
+                            <Square className="w-4 h-4" />
+                            Stop
+                          </button>
+                        ) : (
+                          <button onClick={() => void sendPrompt()} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 px-4 py-2.5 text-white disabled:opacity-60 sm:w-auto">
+                            <Send className="w-4 h-4" />
+                            Send
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -3515,6 +3608,47 @@ function AppShell() {
                         <button onClick={() => void saveKey(providerName)} className={responsivePrimaryButtonClass} disabled={savingKey === providerName}>
                           {savingKey === providerName ? 'Saving...' : 'Save key'}
                         </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="font-medium">Provider readiness</h3>
+                      <p className={`mt-1 text-sm ${subtleTextClass}`}>See which providers are ready for auto route, which are missing keys, and whether the local endpoint is reachable.</p>
+                    </div>
+                    <div className={`text-xs ${subtleTextClass}`}>
+                      {providerStatuses.filter(item => item.readiness === 'ready').length} ready
+                      {' · '}
+                      {providerStatuses.filter(item => item.readiness === 'missing').length} missing
+                      {' · '}
+                      {providerStatuses.filter(item => item.readiness === 'unreachable').length} unreachable
+                    </div>
+                  </div>
+
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {providerStatuses.map(item => (
+                      <div key={item.provider} className={`${elevatedCardClass} flex flex-col gap-3`}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-sm font-medium">{formatProviderLabel(item.provider)}</div>
+                            <div className={`mt-1 text-xs ${subtleTextClass}`}>{formatProviderSourceLabel(item.source)}</div>
+                          </div>
+                          <span className={`rounded-full border px-2 py-1 text-[11px] font-medium ${getProviderStatusTone(item.readiness)}`}>
+                            {formatProviderReadinessLabel(item.readiness)}
+                          </span>
+                        </div>
+
+                        <div className={`text-sm ${subtleTextClass}`}>{item.detail}</div>
+
+                        <div className={`space-y-1 text-xs ${subtleTextClass}`}>
+                          <div>Default model: {item.defaultModel ? formatModelDisplay(item.defaultModel, item.provider) : 'unknown'}</div>
+                          {item.provider === 'local' ? <div>Endpoint: {item.localUrl || localUrl || 'unknown'}</div> : null}
+                          {item.provider === 'local' ? <div>Installed models: {typeof item.modelCount === 'number' ? item.modelCount : 0}</div> : null}
+                          <div>Auto route: {item.available ? 'eligible' : 'skipped'}</div>
+                        </div>
                       </div>
                     ))}
                   </div>

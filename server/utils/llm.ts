@@ -46,6 +46,18 @@ export type ProviderRoute = {
 
 export type RoutingMode = 'auto' | 'fastest' | 'cheapest' | 'best-quality' | 'local-first';
 
+export type ProviderStatus = {
+  provider: string;
+  readiness: 'ready' | 'missing' | 'unreachable';
+  configured: boolean;
+  available: boolean;
+  source: 'saved-key' | 'environment' | 'runtime-url' | 'default-local' | 'not-configured';
+  detail: string;
+  localUrl?: string | null;
+  defaultModel?: string | null;
+  modelCount?: number;
+};
+
 export type ModelUsageEntry = {
   key: string;
   provider: string | null;
@@ -266,6 +278,99 @@ export async function getAvailableProviders(uid: string) {
   }
 
   return Array.from(providers).filter(isSupportedChatProvider);
+}
+
+function getConfiguredProviderSource(provider: string, storedProviders: Set<string>): ProviderStatus['source'] {
+  if (storedProviders.has(provider)) {
+    return 'saved-key';
+  }
+
+  const envVars = PROVIDER_ENV_KEYS[provider] || [];
+  if (envVars.some(envVar => isConfiguredSecret(process.env[envVar]))) {
+    return 'environment';
+  }
+
+  return 'not-configured';
+}
+
+async function getLocalProviderStatus(localUrl?: string | null): Promise<ProviderStatus> {
+  const fallbackModel = getDefaultModel('local');
+  const candidateUrls = getCandidateLocalLlmUrls(localUrl || process.env.LOCAL_LLM_URL);
+  const explicitLocalUrl = Boolean(localUrl?.trim() || process.env.LOCAL_LLM_URL || process.env.LOCAL_LLM_URL_CONTAINER);
+
+  for (const candidateUrl of candidateUrls) {
+    try {
+      const response = await fetch(`${candidateUrl.replace(/\/$/, '')}/api/tags`);
+      if (!response.ok) {
+        continue;
+      }
+
+      const data = await response.json() as { models?: Array<{ name?: string }> };
+      const installedModels = data.models
+        ?.map(model => model.name?.trim())
+        .filter((modelName): modelName is string => Boolean(modelName)) || [];
+
+      const orderedInstalledModels = [
+        ...PREFERRED_LOCAL_MODELS.filter(modelName => installedModels.includes(modelName)),
+        ...installedModels.filter(modelName => !PREFERRED_LOCAL_MODELS.includes(modelName as (typeof PREFERRED_LOCAL_MODELS)[number])),
+      ];
+
+      return {
+        provider: 'local',
+        readiness: 'ready',
+        configured: true,
+        available: true,
+        source: explicitLocalUrl ? 'runtime-url' : 'default-local',
+        detail: `Reachable at ${candidateUrl}`,
+        localUrl: candidateUrl,
+        defaultModel: orderedInstalledModels[0] || fallbackModel,
+        modelCount: orderedInstalledModels.length,
+      };
+    } catch {
+      continue;
+    }
+  }
+
+  return {
+    provider: 'local',
+    readiness: 'unreachable',
+    configured: explicitLocalUrl,
+    available: false,
+    source: explicitLocalUrl ? 'runtime-url' : 'default-local',
+    detail: `Could not reach local model endpoint${candidateUrls[0] ? ` at ${candidateUrls[0]}` : ''}`,
+    localUrl: candidateUrls[0] || normalizeLocalLlmUrl(localUrl),
+    defaultModel: fallbackModel,
+    modelCount: 0,
+  };
+}
+
+export async function getProviderStatuses(uid: string, localUrl?: string | null): Promise<ProviderStatus[]> {
+  const db = getDatabase();
+  const storedKeyRows = await db.select({ provider: apiKeys.provider }).from(apiKeys).where(eq(apiKeys.uid, uid));
+  const storedProviders = new Set(storedKeyRows.map(row => row.provider));
+
+  const remoteProviders = SUPPORTED_CHAT_PROVIDERS
+    .filter(provider => provider !== 'local')
+    .map(provider => {
+      const source = getConfiguredProviderSource(provider, storedProviders);
+      const configured = source !== 'not-configured';
+
+      return {
+        provider,
+        readiness: configured ? 'ready' : 'missing',
+        configured,
+        available: configured,
+        source,
+        detail: configured
+          ? (source === 'saved-key' ? 'API key saved in Botty settings' : 'API key loaded from environment')
+          : 'No API key configured',
+        defaultModel: getDefaultModel(provider),
+      } satisfies ProviderStatus;
+    });
+
+  const localStatus = await getLocalProviderStatus(localUrl);
+
+  return [...remoteProviders, localStatus];
 }
 
 export async function getProviderApiKey(uid: string, provider: string) {
@@ -1058,6 +1163,16 @@ export class LLMProviderError extends Error {
   }
 }
 
+export function isAbortError(error: unknown) {
+  return error instanceof DOMException && error.name === 'AbortError';
+}
+
+export function throwIfAborted(signal?: AbortSignal) {
+  if (signal?.aborted) {
+    throw new DOMException('The operation was aborted.', 'AbortError');
+  }
+}
+
 function summarizeProviderErrorBody(body: string, fallbackMessage: string) {
   const trimmed = body.trim();
   if (!trimmed) {
@@ -1106,10 +1221,13 @@ export async function callLLM(params: {
   systemPrompt: string;
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
   localUrl?: string;
+  signal?: AbortSignal;
 }) {
-  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl } = params;
+  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl, signal } = params;
   let responseText = '';
   let tokensUsed = 0;
+
+  throwIfAborted(signal);
 
   if (provider === 'anthropic') {
     try {
@@ -1126,6 +1244,7 @@ export async function callLLM(params: {
           'x-api-key': apiKey,
           'anthropic-version': '2023-06-01',
         },
+        signal,
         body: JSON.stringify({
           model,
           max_tokens: 2048,
@@ -1151,6 +1270,7 @@ export async function callLLM(params: {
     }
   } else if (provider === 'google') {
     try {
+      throwIfAborted(signal);
       const { GoogleGenAI } = await import('@google/genai');
       const client = new GoogleGenAI({ apiKey });
       const contents = messages.map(message => ({
@@ -1171,6 +1291,8 @@ export async function callLLM(params: {
         },
       });
 
+      throwIfAborted(signal);
+
       responseText = result.text || '';
       tokensUsed = result.usageMetadata?.totalTokenCount || 0;
     } catch (error) {
@@ -1184,6 +1306,7 @@ export async function callLLM(params: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${apiKey}`,
         },
+        signal,
         body: JSON.stringify({
           model,
           messages: [
@@ -1215,6 +1338,7 @@ export async function callLLM(params: {
     let lastError: unknown = null;
 
     for (const candidateUrl of candidateUrls) {
+      throwIfAborted(signal);
       const openAiEndpoint = `${candidateUrl.replace(/\/$/, '')}/v1/chat/completions`;
       attemptedEndpoints.push(openAiEndpoint);
 
@@ -1224,6 +1348,7 @@ export async function callLLM(params: {
           headers: {
             'Content-Type': 'application/json',
           },
+          signal,
           body: JSON.stringify({
             model,
             stream: false,
@@ -1278,6 +1403,8 @@ export async function callLLM(params: {
   if (!responseText) {
     throw new Error('The provider returned an empty response.');
   }
+
+  throwIfAborted(signal);
 
   if (!tokensUsed) {
     tokensUsed = Math.ceil((systemPrompt.length + prompt.length + responseText.length) / 4);
