@@ -11,9 +11,9 @@ SupplementaryGroups=docker
 WorkingDirectory=/home/ofirkat/Botty
 Environment=NODE_ENV=production
 EnvironmentFile=/home/ofirkat/Botty/.env.local
-ExecStartPre=/usr/bin/docker compose -f /home/ofirkat/Botty/docker-compose.yml up -d postgres
+ExecStartPre=/usr/bin/docker compose -f /home/ofirkat/Botty/docker-compose.yml up -d postgres ollama
 ExecStart=/usr/bin/docker compose -f /home/ofirkat/Botty/docker-compose.yml up app
-ExecStop=/usr/bin/docker compose -f /home/ofirkat/Botty/docker-compose.yml stop app postgres
+ExecStop=/usr/bin/docker compose -f /home/ofirkat/Botty/docker-compose.yml stop app postgres ollama
 ExecStopPost=/usr/bin/docker compose -f /home/ofirkat/Botty/docker-compose.yml rm -f app
 Restart=always
 RestartSec=5
