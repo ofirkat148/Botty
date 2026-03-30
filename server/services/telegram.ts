@@ -33,6 +33,9 @@ let pollingOffset = 0;
 let pollingSessionId = 0;
 let lastKnownUsername: string | null = null;
 let lastTelegramError: string | null = null;
+let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const TELEGRAM_RETRY_DELAY_MS = 30000;
 
 type TelegramRuntimeConfig = {
   token: string;
@@ -69,6 +72,31 @@ function parseAllowedChatIds(raw: string) {
     .filter(item => Number.isFinite(item));
 
   return allowed.length > 0 ? new Set(allowed) : null;
+}
+
+function clearReconnectTimeout() {
+  if (!reconnectTimeout) {
+    return;
+  }
+
+  clearTimeout(reconnectTimeout);
+  reconnectTimeout = null;
+}
+
+function scheduleTelegramReconnect() {
+  if (reconnectTimeout || !activeConfig.enabled || !activeConfig.token) {
+    return;
+  }
+
+  console.warn(`Telegram bot unavailable. Retrying in ${Math.floor(TELEGRAM_RETRY_DELAY_MS / 1000)}s.`);
+  reconnectTimeout = setTimeout(() => {
+    reconnectTimeout = null;
+    refreshTelegramBot().catch(error => {
+      const nextError = error instanceof Error ? error.message : 'Unknown Telegram startup error';
+      lastTelegramError = nextError;
+      scheduleTelegramReconnect();
+    });
+  }, TELEGRAM_RETRY_DELAY_MS);
 }
 
 async function loadTelegramConfig(): Promise<TelegramRuntimeConfig> {
@@ -251,8 +279,12 @@ async function pollTelegramUpdates(token: string, sessionId: number) {
         await handleTelegramMessage(update);
       }
     } catch (error) {
-      lastTelegramError = error instanceof Error ? error.message : 'Unknown Telegram polling error';
-      console.error('Telegram polling error:', error);
+      const nextError = error instanceof Error ? error.message : 'Unknown Telegram polling error';
+      const shouldLog = nextError !== lastTelegramError;
+      lastTelegramError = nextError;
+      if (shouldLog) {
+        console.error('Telegram polling error:', error);
+      }
       await new Promise(resolve => setTimeout(resolve, 5000));
     }
   }
@@ -278,6 +310,7 @@ export async function refreshTelegramBot() {
   const nextConfig = await loadTelegramConfig();
 
   if (!nextConfig.enabled || !nextConfig.token) {
+    clearReconnectTimeout();
     if (pollingPromise) {
       pollingSessionId += 1;
       pollingPromise = null;
@@ -296,6 +329,7 @@ export async function refreshTelegramBot() {
   pollingSessionId += 1;
   const sessionId = pollingSessionId;
   activeConfig = nextConfig;
+  clearReconnectTimeout();
   try {
     const me = await telegramRequest<{ username?: string }>(nextConfig.token, 'getMe');
     lastKnownUsername = me.username || null;
@@ -315,6 +349,7 @@ export async function refreshTelegramBot() {
     lastKnownUsername = null;
     lastTelegramError = error instanceof Error ? error.message : 'Unknown Telegram startup error';
     pollingPromise = null;
+    scheduleTelegramReconnect();
     throw error;
   }
 }
@@ -324,10 +359,9 @@ export async function startTelegramBot() {
     await refreshTelegramBot();
   } catch (error) {
     pollingPromise = null;
-    if (error instanceof Error) {
-      throw new Error(error.message);
-    }
-    throw error;
+    const message = error instanceof Error ? error.message : 'Unknown Telegram startup error';
+    lastTelegramError = message;
+    console.warn(`Telegram bot startup deferred: ${message}`);
   }
 }
 
