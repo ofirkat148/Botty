@@ -26,6 +26,21 @@ services:
       - botty_node_modules:/app/node_modules
       - botty_npm_cache:/root/.npm
       - /run/systemd/resolve/resolv.conf:/etc/resolv.conf:ro
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - >-
+          fetch('http://127.0.0.1:5000/api/health').then((response) => {
+            if (!response.ok) {
+              process.exit(1);
+            }
+          }).catch(() => process.exit(1));
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 180s
 
   postgres:
     image: postgres:16-alpine
