@@ -309,7 +309,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     description: 'Implementation-focused mode for feature work and bug fixes in this repository.',
     command: 'builder',
     useWhen: 'Use when you want a dedicated specialist to own implementation work across multiple turns, files, and follow-up refinements.',
-    boundaries: 'Behaves like a specialist bot. It can own the session workflow and may use its own provider, model, or memory strategy when configured.',
+    boundaries: 'Behaves like a specialist agent. It can own the session workflow and may use its own provider, model, or memory strategy when configured.',
     systemPrompt: 'You are Botty Builder. Implement requested features or fixes directly and precisely. Read the relevant route, service, utility, and UI code first. Do not stop at analysis when a concrete change is needed. Avoid unrelated refactors, keep persistence and UI contracts aligned, and validate the final result.',
     starterPrompt: 'Implement this change in Botty.',
   },
@@ -321,7 +321,7 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     description: 'Review-focused mode for bugs, regressions, runtime risk, and missing tests.',
     command: 'reviewer',
     useWhen: 'Use when you want a dedicated review specialist to inspect changes, surface risks, and stay in review mode across the session.',
-    boundaries: 'Behaves like a review bot. It should own the review workflow rather than acting as a lightweight slash-command overlay.',
+    boundaries: 'Behaves like a review agent. It should own the review workflow rather than acting as a lightweight slash-command overlay.',
     systemPrompt: 'You are Botty Reviewer. Review changes for defects, regressions, runtime risk, broken settings flows, memory issues, local LLM failures, Telegram issues, and deployment mistakes. Findings come first. Focus on correctness and behavior, not style. Use concise, severity-ordered review output with concrete file-level reasoning.',
     starterPrompt: 'Review this Botty change for bugs and regressions.',
   },
@@ -329,11 +329,11 @@ const FUNCTION_PRESETS: FunctionPreset[] = [
     id: 'agent-botty-ops',
     kind: 'agent',
     builtIn: true,
-    title: 'Botty Ops Agent',
+    title: 'Botty Ops',
     description: 'Operations-focused mode for service health, environment settings, and startup failures.',
     command: 'ops-bot',
     useWhen: 'Use when an operations specialist should own a multi-step runtime or deployment task across several checks and fixes.',
-    boundaries: 'Behaves like an ops bot. It can steer the session and use dedicated provider or memory behavior, unlike a transient skill overlay.',
+    boundaries: 'Behaves like an ops agent. It can steer the session and use dedicated provider or memory behavior, unlike a transient skill overlay.',
     systemPrompt: 'You are Botty Ops. Handle runtime operations for the Botty app: systemd, Docker, PostgreSQL, localhost health, reverse proxy setup, external exposure, and startup failures. Do not assume the service is down before checking health and logs. Distinguish local application faults from upstream network problems.',
     starterPrompt: 'Diagnose and fix this Botty runtime or deployment issue.',
   },
@@ -354,7 +354,7 @@ function getFunctionPresetForPrompt(value: string | null | undefined, presets: F
 const TABS = [
   { value: 'chat', label: 'Chat', Icon: MessageSquare },
   { value: 'skills', label: 'Skills', Icon: Sparkles },
-  { value: 'bots', label: 'Bots', Icon: Bot },
+  { value: 'bots', label: 'Agents', Icon: Bot },
   { value: 'history', label: 'History', Icon: History },
   { value: 'memory', label: 'Memory', Icon: MemoryStick },
   { value: 'settings', label: 'Settings', Icon: Settings },
@@ -517,7 +517,14 @@ function AppShell() {
   const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
   const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
   const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
-  const activePresetTitle = allFunctionPresets.find(item => item.id === activeFunctionId)?.title || '';
+  const builtInAgentPresets = useMemo(() => botPresets.filter(item => item.builtIn), [botPresets]);
+  const customAgentPresets = useMemo(() => botPresets.filter(item => !item.builtIn), [botPresets]);
+  const activeFunctionPreset = useMemo(
+    () => allFunctionPresets.find(item => item.id === activeFunctionId) || null,
+    [activeFunctionId, allFunctionPresets],
+  );
+  const activePresetTitle = activeFunctionPreset?.title || '';
+  const activeTabLabel = TABS.find(tab => tab.value === activeTab)?.label || activeTab;
   const slashCommands = useMemo<SlashCommand[]>(() => [
     {
       id: 'command-new-chat',
@@ -533,10 +540,10 @@ function AppShell() {
       id: 'command-clear-mode',
       command: 'clear-mode',
       title: 'Clear Mode',
-      description: activePresetTitle ? `Turn off ${activePresetTitle} and return to default chat mode.` : 'Stay in default chat mode with no active skill or bot overlay.',
-      detail: activePresetTitle ? 'Useful when a specialized mode is changing the assistant behavior.' : 'No skill or bot is active right now.',
+      description: activePresetTitle ? `Turn off ${activePresetTitle} and return to default chat mode.` : 'Stay in default chat mode with no active skill or agent overlay.',
+      detail: activePresetTitle ? 'Useful when a specialized mode is changing the assistant behavior.' : 'No skill or agent is active right now.',
       badge: activePresetTitle ? 'Active mode' : 'Default',
-      keywords: ['mode', 'skill', 'bot', 'default chat', 'reset mode'],
+      keywords: ['mode', 'skill', 'agent', 'default chat', 'reset mode'],
       category: 'command',
     },
     {
@@ -570,10 +577,7 @@ function AppShell() {
       category: 'command' as const,
     })),
   ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
-  const activeBotPreset = useMemo(() => {
-    const activePreset = allFunctionPresets.find(item => item.id === activeFunctionId) || null;
-    return activePreset?.kind === 'agent' ? activePreset : null;
-  }, [activeFunctionId, allFunctionPresets]);
+  const activeBotPreset = useMemo(() => activeFunctionPreset?.kind === 'agent' ? activeFunctionPreset : null, [activeFunctionPreset]);
 
   function formatProviderLabel(value?: string) {
     if (!value) {
@@ -616,7 +620,7 @@ function AppShell() {
   }
 
   function getPresetActivationLabel(preset: FunctionPreset) {
-    return preset.kind === 'skill' ? 'Activation: slash command or quick menu apply' : 'Activation: dedicated bot session';
+    return preset.kind === 'skill' ? 'Activation: slash command or quick menu apply' : 'Activation: dedicated agent session';
   }
 
   function getPresetAutonomyLabel(preset: FunctionPreset) {
@@ -641,7 +645,7 @@ function AppShell() {
     }
 
     if (preset.memoryMode === 'isolated') {
-      return 'Memory: isolated bot memory';
+      return 'Memory: isolated agent memory';
     }
 
     if (preset.memoryMode === 'none') {
@@ -1575,13 +1579,19 @@ function AppShell() {
     setActiveFunctionId(getFunctionPresetForPrompt(nextSystemPrompt, allFunctionPresets)?.id || '');
   }
 
-  async function activateFunctionPreset(preset: FunctionPreset) {
+  async function activateFunctionPreset(preset: FunctionPreset, options?: { startNewChat?: boolean }) {
     setApplyingFunctionId(preset.id);
     try {
+      if (options?.startNewChat) {
+        setConversationId(null);
+        setMessages([]);
+        setChatError('');
+      }
+
       await saveSystemPromptOnly(preset.systemPrompt);
       setPrompt(currentPrompt => currentPrompt.trim() && !currentPrompt.trim().startsWith('/') ? currentPrompt : preset.starterPrompt);
       setActiveTab('chat');
-      setNotice(`${preset.title} is active in chat.`);
+      setNotice(options?.startNewChat ? `${preset.title} started in a new chat.` : `${preset.title} is active in chat.`);
     } finally {
       setApplyingFunctionId('');
     }
@@ -1710,7 +1720,7 @@ function AppShell() {
         title: item.title,
         description: item.description,
         detail: item.useWhen || `${getPresetRoutingLabel(item)}. ${getPresetMemoryLabel(item)}`,
-        badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in bot' : 'Custom bot',
+        badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in agent' : 'Custom agent',
         keywords: [
           item.useWhen,
           item.boundaries,
@@ -1718,7 +1728,7 @@ function AppShell() {
           item.provider || '',
           item.model || '',
           item.memoryMode || '',
-          'bot',
+          'agent',
           'specialist',
         ].filter(Boolean),
         category: 'bot' as const,
@@ -1815,7 +1825,7 @@ function AppShell() {
     const starterPromptValue = newBotStarterPrompt.trim();
 
     if (!title || !description || !systemPromptValue || !starterPromptValue) {
-      setNotice('Fill in all bot fields before saving.');
+      setNotice('Fill in all agent fields before saving.');
       return;
     }
 
@@ -1844,7 +1854,7 @@ function AppShell() {
       setNewBotSystemPrompt('');
       setNewBotStarterPrompt('');
       await refreshAll();
-      setNotice('Custom bot added.');
+      setNotice('Custom agent added.');
     } finally {
       setCreatingFunction('');
     }
@@ -2447,11 +2457,11 @@ function AppShell() {
                 </button>
 
                 <div className="min-w-0">
-                <h2 className="text-xl font-semibold capitalize sm:text-2xl">{activeTab}</h2>
+                <h2 className="text-xl font-semibold sm:text-2xl">{activeTabLabel}</h2>
                 <p className={`text-sm ${subtleTextClass}`}>
                   {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
                   {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
-                  {activeTab === 'bots' ? 'Launch specialized Botty bots for different kinds of tasks.' : null}
+                  {activeTab === 'bots' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
                   {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
                   {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
                   {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
@@ -2470,6 +2480,22 @@ function AppShell() {
             {activeTab === 'chat' ? (
               <div className={`grid gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
                 <section className={`${sectionCardClass} flex min-h-[62vh] flex-col sm:min-h-[70vh] ${isFullscreen ? 'lg:min-h-[calc(100dvh-11rem)]' : ''}`}>
+                  {activeFunctionPreset ? (
+                    <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${isDarkMode ? 'border-white/8 bg-white/4 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
+                      <div>
+                        <div className="font-medium">Session mode: {activeFunctionPreset.title}</div>
+                        <div className={`mt-1 text-xs ${subtleTextClass}`}>
+                          {activeFunctionPreset.kind === 'skill'
+                            ? 'Skill active in the current chat. It inherits the current provider, memory, and session context.'
+                            : 'Agent active for this chat. It can own the workflow and may use its own routing or memory behavior.'}
+                        </div>
+                      </div>
+                      <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
+                        {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
+                      </button>
+                    </div>
+                  ) : null}
+
                   <div className={`items-center justify-between gap-3 pb-3 xl:hidden ${isFullscreen ? 'hidden' : 'flex'}`}>
                     <div>
                       <h3 className="text-sm font-medium">Chat tools</h3>
@@ -2691,7 +2717,7 @@ function AppShell() {
 
                               {groupedSlashItems.bots.length > 0 ? (
                                 <div>
-                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Bots</div>
+                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Agents</div>
                                   <div className="space-y-1">
                                     {groupedSlashItems.bots.map(item => {
                                       const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
@@ -2721,7 +2747,7 @@ function AppShell() {
                               ) : null}
                             </>
                           ) : (
-                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching commands, skills, or bots.</div>
+                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching commands, skills, or agents.</div>
                           )}
                         </div>
                       </div>
@@ -2779,13 +2805,26 @@ function AppShell() {
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Skills</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>Skills are best-practice overlays: reusable, narrow capabilities that keep the current chat&apos;s provider, memory, and session context.</p>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>Skills are lightweight overlays: reusable, narrow capabilities that stay inside the current chat and inherit its provider, memory, and session context.</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
                     <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
                       {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
                     </button>
+                  </div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">Skills</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>Lightweight overlays for the current chat. They inherit the active provider, memory, and session context.</p>
+                    </div>
+                    <div className={elevatedCardClass}>
+                      <div className="text-sm font-medium">Agents</div>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>Dedicated specialists for longer workflows. They can own the task and may use their own routing or memory policy.</p>
+                    </div>
                   </div>
                 </section>
 
@@ -2797,7 +2836,7 @@ function AppShell() {
                     </div>
                     <div className={elevatedCardClass}>
                       <div className="text-sm font-medium">Best when</div>
-                      <p className={`mt-2 text-sm ${subtleTextClass}`}>You want a quick capability boost inside the same conversation, not a specialist that owns the whole workflow.</p>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>You want a quick capability boost inside the same conversation, not a dedicated agent that owns the whole workflow.</p>
                     </div>
                     <div className={elevatedCardClass}>
                       <div className="text-sm font-medium">Expected attributes</div>
@@ -2872,7 +2911,7 @@ function AppShell() {
                               disabled={applyingFunctionId === item.id}
                               className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
                             >
-                              {applyingFunctionId === item.id ? 'Applying...' : 'Use skill'}
+                              {applyingFunctionId === item.id ? 'Applying...' : 'Use in current chat'}
                             </button>
                           </div>
                         </div>
@@ -2887,21 +2926,21 @@ function AppShell() {
               <div className="space-y-4">
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
-                    <h3 className="font-medium">Bots</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>Bots are best-practice specialists: they can own a longer task, optionally use their own routing, and choose how memory should behave across the session.</p>
+                    <h3 className="font-medium">Agents</h3>
+                    <p className={`text-sm ${subtleTextClass} mt-1`}>Agents are dedicated specialists: they can own a longer workflow, optionally use their own routing, and choose how memory behaves across the session.</p>
                   </div>
-                  <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active bot: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active bot'}</div>
+                  <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active agent: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active agent'}</div>
                 </section>
 
                 <section className={sectionCardClass}>
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className={elevatedCardClass}>
-                      <div className="text-sm font-medium">What a bot is</div>
+                      <div className="text-sm font-medium">What an agent is</div>
                       <p className={`mt-2 text-sm ${subtleTextClass}`}>A persistent specialist that owns a multi-turn workflow such as building, reviewing, operating, or researching.</p>
                     </div>
                     <div className={elevatedCardClass}>
                       <div className="text-sm font-medium">Best when</div>
-                      <p className={`mt-2 text-sm ${subtleTextClass}`}>You want Botty to stay in a stable specialist role, potentially with its own provider, model, and memory policy.</p>
+                      <p className={`mt-2 text-sm ${subtleTextClass}`}>You want Botty to stay in a stable specialist role that can own the task, potentially with its own provider, model, and memory policy.</p>
                     </div>
                     <div className={elevatedCardClass}>
                       <div className="text-sm font-medium">Expected attributes</div>
@@ -2913,10 +2952,10 @@ function AppShell() {
                 <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
                     <Plus className="w-4 h-4" />
-                    <h3 className="font-medium">Create bot</h3>
+                    <h3 className="font-medium">Create agent</h3>
                   </div>
                   <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2">
-                    <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Bot title, e.g. Security Reviewer" className={textInputClass} />
+                    <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
                     <div className="md:col-span-2">
                       <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                     </div>
@@ -2938,7 +2977,7 @@ function AppShell() {
                     </select>
                     <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
                       <option value="shared">Shared memory</option>
-                      <option value="isolated">Isolated bot memory</option>
+                      <option value="isolated">Isolated agent memory</option>
                       <option value="none">No memory</option>
                     </select>
                     <div className="md:col-span-2">
@@ -2957,15 +2996,19 @@ function AppShell() {
                     </div>
                     <div>
                       <button type="submit" disabled={creatingFunction === 'agent'} className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60">
-                        {creatingFunction === 'agent' ? 'Adding...' : 'Add bot'}
+                        {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
                       </button>
                     </div>
                   </form>
                 </section>
 
                 <section className={sectionCardClass}>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="font-medium">Built-in agents</h3>
+                    <span className={`text-xs ${subtleTextClass}`}>{builtInAgentPresets.length} available</span>
+                  </div>
                   <div className="grid gap-3 xl:grid-cols-2">
-                    {botPresets.map(item => {
+                    {builtInAgentPresets.map(item => {
                       const isActive = activeFunctionId === item.id;
 
                       return (
@@ -2976,7 +3019,7 @@ function AppShell() {
                               <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
                             </div>
                             <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
-                              {isActive ? 'Active' : item.builtIn ? 'Bot' : 'Custom bot'}
+                              {isActive ? 'Active' : item.builtIn ? 'Agent' : 'Custom agent'}
                             </div>
                           </div>
 
@@ -2997,17 +3040,86 @@ function AppShell() {
 
                           <div className="flex flex-wrap items-center gap-2">
                             <button
-                              onClick={() => void activateFunctionPreset(item)}
+                              onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
                               disabled={applyingFunctionId === item.id}
                               className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
                             >
-                              {applyingFunctionId === item.id ? 'Starting...' : 'Start bot'}
+                              {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
+                            </button>
+                            <button
+                              onClick={() => void activateFunctionPreset(item)}
+                              disabled={applyingFunctionId === item.id}
+                              className={secondaryButtonClass}
+                            >
+                              {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
                             </button>
                           </div>
                         </div>
                       );
                     })}
                   </div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h3 className="font-medium">Custom agents</h3>
+                    <span className={`text-xs ${subtleTextClass}`}>{customAgentPresets.length} created</span>
+                  </div>
+                  {customAgentPresets.length > 0 ? (
+                    <div className="grid gap-3 xl:grid-cols-2">
+                      {customAgentPresets.map(item => {
+                        const isActive = activeFunctionId === item.id;
+
+                        return (
+                          <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium">{item.title}</div>
+                                <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                              </div>
+                              <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
+                                {isActive ? 'Active' : 'Custom agent'}
+                              </div>
+                            </div>
+
+                            <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>Use when: {item.useWhen}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>Operating bounds: {item.boundaries}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>{getPresetActivationLabel(item)}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>{getPresetAutonomyLabel(item)}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>
+                              Provider: {item.provider ? (item.provider === 'auto' ? 'Auto route' : formatProviderLabel(item.provider)) : 'Inherit chat'}
+                              {' · '}
+                              Model: {item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat'}
+                              {' · '}
+                              Memory: {item.memoryMode || 'shared'}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button
+                                onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
+                                disabled={applyingFunctionId === item.id}
+                                className="rounded-2xl bg-stone-900 text-white px-4 py-2 text-sm disabled:opacity-60"
+                              >
+                                {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
+                              </button>
+                              <button
+                                onClick={() => void activateFunctionPreset(item)}
+                                disabled={applyingFunctionId === item.id}
+                                className={secondaryButtonClass}
+                              >
+                                {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className={`text-sm ${subtleTextClass}`}>No custom agents yet.</div>
+                  )}
                 </section>
               </div>
             ) : null}
