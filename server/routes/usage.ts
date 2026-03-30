@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
 import { dailyUsage } from '../db/schema.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { normalizeModelUsage } from '../utils/llm.js';
 
 const router = Router();
 
@@ -22,14 +23,14 @@ router.get('/', async (req: Request, res: Response) => {
     if (usage.length === 0) {
       return res.json({
         tokens: 0,
-        modelUsage: {},
+        modelUsage: [],
         date: new Date().toISOString().split('T')[0],
       });
     }
 
     res.json({
       tokens: usage[0].tokens || 0,
-      modelUsage: usage[0].modelUsage || {},
+      modelUsage: normalizeModelUsage(usage[0].modelUsage),
       date: new Date().toISOString().split('T')[0],
     });
   } catch (error) {

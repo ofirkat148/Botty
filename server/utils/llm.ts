@@ -38,6 +38,13 @@ export type ProviderRoute = {
   model: string;
 };
 
+export type ModelUsageEntry = {
+  key: string;
+  provider: string | null;
+  model: string;
+  tokens: number;
+};
+
 type FactRow = {
   id: string;
   uid: string;
@@ -119,6 +126,34 @@ function normalizeLocalLlmUrl(value?: string | null) {
 
 export function getDefaultModel(provider: string) {
   return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] || DEFAULT_MODELS.anthropic;
+}
+
+function classifyPrompt(prompt: string) {
+  const lower = prompt.trim().toLowerCase();
+  const wordCount = lower.split(/\s+/).filter(Boolean).length;
+  const isCodeHeavy = /code|debug|refactor|typescript|javascript|react|sql|query|stack trace|traceback|bug|architecture|implement|fix/.test(lower);
+  const isAnalysisHeavy = /analyze|analysis|compare|reason|tradeoff|explain|design|plan/.test(lower);
+  const isLightweight = wordCount > 0 && wordCount <= 18 && /summarize|rewrite|translate|title|tagline|grammar|short|brief/.test(lower);
+
+  return {
+    wordCount,
+    prefersReasoning: isCodeHeavy || isAnalysisHeavy || wordCount > 120,
+    isLightweight,
+  };
+}
+
+export function getSuggestedModel(provider: string, prompt: string, options?: { defaultLocalModel?: string | null }) {
+  if (provider === 'local') {
+    return options?.defaultLocalModel?.trim() || getDefaultModel('local');
+  }
+
+  if (provider === 'anthropic') {
+    return classifyPrompt(prompt).prefersReasoning
+      ? 'claude-3-7-sonnet-latest'
+      : 'claude-3-5-haiku-latest';
+  }
+
+  return getDefaultModel(provider);
 }
 
 function isSupportedChatProvider(provider: string): provider is (typeof SUPPORTED_CHAT_PROVIDERS)[number] {
@@ -776,46 +811,103 @@ export function buildChatSystemPrompt(params: {
   return parts.join('\n\n');
 }
 
-export function getSmartRoute(prompt: string, availableProviders: string[]): ProviderRoute {
-  const lower = prompt.toLowerCase();
-  const prefersReasoning = /code|debug|refactor|architecture|analyze|compare|explain|reason|typescript|react|sql/.test(lower);
+function getSmartRoute(prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }): ProviderRoute {
+  const { prefersReasoning, isLightweight } = classifyPrompt(prompt);
+  const hasAnthropic = availableProviders.includes('anthropic');
+  const hasGoogle = availableProviders.includes('google');
+  const hasOpenai = availableProviders.includes('openai');
+  const hasLocal = availableProviders.includes('local');
 
-  if (availableProviders.includes('anthropic')) {
-    return {
-      provider: 'anthropic',
-      model: prefersReasoning ? 'claude-3-7-sonnet-latest' : 'claude-3-5-haiku-latest',
-    };
+  if (hasLocal && isLightweight && !prefersReasoning) {
+    return { provider: 'local', model: getSuggestedModel('local', prompt, options) };
   }
 
-  if (availableProviders.includes('google')) {
-    return { provider: 'google', model: getDefaultModel('google') };
+  if (hasAnthropic && prefersReasoning) {
+    return { provider: 'anthropic', model: getSuggestedModel('anthropic', prompt, options) };
   }
 
-  if (availableProviders.includes('openai')) {
-    return { provider: 'openai', model: getDefaultModel('openai') };
+  if (hasGoogle && !prefersReasoning) {
+    return { provider: 'google', model: getSuggestedModel('google', prompt, options) };
   }
 
-  if (availableProviders.includes('local')) {
-    return { provider: 'local', model: getDefaultModel('local') };
+  if (hasOpenai && !prefersReasoning) {
+    return { provider: 'openai', model: getSuggestedModel('openai', prompt, options) };
+  }
+
+  if (hasAnthropic) {
+    return { provider: 'anthropic', model: getSuggestedModel('anthropic', prompt, options) };
+  }
+
+  if (hasLocal) {
+    return { provider: 'local', model: getSuggestedModel('local', prompt, options) };
+  }
+
+  if (hasGoogle) {
+    return { provider: 'google', model: getSuggestedModel('google', prompt, options) };
+  }
+
+  if (hasOpenai) {
+    return { provider: 'openai', model: getSuggestedModel('openai', prompt, options) };
   }
 
   throw new Error('No configured providers found. Add an API key in Settings or set ANTHROPIC_API_KEY in your environment.');
 }
 
-export function getAutoRouteCandidates(prompt: string, availableProviders: string[]): ProviderRoute[] {
-  const primaryRoute = getSmartRoute(prompt, availableProviders);
+export function getAutoRouteCandidates(prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }): ProviderRoute[] {
+  const primaryRoute = getSmartRoute(prompt, availableProviders, options);
   const remainingProviders = availableProviders.filter(provider => provider !== primaryRoute.provider);
 
   return [
     primaryRoute,
     ...remainingProviders.map(provider => ({
       provider,
-      model: getDefaultModel(provider),
+      model: getSuggestedModel(provider, prompt, options),
     })),
   ];
 }
 
-export async function incrementDailyUsage(uid: string, model: string, tokensUsed: number) {
+function buildModelUsageKey(provider: string | null | undefined, model: string) {
+  return `${provider || 'unknown'}::${model}`;
+}
+
+export function normalizeModelUsage(value: unknown): ModelUsageEntry[] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return [];
+  }
+
+  return Object.entries(value as Record<string, unknown>)
+    .map(([key, entryValue]) => {
+      if (typeof entryValue === 'number') {
+        const [providerPart, modelPart] = key.includes('::') ? key.split('::', 2) : [null, key];
+        return {
+          key,
+          provider: providerPart,
+          model: modelPart || key,
+          tokens: entryValue,
+        } satisfies ModelUsageEntry;
+      }
+
+      if (!entryValue || typeof entryValue !== 'object') {
+        return null;
+      }
+
+      const candidate = entryValue as { provider?: unknown; model?: unknown; tokens?: unknown };
+      const model = typeof candidate.model === 'string' && candidate.model.trim() ? candidate.model.trim() : (key.split('::', 2)[1] || key);
+      const provider = typeof candidate.provider === 'string' && candidate.provider.trim() ? candidate.provider.trim() : (key.includes('::') ? key.split('::', 2)[0] : null);
+      const tokens = typeof candidate.tokens === 'number' ? candidate.tokens : 0;
+
+      return {
+        key,
+        provider,
+        model,
+        tokens,
+      } satisfies ModelUsageEntry;
+    })
+    .filter((entry): entry is ModelUsageEntry => Boolean(entry && entry.model))
+    .sort((left, right) => right.tokens - left.tokens || left.model.localeCompare(right.model));
+}
+
+export async function incrementDailyUsage(uid: string, provider: string, model: string, tokensUsed: number) {
   const db = getDatabase();
   const rows = await db
     .select()
@@ -823,27 +915,45 @@ export async function incrementDailyUsage(uid: string, model: string, tokensUsed
     .where(and(eq(dailyUsage.uid, uid), sql`DATE(${dailyUsage.date}) = CURRENT_DATE`))
     .limit(1);
 
+  const key = buildModelUsageKey(provider, model);
+
   if (rows.length === 0) {
     await db.insert(dailyUsage).values({
       id: randomUUID(),
       uid,
       date: new Date(),
       tokens: tokensUsed,
-      modelUsage: { [model]: tokensUsed },
+      modelUsage: {
+        [key]: {
+          provider,
+          model,
+          tokens: tokensUsed,
+        },
+      },
       createdAt: new Date(),
     });
     return;
   }
 
   const row = rows[0];
-  const modelUsage = (row.modelUsage as Record<string, number> | null) || {};
+  const normalizedUsage = normalizeModelUsage(row.modelUsage);
+  const nextModelUsage = Object.fromEntries(normalizedUsage.map(entry => [entry.key, {
+    provider: entry.provider,
+    model: entry.model,
+    tokens: entry.tokens,
+  }]));
+  const currentTokens = normalizedUsage.find(entry => entry.key === key)?.tokens || 0;
   await db
     .update(dailyUsage)
     .set({
       tokens: (row.tokens || 0) + tokensUsed,
       modelUsage: {
-        ...modelUsage,
-        [model]: (modelUsage[model] || 0) + tokensUsed,
+        ...nextModelUsage,
+        [key]: {
+          provider,
+          model,
+          tokens: currentTokens + tokensUsed,
+        },
       },
     })
     .where(eq(dailyUsage.id, row.id));

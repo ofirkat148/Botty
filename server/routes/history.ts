@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
-import { history, dailyUsage } from '../db/schema.js';
-import { and, eq, desc, sql } from 'drizzle-orm';
+import { history } from '../db/schema.js';
+import { and, eq, desc } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
+import { incrementDailyUsage } from '../utils/llm.js';
 
 const router = Router();
 
@@ -56,39 +57,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     await db.insert(history).values(newEntry);
 
-    // Update daily usage
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const existingUsage = await db
-      .select()
-      .from(dailyUsage)
-      .where(and(eq(dailyUsage.uid, uid), sql`DATE(${dailyUsage.date}) = CURRENT_DATE`))
-      .limit(1);
-
-    if (existingUsage.length > 0) {
-      const current = existingUsage[0];
-      const modelUsage = (current.modelUsage as Record<string, number> | null) || {};
-      await db
-        .update(dailyUsage)
-        .set({
-          tokens: (current.tokens || 0) + (tokensUsed || 0),
-          modelUsage: {
-            ...modelUsage,
-            [model]: (modelUsage[model] || 0) + (tokensUsed || 0),
-          },
-        })
-        .where(eq(dailyUsage.id, current.id));
-    } else {
-      const usageId = randomUUID();
-      await db.insert(dailyUsage).values({
-        id: usageId,
-        uid,
-        date: new Date(),
-        tokens: tokensUsed || 0,
-        modelUsage: { [model]: 1 },
-      });
-    }
+    await incrementDailyUsage(uid, 'unknown', model, tokensUsed || 0);
 
     res.json(newEntry);
   } catch (error) {

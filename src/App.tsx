@@ -109,6 +109,19 @@ type ProvidersResponse = {
   defaultLocalModel?: string | null;
 };
 
+type ModelUsageEntry = {
+  key: string;
+  provider?: string | null;
+  model: string;
+  tokens: number;
+};
+
+type UsageResponse = {
+  tokens: number;
+  modelUsage: ModelUsageEntry[];
+  date: string;
+};
+
 type MemoryBackupPayload = {
   version?: number;
   exportedAt?: string;
@@ -294,6 +307,7 @@ function AppShell() {
   const [isListening, setIsListening] = useState(false);
   const [chatError, setChatError] = useState('');
   const [availableProviders, setAvailableProviders] = useState<string[]>([]);
+  const [defaultLocalModel, setDefaultLocalModel] = useState(DEFAULT_MODELS.local);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -302,8 +316,9 @@ function AppShell() {
   const [customBots, setCustomBots] = useState<FunctionPreset[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [dailyTokens, setDailyTokens] = useState(0);
+  const [dailyModelUsage, setDailyModelUsage] = useState<ModelUsageEntry[]>([]);
   const [systemPrompt, setSystemPrompt] = useState('');
-  const [localUrl, setLocalUrl] = useState('http://localhost:11434');
+  const [localUrl, setLocalUrl] = useState('http://127.0.0.1:11435');
   const [useMemory, setUseMemory] = useState(true);
   const [autoMemory, setAutoMemory] = useState(true);
   const [sandboxMode, setSandboxMode] = useState(false);
@@ -374,6 +389,22 @@ function AppShell() {
     }
 
     return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function getSuggestedChatModel(providerValue: string, promptValue: string) {
+    if (providerValue === 'local') {
+      return defaultLocalModel;
+    }
+
+    if (providerValue === 'anthropic') {
+      const lower = promptValue.trim().toLowerCase();
+      const prefersReasoning = /code|debug|refactor|typescript|javascript|react|sql|query|bug|architecture|implement|fix|analyze|analysis|compare|reason|tradeoff|explain|design|plan/.test(lower)
+        || lower.split(/\s+/).filter(Boolean).length > 120;
+
+      return prefersReasoning ? 'claude-3-7-sonnet-latest' : 'claude-3-5-haiku-latest';
+    }
+
+    return DEFAULT_MODELS[providerValue] || '';
   }
 
   function supportsSpeechRecognition() {
@@ -695,7 +726,7 @@ function AppShell() {
       apiGet<MemoryUrl[]>('/api/memory/urls'),
       apiGet<FunctionCatalogResponse>('/api/settings/functions'),
       apiGet<ApiKey[]>('/api/keys'),
-      apiGet<{ tokens: number }>('/api/usage'),
+      apiGet<UsageResponse>('/api/usage'),
       apiGet<SettingsResponse>('/api/settings'),
       apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customBots?: FunctionPreset[] }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
@@ -708,7 +739,8 @@ function AppShell() {
     setCustomBots(functionsData.bots || []);
     setApiKeys(keyRows);
     setDailyTokens(usageData.tokens || 0);
-    setLocalUrl(settingsData.localUrl || 'http://localhost:11434');
+    setDailyModelUsage(Array.isArray(usageData.modelUsage) ? usageData.modelUsage : []);
+    setLocalUrl(settingsData.localUrl || 'http://127.0.0.1:11435');
     setUseMemory(settingsData.useMemory !== false);
     setAutoMemory(settingsData.autoMemory !== false);
     setSandboxMode(settingsData.sandboxMode === true);
@@ -722,6 +754,7 @@ function AppShell() {
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     setAvailableProviders(nextProviders);
+    setDefaultLocalModel(nextLocalModel);
     setKeyInputs({
       anthropic: keyRows.find(item => item.provider === 'anthropic')?.key || '',
       google: keyRows.find(item => item.provider === 'google')?.key || '',
@@ -734,7 +767,7 @@ function AppShell() {
       return;
     }
 
-    if (provider === 'local' && model !== nextLocalModel && nextProviders.includes('local')) {
+    if (provider === 'local' && nextProviders.includes('local') && (!model || model === defaultLocalModel)) {
       setModel(nextLocalModel);
     }
 
@@ -1598,6 +1631,17 @@ function AppShell() {
             <div className="mt-auto rounded-2xl border border-white/8 bg-white/6 p-4 text-sm text-stone-300 backdrop-blur-sm">
               <p>Providers: {availableProviders.length ? availableProviders.join(', ') : 'none configured'}</p>
               <p className="mt-2">Tokens today: {dailyTokens.toLocaleString()}</p>
+              {dailyModelUsage.length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs uppercase tracking-[0.2em] opacity-60">By model</p>
+                  {dailyModelUsage.map(entry => (
+                    <div key={entry.key} className="flex items-start justify-between gap-3 text-xs">
+                      <span className="pr-3 opacity-90">{[formatProviderLabel(entry.provider || undefined), entry.model].filter(Boolean).join(' · ')}</span>
+                      <span className="whitespace-nowrap opacity-75">{entry.tokens.toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               <p className="mt-2">Stored keys: {apiKeys.length}</p>
             </div>
 
@@ -1674,7 +1718,7 @@ function AppShell() {
                           const nextProvider = event.target.value;
                           setProvider(nextProvider);
                           if (nextProvider !== 'auto') {
-                            setModel(DEFAULT_MODELS[nextProvider] || '');
+                            setModel(getSuggestedChatModel(nextProvider, prompt));
                           } else {
                             setModel('');
                           }

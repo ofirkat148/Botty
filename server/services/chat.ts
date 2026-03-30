@@ -5,9 +5,11 @@ import {
   BotMemoryMode,
   buildChatSystemPrompt,
   callLLM,
+  getDefaultLocalModel,
   getAvailableProviders,
   getAutoRouteCandidates,
   getDefaultModel,
+  getSuggestedModel,
   getMemoryContext,
   getProviderApiKey,
   getRuntimeSettings,
@@ -112,14 +114,17 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
 
   const runtimeSettings = await getRuntimeSettings(uid);
   const availableProviders = await getAvailableProviders(uid);
+  const defaultLocalModel = availableProviders.includes('local')
+    ? await getDefaultLocalModel(runtimeSettings.localUrl)
+    : null;
   const effectiveProvider = activeBot?.provider || requestedProvider;
   const effectiveModel = activeBot?.model || requestedModel;
   const shouldAutoRoute = effectiveProvider === 'auto' || !effectiveProvider;
   const routes = shouldAutoRoute
-    ? getAutoRouteCandidates(prompt, availableProviders)
+    ? getAutoRouteCandidates(prompt, availableProviders, { defaultLocalModel })
     : [{
         provider: effectiveProvider,
-        model: effectiveModel || getDefaultModel(effectiveProvider),
+        model: effectiveModel || getSuggestedModel(effectiveProvider, prompt, { defaultLocalModel }),
       }];
   const memoryMode = activeBot?.memoryMode || 'shared';
 
@@ -209,7 +214,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     timestamp: new Date(),
   });
 
-  await incrementDailyUsage(uid, model, tokensUsed);
+  await incrementDailyUsage(uid, provider, model, tokensUsed);
 
   if (runtimeSettings.autoMemory && memoryMode !== 'none') {
     try {
