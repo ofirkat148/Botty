@@ -35,6 +35,16 @@ Useful checks:
 - `curl http://127.0.0.1:5000/api/health`
 - `curl http://127.0.0.1:11435/api/tags`
 
+## Git Export
+
+If this machine cannot reach GitHub directly, prepare a portable Git bundle locally and push it from an approved machine or network instead.
+
+Use:
+
+- `bash ops/export-git-bundle.sh`
+
+This creates a `.bundle` file containing all refs, plus a `.sha256` file when `sha256sum` is available.
+
 ## Local Auth
 
 The app uses local email-based sign-in for single-user development. Enter any valid email in the UI and Botty will create or reuse that identity in PostgreSQL.
