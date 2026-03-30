@@ -8,10 +8,14 @@ import {
   History,
   KeyRound,
   LogOut,
+  Maximize2,
   MemoryStick,
   Mic,
+  Minimize2,
   MessageSquare,
   Moon,
+  PanelLeftClose,
+  PanelLeftOpen,
   Plus,
   RefreshCw,
   Save,
@@ -419,6 +423,26 @@ function AppShell() {
   const [activeFunctionId, setActiveFunctionId] = useState('');
   const [applyingFunctionId, setApplyingFunctionId] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
+  const [hasSidebarPreference, setHasSidebarPreference] = useState(() => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    return window.localStorage.getItem('botty.sidebarExpanded') !== null;
+  });
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(() => {
+    if (typeof window === 'undefined') {
+      return true;
+    }
+
+    const savedValue = window.localStorage.getItem('botty.sidebarExpanded');
+    if (savedValue === null) {
+      return !window.matchMedia('(max-width: 1023px)').matches;
+    }
+
+    return savedValue !== 'false';
+  });
+  const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && Boolean(document.fullscreenElement));
   const [recentSlashItemIds, setRecentSlashItemIds] = useState<string[]>(() => {
     if (typeof window === 'undefined') {
       return [];
@@ -911,6 +935,60 @@ function AppShell() {
   useEffect(() => {
     window.localStorage.setItem('botty.recentSlashItems', JSON.stringify(recentSlashItemIds));
   }, [recentSlashItemIds]);
+
+  useEffect(() => {
+    window.localStorage.setItem('botty.sidebarExpanded', isSidebarExpanded ? 'true' : 'false');
+  }, [isSidebarExpanded]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(max-width: 1023px)');
+
+    function handleViewportChange(event: MediaQueryListEvent | MediaQueryList) {
+      if (hasSidebarPreference) {
+        return;
+      }
+
+      setIsSidebarExpanded(!event.matches);
+    }
+
+    handleViewportChange(mediaQuery);
+    mediaQuery.addEventListener('change', handleViewportChange);
+    return () => mediaQuery.removeEventListener('change', handleViewportChange);
+  }, [hasSidebarPreference]);
+
+  useEffect(() => {
+    function handleFullscreenChange() {
+      setIsFullscreen(Boolean(document.fullscreenElement));
+    }
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  useEffect(() => {
+    function handleWindowKeyDown(event: KeyboardEvent) {
+      const target = event.target as HTMLElement | null;
+      const isEditableTarget = target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target instanceof HTMLSelectElement
+        || Boolean(target?.isContentEditable);
+
+      if (event.ctrlKey && event.key === '\\') {
+        event.preventDefault();
+        setHasSidebarPreference(true);
+        setIsSidebarExpanded(currentValue => !currentValue);
+        return;
+      }
+
+      if (event.altKey && event.key === 'Enter' && !isEditableTarget) {
+        event.preventDefault();
+        void toggleFullscreenMode();
+      }
+    }
+
+    window.addEventListener('keydown', handleWindowKeyDown);
+    return () => window.removeEventListener('keydown', handleWindowKeyDown);
+  }, []);
 
   useEffect(() => () => {
     if (speechRecognitionRef.current) {
@@ -1480,6 +1558,19 @@ function AppShell() {
     setRecentSlashItemIds(currentIds => [itemId, ...currentIds.filter(value => value !== itemId)].slice(0, MAX_RECENT_SLASH_ITEMS));
   }
 
+  async function toggleFullscreenMode() {
+    try {
+      if (!document.fullscreenElement) {
+        await document.documentElement.requestFullscreen();
+        return;
+      }
+
+      await document.exitFullscreen();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : 'Failed to toggle fullscreen mode.');
+    }
+  }
+
   async function clearFunctionPreset() {
     setApplyingFunctionId('clear');
     try {
@@ -2023,29 +2114,46 @@ function AppShell() {
   const modelPeak = useMemo(() => Math.max(...sortedModelUsage.map(entry => entry.tokens), 1), [sortedModelUsage]);
 
   const appBackgroundClass = isDarkMode
-    ? 'min-h-dvh w-full overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_24%),linear-gradient(180deg,_#0d1117_0%,_#111827_100%)] text-stone-100'
-    : 'min-h-dvh w-full overflow-x-hidden bg-[#f3efe6] text-stone-900';
+    ? 'min-h-dvh w-full overflow-x-hidden bg-[#101214] text-stone-100'
+    : 'min-h-dvh w-full overflow-x-hidden bg-[#f3f0ea] text-stone-900';
+  const workspaceShellClass = `grid min-h-dvh w-full gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[280px_minmax(0,1fr)]' : 'lg:grid-cols-[92px_minmax(0,1fr)]'} lg:gap-4`;
+  const sidebarPanelClass = isDarkMode
+    ? `flex min-h-[240px] flex-col gap-4 rounded-[1.5rem] border border-white/8 bg-[#17191c] p-4 text-stone-100 shadow-[0_18px_40px_rgba(0,0,0,0.22)] lg:sticky lg:top-5 lg:max-h-[calc(100dvh-2.5rem)] ${isSidebarExpanded ? '' : 'lg:px-3'}`
+    : `flex min-h-[240px] flex-col gap-4 rounded-[1.5rem] border border-stone-200 bg-[#fbfaf7] p-4 text-stone-900 shadow-[0_16px_36px_rgba(36,29,18,0.08)] lg:sticky lg:top-5 lg:max-h-[calc(100dvh-2.5rem)] ${isSidebarExpanded ? '' : 'lg:px-3'}`;
   const shellPanelClass = isDarkMode
-    ? 'rounded-[2rem] bg-[#111927]/88 backdrop-blur-xl p-4 md:p-6 shadow-[0_30px_80px_rgba(0,0,0,0.35)] border border-white/8'
-    : 'rounded-[2rem] bg-white/80 backdrop-blur-xl p-4 md:p-6 shadow-[0_30px_80px_rgba(120,95,64,0.15)] border border-white/70';
+    ? `rounded-[1.5rem] bg-[#15181b] p-4 md:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] border border-white/8 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 lg:rounded-[1.5rem] lg:border' : ''}`
+    : `rounded-[1.5rem] bg-[#fcfbf8] p-4 md:p-6 shadow-[0_18px_42px_rgba(36,29,18,0.08)] border border-stone-200 ${isFullscreen ? 'min-h-dvh rounded-none border-x-0 border-y-0 lg:rounded-[1.5rem] lg:border' : ''}`;
   const sectionCardClass = isDarkMode
-    ? 'rounded-[1.5rem] border border-white/8 bg-[#0f1724] p-4'
-    : 'rounded-[1.5rem] border border-stone-200 bg-stone-50 p-4';
+    ? 'rounded-[1.25rem] border border-white/8 bg-[#111417] p-4'
+    : 'rounded-[1.25rem] border border-stone-200 bg-white p-4';
   const elevatedCardClass = isDarkMode
-    ? 'rounded-2xl border border-white/8 bg-[#172131] px-3 py-3'
-    : 'rounded-2xl bg-white border border-stone-200 px-3 py-3';
+    ? 'rounded-[1.15rem] border border-white/8 bg-[#1a1d20] px-3 py-3'
+    : 'rounded-[1.15rem] bg-[#f7f4ee] border border-stone-200 px-3 py-3';
   const inputClass = isDarkMode
-    ? 'rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100 placeholder:text-stone-500'
-    : 'rounded-2xl border border-stone-200 px-3 py-2 bg-stone-50';
+    ? 'rounded-[1rem] border border-white/10 px-3 py-2 bg-[#0f1113] text-stone-100 placeholder:text-stone-500 focus:border-stone-400 outline-none'
+    : 'rounded-[1rem] border border-stone-200 px-3 py-2 bg-white focus:border-stone-400 outline-none';
   const textInputClass = isDarkMode
-    ? 'w-full rounded-2xl border border-white/10 px-3 py-2 text-sm bg-[#0b1220] text-stone-100 placeholder:text-stone-500'
-    : 'w-full rounded-2xl border border-stone-200 px-3 py-2 text-sm';
+    ? 'w-full rounded-[1rem] border border-white/10 px-3 py-2 text-sm bg-[#0f1113] text-stone-100 placeholder:text-stone-500 focus:border-stone-400 outline-none'
+    : 'w-full rounded-[1rem] border border-stone-200 px-3 py-2 text-sm bg-white focus:border-stone-400 outline-none';
   const textareaClass = isDarkMode
-    ? 'w-full resize-none rounded-[1.25rem] border border-white/10 px-4 py-3 outline-none bg-[#0b1220] text-stone-100 placeholder:text-stone-500 focus:border-amber-300/50'
-    : 'w-full resize-none rounded-[1.25rem] border border-stone-200 px-4 py-3 outline-none focus:border-stone-400';
+    ? 'w-full resize-none rounded-[1.1rem] border border-white/10 px-4 py-3 outline-none bg-[#0f1113] text-stone-100 placeholder:text-stone-500 focus:border-stone-400'
+    : 'w-full resize-none rounded-[1.1rem] border border-stone-200 px-4 py-3 outline-none bg-white focus:border-stone-400';
   const subtleTextClass = isDarkMode ? 'text-stone-400' : 'text-stone-500';
   const mutedTextClass = isDarkMode ? 'text-stone-300' : 'text-stone-600';
   const sectionLabelClass = isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-600 mb-2';
+  const navButtonClass = (tabValue: TabValue) => isDarkMode
+    ? `w-full rounded-[1rem] px-4 py-3 flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 text-sm transition-colors ${activeTab === tabValue ? 'bg-white text-stone-950' : 'text-stone-300 hover:bg-white/6'} ${isSidebarExpanded ? '' : 'px-3'}`
+    : `w-full rounded-[1rem] px-4 py-3 flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 text-sm transition-colors ${activeTab === tabValue ? 'bg-stone-900 text-white' : 'text-stone-700 hover:bg-stone-100'} ${isSidebarExpanded ? '' : 'px-3'}`;
+  const primaryButtonClass = isDarkMode
+    ? 'rounded-[1rem] bg-white text-stone-950 px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-stone-200 transition-colors'
+    : 'rounded-[1rem] bg-stone-900 text-white px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-stone-800 transition-colors';
+  const shellUtilityButtonClass = isDarkMode
+    ? 'rounded-[1rem] border border-white/10 px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/6 transition-colors'
+    : 'rounded-[1rem] border border-stone-200 px-4 py-3 text-left flex items-center gap-3 text-stone-700 hover:bg-stone-100 transition-colors';
+  const sidebarTextClass = isSidebarExpanded ? 'inline' : 'hidden';
+  const sidebarBlockClass = isSidebarExpanded ? 'block' : 'hidden';
+  const sidebarStatsClass = isSidebarExpanded ? 'block' : 'hidden';
+  const sidebarCompactButtonClass = `${shellUtilityButtonClass} ${isSidebarExpanded ? 'justify-start' : 'justify-center px-3'}`;
   const telegramStatusToneClass = telegramStatus?.error
     ? (isDarkMode ? 'border-red-500/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-700')
     : telegramStatus?.running
@@ -2074,20 +2182,20 @@ function AppShell() {
             ? 'The bot has a saved token but is not currently connected.'
             : 'Save a BotFather token to start Telegram polling.';
   const actionButtonClass = isDarkMode
-    ? 'rounded-2xl border border-white/10 px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/5'
-    : 'rounded-2xl border border-stone-200 px-4 py-2 text-sm flex items-center gap-2 hover:bg-stone-50';
+    ? 'rounded-[1rem] border border-white/10 px-4 py-2 text-sm flex items-center gap-2 hover:bg-white/6 transition-colors'
+    : 'rounded-[1rem] border border-stone-200 px-4 py-2 text-sm flex items-center gap-2 hover:bg-stone-100 transition-colors';
   const listButtonClass = isDarkMode
-    ? 'w-full text-left rounded-2xl border border-white/8 bg-[#172131] px-3 py-3 hover:border-amber-300/30'
-    : 'w-full text-left rounded-2xl border border-stone-200 bg-white px-3 py-3 hover:border-stone-300';
+    ? 'w-full text-left rounded-[1rem] border border-white/8 bg-[#1a1d20] px-3 py-3 hover:border-white/20 transition-colors'
+    : 'w-full text-left rounded-[1rem] border border-stone-200 bg-white px-3 py-3 hover:border-stone-300 transition-colors';
   const secondaryButtonClass = isDarkMode
-    ? 'rounded-2xl border border-white/10 bg-[#172131] px-3 py-2 text-sm hover:bg-[#1d293d]'
-    : 'rounded-2xl border border-stone-200 bg-white px-3 py-2 text-sm hover:bg-stone-100';
+    ? 'rounded-[1rem] border border-white/10 bg-[#1a1d20] px-3 py-2 text-sm hover:bg-[#202428] transition-colors'
+    : 'rounded-[1rem] border border-stone-200 bg-white px-3 py-2 text-sm hover:bg-stone-100 transition-colors';
   const destructiveButtonClass = isDarkMode
-    ? 'rounded-2xl border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300 hover:bg-red-950/60'
-    : 'rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100';
+    ? 'rounded-[1rem] border border-red-900/50 bg-red-950/40 px-3 py-2 text-sm text-red-300 hover:bg-red-950/60 transition-colors'
+    : 'rounded-[1rem] border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 hover:bg-red-100 transition-colors';
   const noticeClass = isDarkMode
-    ? 'mb-4 rounded-2xl bg-emerald-950/50 border border-emerald-800 text-emerald-200 px-4 py-3 text-sm'
-    : 'mb-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 text-sm';
+    ? 'mb-4 rounded-[1rem] bg-emerald-950/40 border border-emerald-900 text-emerald-200 px-4 py-3 text-sm'
+    : 'mb-4 rounded-[1rem] bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-3 text-sm';
   const emptyStateClass = isDarkMode ? 'text-center text-stone-400' : 'text-center text-stone-500';
 
   if (authLoading) {
@@ -2096,28 +2204,28 @@ function AppShell() {
 
   if (!user) {
     return (
-      <div className={`${isDarkMode ? 'min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(251,191,36,0.18),_transparent_30%),linear-gradient(180deg,_#171717_0%,_#09090b_100%)] text-stone-100' : 'min-h-dvh bg-[radial-gradient(circle_at_top,_rgba(245,158,11,0.12),_transparent_26%),linear-gradient(180deg,_#f5efe4_0%,_#ece5d6_100%)] text-stone-900'} px-4 py-6 sm:px-6 sm:py-10 lg:px-10 lg:py-12`}>
-        <div className="mx-auto grid min-h-[calc(100dvh-3rem)] w-full max-w-[1600px] items-center gap-8 lg:grid-cols-[minmax(0,1.3fr)_minmax(320px,520px)]">
+      <div className={`${isDarkMode ? 'min-h-dvh bg-[#101214] text-stone-100' : 'min-h-dvh bg-[#f3f0ea] text-stone-900'} px-4 py-6 sm:px-6 sm:py-10 lg:px-10 lg:py-12`}>
+        <div className="mx-auto grid min-h-[calc(100dvh-3rem)] w-full max-w-[1500px] items-center gap-8 lg:grid-cols-[minmax(0,1.15fr)_minmax(360px,460px)]">
           <div>
             <div className="flex items-center justify-between gap-3 mb-4">
-              <p className={`text-xs uppercase tracking-[0.35em] ${isDarkMode ? 'text-amber-300/80' : 'text-amber-700'} mb-0`}>Botty local runtime</p>
-              <button onClick={() => setIsDarkMode(value => !value)} className={`${isDarkMode ? 'border-white/10 bg-white/5 text-stone-100 hover:bg-white/10' : 'border-stone-300 bg-white/70 text-stone-700 hover:bg-white'} rounded-2xl border px-3 py-2 text-sm flex items-center gap-2`}>
+              <p className={`text-xs uppercase tracking-[0.35em] ${isDarkMode ? 'text-stone-400' : 'text-stone-500'} mb-0`}>Botty local runtime</p>
+              <button onClick={() => setIsDarkMode(value => !value)} className={shellUtilityButtonClass}>
                 {isDarkMode ? <SunMedium className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                 {isDarkMode ? 'Light mode' : 'Dark mode'}
               </button>
             </div>
-            <h1 className="text-5xl md:text-6xl font-semibold leading-tight text-balance">Run the migrated app entirely on your machine.</h1>
+            <h1 className="text-4xl md:text-5xl font-semibold leading-tight text-balance">Run Botty locally with a quieter, focused workspace.</h1>
             <p className={`mt-6 text-lg ${isDarkMode ? 'text-stone-300' : 'text-stone-700'} max-w-2xl leading-8`}>
               Local sign-in, PostgreSQL-backed memory, and direct Claude or local model calls. No Firebase path remains in the runtime you use here.
             </p>
             <div className={`mt-8 grid sm:grid-cols-3 gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
-              <div className={`rounded-2xl border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/65'} p-4`}>Claude via ANTHROPIC_API_KEY</div>
-              <div className={`rounded-2xl border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/65'} p-4`}>Postgres auto-bootstrapped on startup</div>
-              <div className={`rounded-2xl border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/65'} p-4`}>JWT local auth for single-user development</div>
+              <div className={`${elevatedCardClass}`}>Claude via `ANTHROPIC_API_KEY`</div>
+              <div className={`${elevatedCardClass}`}>Postgres auto-bootstrapped on startup</div>
+              <div className={`${elevatedCardClass}`}>JWT local auth for single-user development</div>
             </div>
           </div>
 
-          <form onSubmit={handleLocalLogin} className={`rounded-[2rem] border ${isDarkMode ? 'border-white/10 bg-white/5' : 'border-stone-300 bg-white/80'} backdrop-blur-xl p-6 shadow-2xl`}>
+          <form onSubmit={handleLocalLogin} className={`${shellPanelClass} max-w-[460px] justify-self-end`}>
             <h2 className="text-2xl font-semibold mb-2">Local sign-in</h2>
             <p className={`${isDarkMode ? 'text-stone-400' : 'text-stone-600'} mb-6`}>Create or reuse a local identity stored in PostgreSQL.</p>
 
@@ -2126,7 +2234,7 @@ function AppShell() {
               value={loginName}
               onChange={event => setLoginName(event.target.value)}
               placeholder="Ofir"
-              className={`w-full rounded-2xl ${isDarkMode ? 'bg-black/30 border-white/10 text-stone-100 placeholder:text-stone-500' : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400'} border px-4 py-3 mb-4 outline-none focus:border-amber-300/60`}
+              className={`${textInputClass} mb-4`}
             />
 
             <label className={`${isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-700 mb-2'}`}>Email</label>
@@ -2135,12 +2243,12 @@ function AppShell() {
               onChange={event => setLoginEmail(event.target.value)}
               type="email"
               placeholder="you@local.dev"
-              className={`w-full rounded-2xl ${isDarkMode ? 'bg-black/30 border-white/10 text-stone-100 placeholder:text-stone-500' : 'bg-white border-stone-300 text-stone-900 placeholder:text-stone-400'} border px-4 py-3 outline-none focus:border-amber-300/60`}
+              className={textInputClass}
             />
 
-            {authError ? <p className="mt-4 text-sm text-red-300">{authError}</p> : null}
+            {authError ? <p className={`mt-4 text-sm ${isDarkMode ? 'text-red-300' : 'text-red-700'}`}>{authError}</p> : null}
 
-            <button type="submit" className="mt-6 w-full rounded-2xl bg-amber-300 text-stone-950 font-medium px-4 py-3 hover:bg-amber-200 transition-colors">
+            <button type="submit" className={`mt-6 w-full ${primaryButtonClass}`}>
               Enter local workspace
             </button>
           </form>
@@ -2151,20 +2259,35 @@ function AppShell() {
 
   return (
     <div className={appBackgroundClass}>
-      <div className="min-h-dvh w-full p-3 sm:p-4 lg:p-5">
-        <div className="grid min-h-[calc(100dvh-1.5rem)] w-full gap-3 lg:grid-cols-[minmax(260px,300px)_minmax(0,1fr)] lg:gap-6">
-          <aside className="relative flex min-h-[240px] flex-col gap-4 rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(36,24,18,0.96)_0%,rgba(20,14,12,0.92)_100%)] p-4 text-stone-100 shadow-[0_28px_90px_rgba(0,0,0,0.28)] backdrop-blur-2xl before:pointer-events-none before:absolute before:inset-0 before:rounded-[2rem] before:border before:border-white/6 before:content-[''] lg:sticky lg:top-5 lg:max-h-[calc(100dvh-2.5rem)]">
-            <div className="flex items-start gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.35em] text-amber-200/70">Botty</p>
+      <div className={`${isFullscreen ? 'min-h-dvh w-full p-0' : 'min-h-dvh w-full p-3 sm:p-4 lg:p-5'}`}>
+        <div className={workspaceShellClass}>
+          <aside className={sidebarPanelClass}>
+            <div className={`flex items-start gap-3 ${isSidebarExpanded ? 'justify-between' : 'justify-center'}`}>
+              <div className={isSidebarExpanded ? '' : 'hidden'}>
+                <p className={`text-xs uppercase tracking-[0.35em] ${subtleTextClass}`}>Botty</p>
                 <h1 className="mt-2 text-3xl font-semibold">Local OSS</h1>
-                <p className="mt-2 text-sm text-stone-300">{user.displayName || user.email}</p>
+                <p className={`mt-2 text-sm ${subtleTextClass}`}>{user.displayName || user.email}</p>
               </div>
+              {!isSidebarExpanded ? <div className={`flex h-11 w-11 items-center justify-center rounded-[1rem] border ${isDarkMode ? 'border-white/10 bg-[#111417] text-stone-100' : 'border-stone-200 bg-white text-stone-900'} text-lg font-semibold`}>B</div> : null}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setHasSidebarPreference(true);
+                  setIsSidebarExpanded(value => !value);
+                }}
+                className={`${shellUtilityButtonClass} shrink-0 ${isSidebarExpanded ? 'px-3' : 'flex px-3'}`}
+                aria-label={isSidebarExpanded ? 'Compact sidebar' : 'Expand sidebar'}
+                title={isSidebarExpanded ? 'Compact sidebar' : 'Expand sidebar'}
+              >
+                {isSidebarExpanded ? <PanelLeftClose className="w-4 h-4" /> : <PanelLeftOpen className="w-4 h-4" />}
+                <span className={sidebarTextClass}>{isSidebarExpanded ? 'Compact menu' : 'Expand menu'}</span>
+              </button>
             </div>
 
-            <button onClick={startNewChat} className="rounded-2xl bg-amber-300 text-stone-950 px-4 py-3 font-medium flex items-center justify-center gap-2 hover:bg-amber-200">
+            <button onClick={startNewChat} className={`${primaryButtonClass} ${isSidebarExpanded ? '' : 'px-3'}`} title="New chat" aria-label="New chat">
               <Plus className="w-4 h-4" />
-              New chat
+              <span className={sidebarTextClass}>New chat</span>
             </button>
 
             <nav className="space-y-2 text-sm">
@@ -2172,10 +2295,15 @@ function AppShell() {
                 <button
                   key={value}
                   onClick={() => openTab(value)}
-                  className={`w-full rounded-2xl px-4 py-3 flex items-center gap-3 ${activeTab === value ? 'bg-white/10 text-white' : 'text-stone-300 hover:bg-white/5'}`}
+                  className={navButtonClass(value)}
+                  title={label}
+                  aria-label={label}
                 >
-                  <Icon className="w-4 h-4" />
-                  {label}
+                  <span className="flex items-center gap-3">
+                    <Icon className="w-4 h-4" />
+                    <span className={sidebarTextClass}>{label}</span>
+                  </span>
+                  <span className={`${sidebarTextClass} text-[11px] uppercase tracking-[0.18em] ${activeTab === value ? (isDarkMode ? 'text-stone-600' : 'text-stone-300') : subtleTextClass}`}>{value === 'chat' ? 'Home' : 'View'}</span>
                 </button>
               ))}
             </nav>
@@ -2183,23 +2311,33 @@ function AppShell() {
             <button
               onClick={() => void toggleSandboxModeFromMenu()}
               disabled={savingSettings}
-              className={`rounded-2xl border px-4 py-3 text-left flex items-center justify-between gap-3 transition-colors disabled:opacity-60 ${sandboxMode ? 'border-amber-300/30 bg-amber-300/10 text-amber-100 hover:bg-amber-300/15' : 'border-white/10 text-stone-300 hover:bg-white/5'}`}
+              className={`rounded-[1rem] border px-4 py-3 text-left flex items-center ${isSidebarExpanded ? 'justify-between' : 'justify-center'} gap-3 transition-colors disabled:opacity-60 ${sandboxMode ? (isDarkMode ? 'border-white/16 bg-white text-stone-950' : 'border-stone-900 bg-stone-900 text-white') : (isDarkMode ? 'border-white/10 text-stone-300 hover:bg-white/6' : 'border-stone-200 text-stone-700 hover:bg-stone-100')} ${isSidebarExpanded ? '' : 'px-3'}`}
+              title={sandboxMode ? 'Sandbox mode is on' : 'Sandbox mode is off'}
+              aria-label="Toggle sandbox mode"
             >
-              <span>
-                <span className="block text-sm font-medium">Sandbox mode</span>
-                <span className="block text-xs opacity-75">{sandboxMode ? 'Facts and sites only' : 'Regular chat access'}</span>
+              <span className={`flex items-center gap-3 ${isSidebarExpanded ? '' : 'justify-center'}`}>
+                <Square className="w-4 h-4" />
+                <span className={sidebarBlockClass}>
+                  <span className="block text-sm font-medium">Sandbox mode</span>
+                  <span className="block text-xs opacity-75">{sandboxMode ? 'Facts and sites only' : 'Regular chat access'}</span>
+                </span>
               </span>
-              <span className={`rounded-full px-2 py-1 text-xs ${sandboxMode ? 'bg-amber-200 text-stone-950' : 'bg-white/10 text-stone-200'}`}>
+              <span className={`rounded-full px-2 py-1 text-xs ${sandboxMode ? (isDarkMode ? 'bg-stone-950 text-white' : 'bg-white text-stone-900') : (isDarkMode ? 'bg-white/10 text-stone-200' : 'bg-stone-100 text-stone-700')}`}>
                 {savingSettings ? 'Saving...' : sandboxMode ? 'On' : 'Off'}
               </span>
             </button>
 
-            <button onClick={() => setIsDarkMode(value => !value)} className="rounded-2xl border border-white/10 px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/5">
-              {isDarkMode ? <SunMedium className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              {isDarkMode ? 'Light mode' : 'Dark mode'}
+            <button type="button" onClick={() => void toggleFullscreenMode()} className={sidebarCompactButtonClass} title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'} aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}>
+              {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+              <span className={sidebarTextClass}>{isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}</span>
             </button>
 
-            <div className="mt-auto rounded-2xl border border-white/8 bg-white/6 p-4 text-sm text-stone-300 backdrop-blur-sm">
+            <button onClick={() => setIsDarkMode(value => !value)} className={sidebarCompactButtonClass} title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+              {isDarkMode ? <SunMedium className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              <span className={sidebarTextClass}>{isDarkMode ? 'Light mode' : 'Dark mode'}</span>
+            </button>
+
+            <div className={`${sidebarStatsClass} mt-auto rounded-[1rem] border p-4 text-sm ${isDarkMode ? 'border-white/8 bg-[#111417] text-stone-300' : 'border-stone-200 bg-white text-stone-700'}`}>
               <p>Providers: {availableProviders.length ? availableProviders.join(', ') : 'none configured'}</p>
               <p className="mt-2">Tokens today: {dailyTokens.toLocaleString()}</p>
               {dailyModelUsage.length > 0 ? (
@@ -2216,9 +2354,9 @@ function AppShell() {
               <p className="mt-2">Stored keys: {apiKeys.length}</p>
             </div>
 
-            <button onClick={handleLogout} className="rounded-2xl border border-white/10 px-4 py-3 text-left flex items-center gap-3 text-stone-300 hover:bg-white/5">
+            <button onClick={handleLogout} className={sidebarCompactButtonClass} title="Sign out" aria-label="Sign out">
               <LogOut className="w-4 h-4" />
-              Sign out
+              <span className={sidebarTextClass}>Sign out</span>
             </button>
           </aside>
 
@@ -2250,16 +2388,16 @@ function AppShell() {
                   <div className="flex-1 overflow-auto space-y-4 pr-2">
                     {messages.length === 0 ? (
                       <div className={`h-full min-h-[360px] flex items-center justify-center ${emptyStateClass}`}>
-                        <div>
+                        <div className="max-w-md text-center">
                           <Bot className={`w-10 h-10 mx-auto mb-3 ${isDarkMode ? 'text-stone-500' : 'text-stone-400'}`} />
                           <p className={`text-lg ${isDarkMode ? 'text-stone-200' : 'text-stone-700'}`}>Start a local conversation.</p>
-                          <p className="text-sm mt-2 max-w-md">If Anthropic is configured, Botty will use Claude. Otherwise set a provider key or switch to your local endpoint.</p>
+                          <p className="text-sm mt-2 max-w-md">Choose a provider, type naturally, or use slash to jump modes without leaving the composer.</p>
                         </div>
                       </div>
                     ) : null}
 
                     {messages.map((message, index) => (
-                      <div key={`${message.role}-${index}`} className={`rounded-[1.5rem] px-4 py-4 ${message.role === 'user' ? 'bg-stone-900 text-white ml-auto max-w-[82%]' : isDarkMode ? 'bg-[#172131] border border-white/8 max-w-[92%]' : 'bg-white border border-stone-200 max-w-[92%]'}`}>
+                      <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-4 py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-[92%]'}`}>
                         <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
                           {message.role === 'user'
                             ? 'You'
@@ -2273,11 +2411,11 @@ function AppShell() {
                     ))}
                   </div>
 
-                  {chatError ? <div className="mt-4 rounded-2xl bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">{chatError}</div> : null}
+                  {chatError ? <div className="mt-4 rounded-[1rem] bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">{chatError}</div> : null}
 
-                  <div ref={composerDropRef} className={`mt-4 rounded-[1.5rem] p-3 relative transition-colors ${isDarkMode ? 'border border-white/8 bg-[#111927]' : 'border border-stone-200 bg-white'} ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-amber-300/70 bg-[#1d2a3f]' : 'ring-2 ring-amber-400/80 bg-amber-50') : ''}`}>
+                  <div ref={composerDropRef} className={`mt-4 rounded-[1.25rem] p-3 relative transition-colors ${isDarkMode ? 'border border-white/8 bg-[#111417]' : 'border border-stone-200 bg-[#faf8f3]'} ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-white/30 bg-[#1b2024]' : 'ring-2 ring-stone-400/60 bg-white') : ''}`}>
                     {isDragOverComposer ? (
-                      <div className={`pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-[1.25rem] border-2 border-dashed ${isDarkMode ? 'border-amber-300/70 bg-[#0f1726]/88 text-amber-100' : 'border-amber-400 bg-white/92 text-stone-900'}`}>
+                      <div className={`pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-[1.1rem] border-2 border-dashed ${isDarkMode ? 'border-white/25 bg-[#111417]/92 text-stone-100' : 'border-stone-300 bg-white/92 text-stone-900'}`}>
                         <div className="text-center">
                           <Upload className="mx-auto h-8 w-8" />
                           <p className="mt-3 text-base font-medium">Drop files to attach</p>
@@ -2349,7 +2487,7 @@ function AppShell() {
                     ) : null}
 
                     {prompt.startsWith('/') ? (
-                      <div className={`mt-3 rounded-2xl border ${isDarkMode ? 'border-white/8 bg-[#172131]' : 'border-stone-200 bg-stone-50'} p-2`}>
+                      <div className={`mt-3 rounded-[1rem] border ${isDarkMode ? 'border-white/8 bg-[#1a1d20]' : 'border-stone-200 bg-white'} p-2`}>
                         <div className="flex items-center justify-between gap-3 px-2 pb-2">
                           <div className={`text-xs ${subtleTextClass}`}>Slash autocomplete</div>
                           <div className={`text-[11px] ${subtleTextClass}`}>Arrow keys to move, Enter to apply, Esc to keep text</div>
@@ -2861,13 +2999,16 @@ function AppShell() {
                 </section>
 
                 {conversations.map(item => (
-                  <div key={item.id} className={`${sectionCardClass} flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between`}>
-                    <div>
-                      <div className="text-sm font-medium">{item.items[0].prompt}</div>
-                      <div className={`mt-2 text-xs ${subtleTextClass}`}>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</div>
-                      <div className={`text-xs ${subtleTextClass} mt-2`}>{new Date(item.items[0].timestamp).toLocaleString()} · {item.items.length} message pair(s)</div>
+                  <div key={item.id} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between`}>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
+                      <div className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs ${subtleTextClass}`}>
+                        <span>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</span>
+                        <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
+                        <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 self-start lg:self-center">
                       <button onClick={() => loadConversation(item.id)} className={secondaryButtonClass}>Open</button>
                       <button onClick={() => void deleteConversation(item.id)} className={destructiveButtonClass}>
                         <Trash2 className="w-4 h-4" />
@@ -2899,11 +3040,11 @@ function AppShell() {
                         }
                       }}
                     />
-                    <button onClick={() => importMemoryInputRef.current?.click()} disabled={isImportingMemory} className="rounded-2xl border border-stone-300 bg-white/80 px-4 py-3 flex items-center gap-2 disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-stone-100">
+                    <button onClick={() => importMemoryInputRef.current?.click()} disabled={isImportingMemory} className={secondaryButtonClass}>
                       <Upload className="w-4 h-4" />
                       {isImportingMemory ? 'Restoring...' : 'Restore backup'}
                     </button>
-                    <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
+                    <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className={primaryButtonClass}>
                       <Download className="w-4 h-4" />
                       {isExportingMemory ? 'Exporting...' : 'Backup memory now'}
                     </button>
@@ -2936,7 +3077,7 @@ function AppShell() {
                       </div>
                     </div>
 
-                    <div className={`text-sm ${subtleTextClass} space-y-1`}>
+                    <div className={`grid gap-2 text-sm ${subtleTextClass} md:grid-cols-2`}>
                       <div>File: {memoryRestorePreview.fileName}</div>
                       <div>Exported at: {memoryRestorePreview.exportedAt ? new Date(memoryRestorePreview.exportedAt).toLocaleString() : 'unknown'}</div>
                       <div>Includes runtime settings: {memoryRestorePreview.includesSettings ? 'yes' : 'no'}</div>
@@ -2944,11 +3085,11 @@ function AppShell() {
                     </div>
 
                     <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <button onClick={() => void importMemoryBackup()} disabled={isImportingMemory} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
+                      <button onClick={() => void importMemoryBackup()} disabled={isImportingMemory} className={primaryButtonClass}>
                         <Upload className="w-4 h-4" />
                         {isImportingMemory ? 'Restoring...' : 'Confirm restore'}
                       </button>
-                      <button onClick={resetMemoryRestoreSelection} disabled={isImportingMemory} className="rounded-2xl border border-stone-300 bg-white/80 px-4 py-3 flex items-center gap-2 disabled:opacity-60 dark:border-white/10 dark:bg-white/5 dark:text-stone-100">
+                      <button onClick={resetMemoryRestoreSelection} disabled={isImportingMemory} className={secondaryButtonClass}>
                         Cancel
                       </button>
                     </div>
@@ -2963,7 +3104,7 @@ function AppShell() {
                     </div>
                     <form onSubmit={addFact} className="mb-4 flex flex-col gap-2 sm:flex-row">
                       <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
-                      <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
+                      <button className={primaryButtonClass}>Add</button>
                     </form>
                     <div className="space-y-2">
                       {facts.map(item => (
@@ -2994,7 +3135,7 @@ function AppShell() {
                         void addFactFiles(event.target.files);
                       }}
                     />
-                    <button type="button" onClick={() => factFileInputRef.current?.click()} className="mb-4 rounded-2xl bg-stone-900 px-3 py-2 text-white">
+                    <button type="button" onClick={() => factFileInputRef.current?.click()} className={`mb-4 ${primaryButtonClass}`}>
                       Add files
                     </button>
                     <div className="space-y-2">
@@ -3020,7 +3161,7 @@ function AppShell() {
                     </div>
                     <form onSubmit={addUrl} className="mb-4 flex flex-col gap-2 sm:flex-row">
                       <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className={`flex-1 ${inputClass}`} />
-                      <button className="rounded-2xl bg-stone-900 text-white px-3 py-2">Add</button>
+                      <button className={primaryButtonClass}>Add</button>
                     </form>
                     <div className="space-y-2">
                       {memoryUrls.map(item => (
@@ -3048,7 +3189,7 @@ function AppShell() {
                   </div>
                   <div className="grid md:grid-cols-3 gap-3">
                     {['anthropic', 'google', 'openai'].map(providerName => (
-                      <div key={providerName} className={`${isDarkMode ? 'rounded-2xl bg-[#172131] border border-white/8 p-3' : 'rounded-2xl bg-white border border-stone-200 p-3'}`}>
+                      <div key={providerName} className={elevatedCardClass}>
                         <div className="text-sm font-medium capitalize mb-2">{providerName}</div>
                         <input
                           value={keyInputs[providerName] || ''}
@@ -3056,7 +3197,7 @@ function AppShell() {
                           placeholder={`${providerName.toUpperCase()}_API_KEY`}
                           className={textInputClass}
                         />
-                        <button onClick={() => void saveKey(providerName)} className="mt-3 rounded-2xl bg-stone-900 text-white px-3 py-2 text-sm w-full disabled:opacity-60" disabled={savingKey === providerName}>
+                        <button onClick={() => void saveKey(providerName)} className={`mt-3 w-full ${primaryButtonClass} disabled:opacity-60`} disabled={savingKey === providerName}>
                           {savingKey === providerName ? 'Saving...' : 'Save key'}
                         </button>
                       </div>
@@ -3072,12 +3213,12 @@ function AppShell() {
 
                   <div>
                     <label className={sectionLabelClass}>Local LLM URL</label>
-                    <input value={localUrl} onChange={event => setLocalUrl(event.target.value)} className={isDarkMode ? 'w-full rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100' : 'w-full rounded-2xl border border-stone-200 px-3 py-2'} />
+                    <input value={localUrl} onChange={event => setLocalUrl(event.target.value)} className={textInputClass} />
                   </div>
 
                   <div>
                     <label className={sectionLabelClass}>System prompt</label>
-                    <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={isDarkMode ? 'w-full rounded-2xl border border-white/10 px-3 py-2 bg-[#0b1220] text-stone-100' : 'w-full rounded-2xl border border-stone-200 px-3 py-2'} />
+                    <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={textareaClass} />
                   </div>
 
                   <div className={`grid gap-4 lg:grid-cols-2 ${elevatedCardClass}`}>
@@ -3089,7 +3230,7 @@ function AppShell() {
                       <p className={`text-sm ${subtleTextClass}`}>Save the bot token here and Botty will start or reload Telegram polling without editing environment files.</p>
                     </div>
 
-                    <div className={`lg:col-span-2 rounded-2xl border px-4 py-3 ${telegramStatusToneClass}`}>
+                    <div className={`lg:col-span-2 rounded-[1rem] border px-4 py-3 ${telegramStatusToneClass}`}>
                       <div className="flex items-center justify-between gap-3">
                         <div>
                           <div className="text-sm font-medium">{telegramStatusLabel}</div>
@@ -3098,7 +3239,7 @@ function AppShell() {
                         <button
                           type="button"
                           onClick={() => void refreshTelegramStatus()}
-                          className={`inline-flex items-center gap-2 rounded-2xl px-3 py-2 text-sm ${isDarkMode ? 'bg-white/10 text-stone-100' : 'bg-white text-stone-700 border border-stone-200'}`}
+                          className={`inline-flex items-center gap-2 ${secondaryButtonClass}`}
                           disabled={loadingTelegramStatus}
                         >
                           <RefreshCw className={`w-4 h-4 ${loadingTelegramStatus ? 'animate-spin' : ''}`} />
@@ -3162,17 +3303,17 @@ function AppShell() {
                     </div>
                   </div>
 
-                  <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+                  <label className={`flex items-center gap-3 rounded-[1rem] ${elevatedCardClass} text-sm`}>
                     <input type="checkbox" checked={useMemory} onChange={event => setUseMemory(event.target.checked)} />
                     Include saved memory in prompt construction
                   </label>
 
-                  <label className={`flex items-center gap-3 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
+                  <label className={`flex items-center gap-3 rounded-[1rem] ${elevatedCardClass} text-sm`}>
                     <input type="checkbox" checked={autoMemory} onChange={event => setAutoMemory(event.target.checked)} />
                     Learn durable facts about me automatically from successful chats
                   </label>
 
-                  <button onClick={() => void saveSettings()} disabled={savingSettings} className="rounded-2xl bg-stone-900 text-white px-4 py-3 flex items-center gap-2 disabled:opacity-60">
+                  <button onClick={() => void saveSettings()} disabled={savingSettings} className={`${primaryButtonClass} disabled:opacity-60`}>
                     <Save className="w-4 h-4" />
                     {savingSettings ? 'Saving...' : 'Save settings'}
                   </button>
