@@ -3,40 +3,50 @@
 ## 1. Configure Environment
 
 ```bash
-cd /home/ofirkat/Botty/Botty
+cd /home/ofirkat/Botty
 cp .env.example .env.local
 ```
 
 Set these values in `.env.local`:
 
 ```env
-DATABASE_URL=postgresql://botty_user:botty_pass@localhost:5432/botty_db
 JWT_SECRET=replace-this
 ANTHROPIC_API_KEY=your_claude_key
-HOST=0.0.0.0
+LOCAL_LLM_URL=http://127.0.0.1:11435
 # Optional for Telegram
 # TELEGRAM_BOT_TOKEN=123456:telegram-token
 ```
 
-## 2. Start PostgreSQL
+## 2. Start The Full Stack
 
 ```bash
-docker compose up -d postgres
+sudo systemctl restart botty.service
 ```
 
-## 3. Start the App
+This starts:
+
+- `postgres`
+- `ollama`
+- `app`
+
+If you prefer not to use systemd, you can run:
 
 ```bash
-npm install
-npm run dev
+docker compose up -d
 ```
 
-## 4. Open the App
+## 3. Open the App
 
-- Frontend: `http://localhost:5173`
-- API: `http://localhost:5000`
+- App: `http://localhost:5000`
 
 The database schema is bootstrapped automatically on server startup.
+
+Useful checks:
+
+- `systemctl status botty.service`
+- `docker compose ps`
+- `curl http://127.0.0.1:5000/api/health`
+- `curl http://127.0.0.1:11435/api/tags`
 
 ## Optional: Reach Botty From Outside Your Machine
 
@@ -56,5 +66,6 @@ The database schema is bootstrapped automatically on server startup.
 
 - Authentication is local-only.
 - Netlify, Firebase, and Google OAuth migration leftovers have been removed from the active runtime.
-- `docker compose` is only used for PostgreSQL.
-- `npm run dev` starts both the API and the Vite frontend.
+- The default runtime is Docker-based.
+- Ollama is part of the Docker stack and listens on `127.0.0.1:11435`.
+- If Telegram is unreachable at startup, Botty keeps serving the app and retries Telegram in the background.

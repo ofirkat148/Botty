@@ -1,6 +1,6 @@
 # Botty Local OSS Runtime
 
-Botty is a local Postgres-backed app with a React frontend, a Node/Express API, local JWT auth, and direct provider calls such as Claude via Anthropic.
+Botty now runs as a Docker-first local stack with a React frontend build, a Node/Express API, PostgreSQL, and Ollama. The stack is managed through Docker Compose, and the machine-level entrypoint is the `botty.service` systemd unit.
 
 ## Project Structure
 
@@ -10,24 +10,38 @@ Botty is a local Postgres-backed app with a React frontend, a Node/Express API, 
 
 ## Run Locally
 
-- Node.js 20+
-- PostgreSQL 16+ or Docker Compose
+- Docker + Docker Compose
+- systemd if you want the machine-managed boot path
+- `.env.local` for runtime configuration
 
 1. Copy `.env.example` to `.env.local`
-2. Set `JWT_SECRET`, `DATABASE_URL`, and at least one provider key such as `ANTHROPIC_API_KEY`
-3. Start PostgreSQL with `docker compose up -d postgres` or use an existing local Postgres instance
-4. Run `npm install`
-5. Run `npm run dev`
+2. Set `JWT_SECRET` and any provider keys you want Botty to use
+3. Start the full stack with `sudo systemctl restart botty.service`
 
-The frontend runs on `http://localhost:5173` and the API runs on `http://localhost:5000`.
+You can also run the stack directly with `docker compose up -d`.
+
+The app is served on `http://localhost:5000`.
+
+Current containers:
+
+- `app` runs the Express server and serves the built frontend
+- `postgres` stores Botty data
+- `ollama` serves the local LLM endpoint on `127.0.0.1:11435`
+
+Useful checks:
+
+- `systemctl status botty.service`
+- `docker compose ps`
+- `curl http://127.0.0.1:5000/api/health`
+- `curl http://127.0.0.1:11435/api/tags`
 
 ## Local Auth
 
 The app uses local email-based sign-in for single-user development. Enter any valid email in the UI and Botty will create or reuse that identity in PostgreSQL.
 
-## Claude
+## Providers
 
-If `ANTHROPIC_API_KEY` is set, the app will automatically expose Anthropic in the provider list and the default chat path will use Claude.
+If `ANTHROPIC_API_KEY` is set, the app will expose Anthropic in the provider list. Ollama is now containerized as part of the default stack, so local models are available through the Dockerized Ollama service by default.
 
 ## External Access
 
@@ -66,3 +80,4 @@ Behavior:
 - Messages are processed through the same Botty chat pipeline as the web app.
 - `/start` and `/help` show usage help.
 - `/reset` clears the current Telegram conversation context for that chat.
+- If Telegram is unreachable at startup, Botty keeps the app running and retries Telegram connection in the background.
