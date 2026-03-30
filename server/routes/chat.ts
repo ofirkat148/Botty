@@ -35,6 +35,7 @@ router.post('/', async (req: Request, res: Response) => {
       uid: req.userId!,
       prompt: String(req.body?.prompt || '').trim(),
       requestedProvider: String(req.body?.provider || '').trim().toLowerCase(),
+      routingMode: String(req.body?.routingMode || '').trim().toLowerCase(),
       requestedModel: String(req.body?.model || '').trim(),
       messages: Array.isArray(req.body?.messages) ? req.body.messages : [],
       incomingConversationId: String(req.body?.conversationId || '').trim(),

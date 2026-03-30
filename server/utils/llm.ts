@@ -44,6 +44,8 @@ export type ProviderRoute = {
   model: string;
 };
 
+export type RoutingMode = 'auto' | 'fastest' | 'cheapest' | 'best-quality' | 'local-first';
+
 export type ModelUsageEntry = {
   key: string;
   provider: string | null;
@@ -148,6 +150,25 @@ function getCandidateLocalLlmUrls(preferredUrl?: string | null) {
 
 export function getDefaultModel(provider: string) {
   return DEFAULT_MODELS[provider as keyof typeof DEFAULT_MODELS] || DEFAULT_MODELS.anthropic;
+}
+
+export function normalizeRoutingMode(value?: string | null): RoutingMode {
+  const normalized = value?.trim().toLowerCase() || 'auto';
+
+  if (normalized === 'fastest' || normalized === 'cheapest' || normalized === 'best-quality' || normalized === 'local-first') {
+    return normalized;
+  }
+
+  return 'auto';
+}
+
+export function isRoutingModeValue(value?: string | null) {
+  const normalized = value?.trim().toLowerCase() || '';
+  return normalized === 'auto'
+    || normalized === 'fastest'
+    || normalized === 'cheapest'
+    || normalized === 'best-quality'
+    || normalized === 'local-first';
 }
 
 function classifyPrompt(prompt: string) {
@@ -898,16 +919,36 @@ function getSmartRoute(prompt: string, availableProviders: string[], options?: {
 }
 
 export function getAutoRouteCandidates(prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }): ProviderRoute[] {
-  const primaryRoute = getSmartRoute(prompt, availableProviders, options);
-  const remainingProviders = availableProviders.filter(provider => provider !== primaryRoute.provider);
+  return getRouteCandidatesForMode('auto', prompt, availableProviders, options);
+}
 
-  return [
-    primaryRoute,
-    ...remainingProviders.map(provider => ({
-      provider,
-      model: getSuggestedModel(provider, prompt, options),
-    })),
-  ];
+function orderProvidersForMode(mode: RoutingMode, prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }) {
+  const smartPrimary = getSmartRoute(prompt, availableProviders, options).provider;
+  const uniqueProviders = Array.from(new Set(availableProviders));
+  const preferredOrder: Record<RoutingMode, string[]> = {
+    auto: [smartPrimary, 'local', 'google', 'openai', 'anthropic'],
+    fastest: ['local', 'google', 'openai', 'anthropic'],
+    cheapest: ['local', 'google', 'openai', 'anthropic'],
+    'best-quality': ['anthropic', 'openai', 'google', 'local'],
+    'local-first': ['local', smartPrimary, 'google', 'openai', 'anthropic'],
+  };
+
+  const ranked = preferredOrder[mode].filter(provider => uniqueProviders.includes(provider));
+  const remainder = uniqueProviders.filter(provider => !ranked.includes(provider));
+
+  return [...ranked, ...remainder];
+}
+
+export function getRouteCandidatesForMode(
+  mode: RoutingMode,
+  prompt: string,
+  availableProviders: string[],
+  options?: { defaultLocalModel?: string | null },
+): ProviderRoute[] {
+  return orderProvidersForMode(mode, prompt, availableProviders, options).map(provider => ({
+    provider,
+    model: getSuggestedModel(provider, prompt, options),
+  }));
 }
 
 function buildModelUsageKey(provider: string | null | undefined, model: string) {

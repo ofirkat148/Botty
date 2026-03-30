@@ -52,6 +52,7 @@ type Message = {
   content: string;
   model?: string;
   provider?: string;
+  routingMode?: string | null;
   tokensUsed?: number | null;
 };
 
@@ -217,6 +218,14 @@ type SlashMenuItem = {
   preset?: FunctionPreset;
 };
 
+const AUTO_ROUTE_OPTIONS = [
+  { value: 'auto', label: 'Smart default' },
+  { value: 'fastest', label: 'Fastest' },
+  { value: 'cheapest', label: 'Cheapest' },
+  { value: 'best-quality', label: 'Best quality' },
+  { value: 'local-first', label: 'Local first' },
+] as const;
+
 const PROVIDERS = [
   { value: 'auto', label: 'Auto route' },
   { value: 'anthropic', label: 'Anthropic / Claude' },
@@ -224,6 +233,8 @@ const PROVIDERS = [
   { value: 'openai', label: 'OpenAI' },
   { value: 'local', label: 'Local OpenAI-compatible' },
 ];
+
+const AUTO_ROUTE_MODES = new Set(['auto', 'fastest', 'cheapest', 'best-quality', 'local-first']);
 
 const DEFAULT_MODELS: Record<string, string> = {
   anthropic: 'claude-3-7-sonnet-latest',
@@ -584,11 +595,55 @@ function AppShell() {
       return '';
     }
 
+    if (value === 'auto') {
+      return 'Auto route';
+    }
+
+    if (value === 'fastest') {
+      return 'Auto: Fastest';
+    }
+
+    if (value === 'cheapest') {
+      return 'Auto: Cheapest';
+    }
+
+    if (value === 'best-quality') {
+      return 'Auto: Best quality';
+    }
+
+    if (value === 'local-first') {
+      return 'Auto: Local first';
+    }
+
     if (value === 'openai') {
       return 'OpenAI';
     }
 
     return value.charAt(0).toUpperCase() + value.slice(1);
+  }
+
+  function formatRoutingModeLabel(value?: string | null) {
+    if (!value || value === 'auto') {
+      return 'Smart default';
+    }
+
+    if (value === 'fastest') {
+      return 'Fastest';
+    }
+
+    if (value === 'cheapest') {
+      return 'Cheapest';
+    }
+
+    if (value === 'best-quality') {
+      return 'Best quality';
+    }
+
+    if (value === 'local-first') {
+      return 'Local first';
+    }
+
+    return formatProviderLabel(value || undefined);
   }
 
   function humanizeFallbackModelName(modelValue: string) {
@@ -601,7 +656,7 @@ function AppShell() {
 
   function formatModelOptionLabel(modelValue: string, providerValue?: string) {
     if (!modelValue) {
-      return providerValue && providerValue !== 'auto' ? 'Provider default' : 'Chosen automatically';
+      return providerValue && !AUTO_ROUTE_MODES.has(providerValue) ? 'Provider default' : 'Chosen automatically';
     }
 
     const known = MODEL_LABELS[modelValue];
@@ -613,7 +668,7 @@ function AppShell() {
 
   function formatModelDisplay(modelValue?: string | null, providerValue?: string) {
     if (!modelValue) {
-      return providerValue === 'auto' ? 'auto-selected' : 'provider default';
+      return providerValue && !AUTO_ROUTE_MODES.has(providerValue) ? 'provider default' : 'auto-selected';
     }
 
     return formatModelOptionLabel(modelValue, providerValue);
@@ -632,7 +687,7 @@ function AppShell() {
       return 'Routing: inherits current chat provider and model';
     }
 
-    if (!preset.provider || preset.provider === 'auto') {
+    if (!preset.provider || AUTO_ROUTE_MODES.has(preset.provider)) {
       return 'Routing: inherits current chat or auto route';
     }
 
@@ -699,6 +754,14 @@ function AppShell() {
     }
 
     return '';
+  }
+
+  function isAutoRouteProvider(value?: string | null) {
+    return AUTO_ROUTE_MODES.has((value || '').trim().toLowerCase());
+  }
+
+  function getProviderSelectValue(value?: string | null) {
+    return isAutoRouteProvider(value) ? 'auto' : (value || '');
   }
 
   function getEstimatedModelTokenLimit(providerValue?: string | null, modelValue?: string | null) {
@@ -1234,7 +1297,7 @@ function AppShell() {
     const nextTelegramProvider = settingsData.telegramProvider || 'auto';
     setTelegramProvider(nextTelegramProvider);
     setTelegramModel(
-      nextTelegramProvider !== 'auto'
+      !isAutoRouteProvider(nextTelegramProvider)
         ? (getSelectableModels(nextTelegramProvider, settingsData.telegramModel || '', true, nextModelCatalog).includes(settingsData.telegramModel || '')
           ? (settingsData.telegramModel || '')
           : '')
@@ -1252,11 +1315,11 @@ function AppShell() {
       return;
     }
 
-    if (provider !== 'auto' && nextProviders.includes(provider)) {
+    if (!isAutoRouteProvider(provider) && nextProviders.includes(provider)) {
       setModel(currentModel => getPreferredSelectableModel(provider, prompt, currentModel, nextModelCatalog));
     }
 
-    if (provider !== 'auto' && !nextProviders.includes(provider)) {
+    if (!isAutoRouteProvider(provider) && !nextProviders.includes(provider)) {
       setProvider('auto');
       setModel('');
     }
@@ -1339,10 +1402,12 @@ function AppShell() {
         model: string;
         provider: string;
         conversationId: string;
+        routingMode: string | null;
       }>('/api/chat', 'POST', {
         prompt: text,
-        provider,
-        model: provider === 'auto' ? undefined : model,
+        provider: isAutoRouteProvider(provider) ? 'auto' : provider,
+        routingMode: isAutoRouteProvider(provider) ? provider : undefined,
+        model: isAutoRouteProvider(provider) ? undefined : model,
         conversationId,
         messages: messages.slice(-10),
         attachments: pendingAttachments.map(item => ({
@@ -1370,6 +1435,7 @@ function AppShell() {
         content: response.text,
         model: response.model,
         provider: response.provider,
+        routingMode: response.routingMode,
         tokensUsed: response.tokensUsed,
       }]);
       setDailyTokens(prev => prev + response.tokensUsed);
@@ -2163,11 +2229,11 @@ function AppShell() {
     () => [...messages].reverse().find(message => message.role === 'assistant') || null,
     [messages],
   );
-  const currentRuntimeProvider = provider === 'auto' ? latestAssistantMessage?.provider || 'auto' : provider;
-  const currentRuntimeModel = provider === 'auto'
+  const currentRuntimeProvider = isAutoRouteProvider(provider) ? latestAssistantMessage?.provider || provider : provider;
+  const currentRuntimeModel = isAutoRouteProvider(provider)
     ? latestAssistantMessage?.model || 'auto-selected'
     : model || getSuggestedChatModel(provider, prompt);
-  const currentRuntimeTokenUsage = provider === 'auto'
+  const currentRuntimeTokenUsage = isAutoRouteProvider(provider)
     ? formatTokenUsage(latestAssistantMessage?.tokensUsed, latestAssistantMessage?.provider, latestAssistantMessage?.model)
     : formatTokenUsage(latestAssistantMessage?.tokensUsed, currentRuntimeProvider, currentRuntimeModel);
   const trendPeak = useMemo(() => Math.max(...usageTrend.map(entry => entry.tokens), 1), [usageTrend]);
@@ -2529,6 +2595,11 @@ function AppShell() {
 
                     {messages.map((message, index) => (
                       <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-3 py-3 sm:px-4 sm:py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[94%] sm:max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[94%] sm:max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-full sm:max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-full sm:max-w-[92%]'}`}>
+                        {message.role === 'assistant' && message.routingMode ? (
+                          <div className={`mb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>
+                            Requested via {formatRoutingModeLabel(message.routingMode)}
+                          </div>
+                        ) : null}
                         <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
                           {message.role === 'user'
                             ? 'You'
@@ -2556,15 +2627,17 @@ function AppShell() {
                     ) : null}
                     <div className="mb-3 grid gap-3 sm:grid-cols-[minmax(0,180px)_1fr]">
                       <select
-                        value={provider}
+                        value={getProviderSelectValue(provider)}
                         onChange={event => {
                           const nextProvider = event.target.value;
-                          setProvider(nextProvider);
-                          if (nextProvider !== 'auto') {
-                            setModel(getPreferredSelectableModel(nextProvider, prompt));
-                          } else {
+                          if (nextProvider === 'auto') {
+                            setProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
                             setModel('');
+                            return;
                           }
+
+                          setProvider(nextProvider);
+                          setModel(getPreferredSelectableModel(nextProvider, prompt));
                         }}
                         className={inputClass}
                       >
@@ -2574,15 +2647,24 @@ function AppShell() {
                       </select>
 
                       <select
-                        value={model}
-                        onChange={event => setModel(event.target.value)}
-                        disabled={provider === 'auto'}
-                        className={`${inputClass} ${isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400'}`}
+                        value={isAutoRouteProvider(provider) ? provider : model}
+                        onChange={event => {
+                          if (isAutoRouteProvider(provider)) {
+                            setProvider(event.target.value);
+                            return;
+                          }
+
+                          setModel(event.target.value);
+                        }}
+                        className={inputClass}
                       >
-                        {provider === 'auto' ? <option value="">Chosen automatically</option> : null}
-                        {provider !== 'auto' ? getSelectableModels(provider, model).map(option => (
-                          <option key={option} value={option}>{formatModelOptionLabel(option, provider)}</option>
-                        )) : null}
+                        {isAutoRouteProvider(provider)
+                          ? AUTO_ROUTE_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))
+                          : getSelectableModels(provider, model).map(option => (
+                              <option key={option} value={option}>{formatModelOptionLabel(option, provider)}</option>
+                            ))}
                       </select>
                     </div>
 
@@ -2956,10 +3038,22 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <textarea value={newBotBoundaries} onChange={event => setNewBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
                     </div>
-                    <select value={newBotProvider} onChange={event => {
+                    <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
                       const nextProvider = event.target.value;
+                      if (!nextProvider) {
+                        setNewBotProvider('');
+                        setNewBotModel('');
+                        return;
+                      }
+
+                      if (nextProvider === 'auto') {
+                        setNewBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
+                        setNewBotModel('');
+                        return;
+                      }
+
                       setNewBotProvider(nextProvider);
-                      setNewBotModel(nextProvider && nextProvider !== 'auto' ? getPreferredSelectableModel(nextProvider, newBotStarterPrompt) : '');
+                      setNewBotModel(getPreferredSelectableModel(nextProvider, newBotStarterPrompt));
                     }} className={textInputClass}>
                       <option value="">Inherit chat provider</option>
                       {PROVIDERS.map(option => (
@@ -2972,9 +3066,26 @@ function AppShell() {
                       <option value="none">No memory</option>
                     </select>
                     <div className="md:col-span-2">
-                      <select value={newBotModel} onChange={event => setNewBotModel(event.target.value)} disabled={!newBotProvider || newBotProvider === 'auto'} className={textInputClass}>
-                        {(!newBotProvider || newBotProvider === 'auto') ? <option value="">Inherit provider default</option> : null}
-                        {newBotProvider && newBotProvider !== 'auto' ? getSelectableModels(newBotProvider, newBotModel, true).map(option => (
+                      <select value={newBotProvider && isAutoRouteProvider(newBotProvider) ? newBotProvider : newBotModel} onChange={event => {
+                        if (!newBotProvider) {
+                          setNewBotModel(event.target.value);
+                          return;
+                        }
+
+                        if (isAutoRouteProvider(newBotProvider)) {
+                          setNewBotProvider(event.target.value);
+                          return;
+                        }
+
+                        setNewBotModel(event.target.value);
+                      }} disabled={!newBotProvider} className={`${textInputClass} ${!newBotProvider ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
+                        {!newBotProvider ? <option value="">Inherit provider default</option> : null}
+                        {newBotProvider && isAutoRouteProvider(newBotProvider)
+                          ? AUTO_ROUTE_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))
+                          : null}
+                        {newBotProvider && !isAutoRouteProvider(newBotProvider) ? getSelectableModels(newBotProvider, newBotModel, true).map(option => (
                           <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, newBotProvider)}</option>
                         )) : null}
                       </select>
@@ -3022,7 +3133,7 @@ function AppShell() {
                           <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
                           <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
                           <div className={`text-xs ${subtleTextClass}`}>
-                            Provider: {item.provider ? (item.provider === 'auto' ? 'Auto route' : formatProviderLabel(item.provider)) : 'Inherit chat'}
+                            Provider: {item.provider ? formatProviderLabel(item.provider) : 'Inherit chat'}
                             {' · '}
                             Model: {item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat'}
                             {' · '}
@@ -3081,7 +3192,7 @@ function AppShell() {
                             <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
                             <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
                             <div className={`text-xs ${subtleTextClass}`}>
-                              Provider: {item.provider ? (item.provider === 'auto' ? 'Auto route' : formatProviderLabel(item.provider)) : 'Inherit chat'}
+                              Provider: {item.provider ? formatProviderLabel(item.provider) : 'Inherit chat'}
                               {' · '}
                               Model: {item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat'}
                               {' · '}
@@ -3480,10 +3591,16 @@ function AppShell() {
 
                     <div>
                       <label className={sectionLabelClass}>Telegram provider</label>
-                      <select value={telegramProvider} onChange={event => {
+                      <select value={getProviderSelectValue(telegramProvider)} onChange={event => {
                         const nextProvider = event.target.value;
+                        if (nextProvider === 'auto') {
+                          setTelegramProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
+                          setTelegramModel('');
+                          return;
+                        }
+
                         setTelegramProvider(nextProvider);
-                        setTelegramModel(nextProvider && nextProvider !== 'auto' ? '' : '');
+                        setTelegramModel('');
                       }} className={textInputClass}>
                         {PROVIDERS.map(option => (
                           <option key={option.value} value={option.value}>{option.label}</option>
@@ -3494,15 +3611,24 @@ function AppShell() {
                     <div>
                       <label className={sectionLabelClass}>Telegram model override</label>
                       <select
-                        value={telegramModel}
-                        onChange={event => setTelegramModel(event.target.value)}
-                        disabled={telegramProvider === 'auto'}
+                        value={isAutoRouteProvider(telegramProvider) ? telegramProvider : telegramModel}
+                        onChange={event => {
+                          if (isAutoRouteProvider(telegramProvider)) {
+                            setTelegramProvider(event.target.value);
+                            return;
+                          }
+
+                          setTelegramModel(event.target.value);
+                        }}
                         className={textInputClass}
                       >
-                        {telegramProvider === 'auto' ? <option value="">Chosen automatically</option> : null}
-                        {telegramProvider !== 'auto' ? getSelectableModels(telegramProvider, telegramModel, true).map(option => (
-                          <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, telegramProvider)}</option>
-                        )) : null}
+                        {isAutoRouteProvider(telegramProvider)
+                          ? AUTO_ROUTE_OPTIONS.map(option => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))
+                          : getSelectableModels(telegramProvider, telegramModel, true).map(option => (
+                              <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, telegramProvider)}</option>
+                            ))}
                       </select>
                     </div>
                   </div>

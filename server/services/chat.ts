@@ -7,10 +7,12 @@ import {
   callLLM,
   getDefaultLocalModel,
   getAvailableProviders,
-  getAutoRouteCandidates,
+  getRouteCandidatesForMode,
   getDefaultModel,
   getSuggestedModel,
+  isRoutingModeValue,
   getMemoryContext,
+  normalizeRoutingMode,
   getProviderApiKey,
   getRuntimeSettings,
   incrementDailyUsage,
@@ -40,6 +42,7 @@ export type RunChatForUserInput = {
   uid: string;
   prompt: string;
   requestedProvider?: string;
+  routingMode?: string;
   requestedModel?: string;
   messages?: ChatMessage[];
   incomingConversationId?: string | null;
@@ -54,6 +57,7 @@ export type RunChatForUserResult = {
   provider: string;
   model: string;
   conversationId: string;
+  routingMode: string | null;
 };
 
 function normalizeChatAttachments(value: unknown) {
@@ -118,10 +122,11 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     ? await getDefaultLocalModel(runtimeSettings.localUrl)
     : null;
   const effectiveProvider = activeBot?.provider || requestedProvider;
+  const routingMode = normalizeRoutingMode(input.routingMode || effectiveProvider);
   const effectiveModel = activeBot?.model || requestedModel;
-  const shouldAutoRoute = effectiveProvider === 'auto' || !effectiveProvider;
+  const shouldAutoRoute = isRoutingModeValue(effectiveProvider) || routingMode !== 'auto' || !effectiveProvider;
   const routes = shouldAutoRoute
-    ? getAutoRouteCandidates(prompt, availableProviders, { defaultLocalModel })
+    ? getRouteCandidatesForMode(routingMode, prompt, availableProviders, { defaultLocalModel })
     : [{
         provider: effectiveProvider,
         model: effectiveModel || getSuggestedModel(effectiveProvider, prompt, { defaultLocalModel }),
@@ -240,5 +245,6 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     provider,
     model,
     conversationId,
+    routingMode: shouldAutoRoute ? routingMode : null,
   };
 }
