@@ -20,7 +20,17 @@ Fastest new-machine path after cloning the repo:
 bash ops/install-botty.sh
 ```
 
-That script creates `.env.local` if needed, installs a machine-specific `botty.service`, and starts the stack.
+That script creates `.env.local` if needed, validates the runtime config, installs or updates a machine-specific `botty.service`, and starts the stack.
+
+Useful installer flags:
+
+```bash
+bash ops/install-botty.sh --no-start
+bash ops/install-botty.sh --skip-docker-install
+bash ops/install-botty.sh --user "$USER" --env-file .env.local
+```
+
+If startup never reaches the health endpoint, the installer now exits non-zero after printing recent `systemctl status` output plus `docker compose logs` for `app`, `postgres`, and `ollama`.
 
 Manual path:
 
@@ -44,6 +54,11 @@ Useful checks:
 - `docker compose ps`
 - `curl http://127.0.0.1:5000/api/health`
 - `curl http://127.0.0.1:11435/api/tags`
+
+Operational notes:
+
+- Restarting `botty.service` now preserves the `postgres` and `ollama` containers and only restarts the `app` container.
+- The systemd unit sets `TimeoutStartSec=0` because first boot may need time to install dependencies and build the frontend inside the container.
 
 ## Git Export
 
