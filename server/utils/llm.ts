@@ -149,6 +149,7 @@ function getCandidateLocalLlmUrls(preferredUrl?: string | null) {
     preferredUrl,
     process.env.LOCAL_LLM_URL,
     process.env.LOCAL_LLM_URL_CONTAINER,
+    'http://ollama:11434',
     'http://127.0.0.1:11435',
     'http://localhost:11435',
     'http://127.0.0.1:11434',

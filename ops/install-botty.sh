@@ -125,11 +125,13 @@ validate_env_file() {
   print_step "Validating runtime configuration"
 
   local jwt_secret
+  local local_auth_enabled
   local telegram_enabled
   local telegram_token
   local public_base_url
 
   jwt_secret="$(read_env_value JWT_SECRET)"
+  local_auth_enabled="$(read_env_value LOCAL_AUTH_ENABLED)"
   telegram_enabled="$(read_env_value TELEGRAM_BOT_ENABLED)"
   telegram_token="$(read_env_value TELEGRAM_BOT_TOKEN)"
   public_base_url="$(read_env_value PUBLIC_BASE_URL)"
@@ -148,6 +150,15 @@ validate_env_file() {
   if [[ -z "$(read_env_value CORS_ORIGINS)" && -n "${public_base_url}" ]]; then
     warn "CORS_ORIGINS is empty; Botty will still allow PUBLIC_BASE_URL automatically, but add explicit origins if you front the API from additional domains"
   fi
+
+  if [[ -n "${public_base_url}" ]] && env_value_is_truthy "${local_auth_enabled}"; then
+    warn "LOCAL_AUTH_ENABLED is true while PUBLIC_BASE_URL is set. Local auth is intended for trusted personal deployments only; disable it before broader public exposure."
+  fi
+}
+
+build_app_image() {
+  print_step "Building Botty app image"
+  run_as_root "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" build app
 }
 
 ensure_docker() {
@@ -313,6 +324,7 @@ main() {
   ensure_user_in_docker_group
   ensure_env_file
   validate_env_file
+  build_app_image
   install_systemd_unit
 
   if [[ "${START_SERVICE}" -eq 1 ]]; then

@@ -1,6 +1,6 @@
 # Reverse Proxy Setup
 
-Botty already listens on `0.0.0.0:5000`. These configs put a reverse proxy in front of it so you can publish a domain safely.
+Botty is published to `127.0.0.1:5000` on the host by default. These configs put a reverse proxy in front of it so you can publish a domain without exposing the app container directly.
 
 ## Recommended environment values
 
@@ -10,6 +10,7 @@ Set these in `.env.local` before exposing the app publicly:
 HOST=0.0.0.0
 PUBLIC_BASE_URL=https://botty.example.com
 CORS_ORIGINS=https://botty.example.com
+LOCAL_AUTH_ENABLED=false
 ```
 
 Then restart the app service:
@@ -63,6 +64,8 @@ If Botty should be reachable from the public internet:
 1. Point your DNS record to your public IP.
 2. Forward ports `80` and `443` from your router to this machine.
 3. Allow those ports in your local firewall.
+
+Do not publish PostgreSQL or Ollama directly unless you intentionally want them reachable outside the machine.
 
 If you do not want direct public exposure, use a tunnel or private mesh instead:
 

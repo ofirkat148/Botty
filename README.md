@@ -20,7 +20,7 @@ Fastest new-machine path after cloning the repo:
 bash ops/install-botty.sh
 ```
 
-That script creates `.env.local` if needed, validates the runtime config, installs or updates a machine-specific `botty.service`, and starts the stack.
+That script creates `.env.local` if needed, validates the runtime config, builds the app image, installs or updates a machine-specific `botty.service`, and starts the stack.
 
 Useful installer flags:
 
@@ -58,7 +58,17 @@ Useful checks:
 Operational notes:
 
 - Restarting `botty.service` now preserves the `postgres` and `ollama` containers and only restarts the `app` container.
-- The systemd unit sets `TimeoutStartSec=0` because first boot may need time to install dependencies and build the frontend inside the container.
+- The systemd unit sets `TimeoutStartSec=0` because first boot may need time to build the app image.
+- The app now runs from a prebuilt Docker image instead of installing dependencies and rebuilding on each container start.
+- PostgreSQL is no longer published on the host by default.
+- Botty and Ollama are bound to `127.0.0.1` on the host; publish them another way only if you intentionally want direct network exposure.
+
+After pulling new code, rebuild the app image before restarting the service:
+
+```bash
+docker compose build app
+sudo systemctl restart botty.service
+```
 
 ## Git Export
 
@@ -90,7 +100,7 @@ If `ANTHROPIC_API_KEY` is set, the app will expose Anthropic in the provider lis
 
 ## External Access
 
-Botty now listens on `0.0.0.0` by default, so it can be reached from other machines if your firewall, router, reverse proxy, or cloud security group allows inbound traffic.
+Inside the container, Botty listens on `0.0.0.0`, but Docker only publishes the app to `127.0.0.1:5000` by default. Reach it through a reverse proxy, tunnel, or another deliberate publishing step if you need remote access.
 
 - `HOST` controls the bind address.
 - `PUBLIC_BASE_URL` can be set to your public URL, such as `https://botty.example.com`.
@@ -126,3 +136,7 @@ Behavior:
 - `/start` and `/help` show usage help.
 - `/reset` clears the current Telegram conversation context for that chat.
 - If Telegram is unreachable at startup, Botty keeps the app running and retries Telegram connection in the background.
+
+Security note:
+
+- `LOCAL_AUTH_ENABLED=true` is suitable for local or tightly controlled personal use. If you expose the Botty web app more broadly, disable local auth unless you have another trusted access layer in front of it.
