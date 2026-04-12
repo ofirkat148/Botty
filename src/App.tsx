@@ -36,7 +36,9 @@ import {
   getFunctionPresetForPrompt,
   MODEL_LABELS,
   MODEL_TOKEN_LIMIT_RULES,
+  normalizeSlashCommand,
   PROVIDERS,
+  RESERVED_SLASH_COMMANDS,
   SKILL_PRESETS,
   type FunctionPreset,
 } from './config/chatConfig';
@@ -361,6 +363,7 @@ function AppShell() {
   const [newSkillStarterPrompt, setNewSkillStarterPrompt] = useState('');
   const [newBotTitle, setNewBotTitle] = useState('');
   const [newBotDescription, setNewBotDescription] = useState('');
+  const [newBotCommand, setNewBotCommand] = useState('');
   const [newBotUseWhen, setNewBotUseWhen] = useState('');
   const [newBotBoundaries, setNewBotBoundaries] = useState('');
   const [newBotProvider, setNewBotProvider] = useState('');
@@ -395,6 +398,7 @@ function AppShell() {
   const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
   const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
   const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
+  const usedFunctionCommands = useMemo(() => new Set(allFunctionPresets.map(item => item.command.toLowerCase())), [allFunctionPresets]);
   const builtInAgentPresets = useMemo(() => botPresets.filter(item => item.builtIn), [botPresets]);
   const customAgentPresets = useMemo(() => botPresets.filter(item => !item.builtIn), [botPresets]);
   const activeFunctionPreset = useMemo(
@@ -1655,7 +1659,7 @@ function AppShell() {
 
     const title = newSkillTitle.trim();
     const description = newSkillDescription.trim();
-    const command = newSkillCommand.trim().toLowerCase();
+    const command = normalizeSlashCommand(newSkillCommand);
     const useWhenValue = newSkillUseWhen.trim();
     const boundariesValue = newSkillBoundaries.trim();
     const systemPromptValue = newSkillSystemPrompt.trim();
@@ -1666,8 +1670,8 @@ function AppShell() {
       return;
     }
 
-    if (skillPresets.some(item => item.command.toLowerCase() === command)) {
-      setNotice('That skill slash command already exists.');
+    if (RESERVED_SLASH_COMMANDS.has(command) || usedFunctionCommands.has(command)) {
+      setNotice('That slash command is already in use.');
       return;
     }
 
@@ -1702,6 +1706,7 @@ function AppShell() {
 
     const title = newBotTitle.trim();
     const description = newBotDescription.trim();
+    const command = normalizeSlashCommand(newBotCommand);
     const useWhenValue = newBotUseWhen.trim();
     const boundariesValue = newBotBoundaries.trim();
     const providerValue = newBotProvider.trim().toLowerCase();
@@ -1709,8 +1714,13 @@ function AppShell() {
     const systemPromptValue = newBotSystemPrompt.trim();
     const starterPromptValue = newBotStarterPrompt.trim();
 
-    if (!title || !description || !systemPromptValue || !starterPromptValue) {
+    if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
       setNotice('Fill in all agent fields before saving.');
+      return;
+    }
+
+    if (RESERVED_SLASH_COMMANDS.has(command) || usedFunctionCommands.has(command)) {
+      setNotice('That slash command is already in use.');
       return;
     }
 
@@ -1720,7 +1730,7 @@ function AppShell() {
         kind: 'agent',
         title,
         description,
-        command: title,
+        command,
         useWhen: useWhenValue || null,
         boundaries: boundariesValue || null,
         provider: providerValue || null,
@@ -1731,6 +1741,7 @@ function AppShell() {
       });
       setNewBotTitle('');
       setNewBotDescription('');
+      setNewBotCommand('');
       setNewBotUseWhen('');
       setNewBotBoundaries('');
       setNewBotProvider('');
@@ -2857,6 +2868,7 @@ function AppShell() {
                   </div>
                   <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2">
                     <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
+                    <input value={newBotCommand} onChange={event => setNewBotCommand(event.target.value)} placeholder="Slash command, e.g. security-review" className={textInputClass} />
                     <div className="md:col-span-2">
                       <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                     </div>
@@ -2953,6 +2965,7 @@ function AppShell() {
                             </div>
                           </div>
 
+                          <div className={`text-xs ${subtleTextClass}`}>Slash command: /{item.command}</div>
                           <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
                           <div className={`text-xs ${subtleTextClass}`}>Use when: {item.useWhen}</div>
                           <div className={`text-xs ${subtleTextClass}`}>Operating bounds: {item.boundaries}</div>
@@ -3012,6 +3025,7 @@ function AppShell() {
                               </div>
                             </div>
 
+                            <div className={`text-xs ${subtleTextClass}`}>Slash command: /{item.command}</div>
                             <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
                             <div className={`text-xs ${subtleTextClass}`}>Use when: {item.useWhen}</div>
                             <div className={`text-xs ${subtleTextClass}`}>Operating bounds: {item.boundaries}</div>

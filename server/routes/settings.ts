@@ -5,6 +5,7 @@ import { appSettings, settings, userSettings } from '../db/schema.js';
 import { eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.js';
+import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -45,15 +46,6 @@ function defaultBoundaries(kind: 'skill' | 'agent') {
     : 'Can steer provider, model, and memory for the session. Best for specialist ownership, not quick one-off overlays.';
 }
 
-function slugifyCommand(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40);
-}
-
 function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | 'agent'): StoredFunctionPreset | null {
   const candidate = value as Partial<StoredFunctionPreset> | null;
   const title = String(candidate?.title || '').trim();
@@ -63,7 +55,7 @@ function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | '
   const systemPrompt = String(candidate?.systemPrompt || '').trim();
   const starterPrompt = String(candidate?.starterPrompt || '').trim();
   const rawCommand = String(candidate?.command || '').trim();
-  const command = slugifyCommand(rawCommand || title);
+  const command = normalizeSlashCommand(rawCommand || title);
   const provider = typeof candidate?.provider === 'string' && candidate.provider.trim()
     ? candidate.provider.trim().toLowerCase()
     : null;
@@ -99,7 +91,7 @@ function readStoredFunctionPresets(value: unknown, expectedKind: 'skill' | 'agen
     return [] as StoredFunctionPreset[];
   }
 
-  const uniqueById = new Map<string, StoredFunctionPreset>();
+  const uniqueByCommand = new Map<string, StoredFunctionPreset>();
 
   value.forEach(item => {
     const normalized = normalizeStoredFunctionPreset(item, expectedKind);
@@ -107,10 +99,12 @@ function readStoredFunctionPresets(value: unknown, expectedKind: 'skill' | 'agen
       return;
     }
 
-    uniqueById.set(normalized.id, normalized);
+    if (!uniqueByCommand.has(normalized.command)) {
+      uniqueByCommand.set(normalized.command, normalized);
+    }
   });
 
-  return Array.from(uniqueById.values());
+  return Array.from(uniqueByCommand.values());
 }
 
 // GET /api/settings - Get user settings
@@ -379,9 +373,14 @@ router.post('/functions', async (req: Request, res: Response) => {
     const existingRow = rows[0];
     const currentSkills = readStoredFunctionPresets(existingRow?.customSkills, 'skill');
     const currentBots = readStoredFunctionPresets(existingRow?.customBots, 'agent');
+    const existingCommands = new Set([...currentSkills, ...currentBots].map(item => item.command));
 
-    if (kind === 'skill' && currentSkills.some(item => item.command === normalized.command)) {
-      return res.status(400).json({ error: 'A custom skill with that slash command already exists.' });
+    if (RESERVED_SLASH_COMMANDS.has(normalized.command)) {
+      return res.status(400).json({ error: 'That slash command is reserved by a built-in command, skill, or agent.' });
+    }
+
+    if (existingCommands.has(normalized.command)) {
+      return res.status(400).json({ error: 'A custom skill or agent with that slash command already exists.' });
     }
 
     const nextSkills = kind === 'skill' ? [...currentSkills, normalized] : currentSkills;
