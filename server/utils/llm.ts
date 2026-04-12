@@ -28,6 +28,7 @@ const PROVIDER_MODEL_OPTIONS: Record<string, string[]> = {
 
 const PREFERRED_LOCAL_MODELS = [
   'qwen2.5:3b',
+  'mistral:v0.3',
   'qwen2.5:1.5b',
   'llama3.2:1b',
   'gemma3:1b',

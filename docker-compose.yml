@@ -51,6 +51,7 @@ services:
       OLLAMA_HOST: 127.0.0.1:11435
     volumes:
       - /var/snap/ollama/common:/root/.ollama
+      - /run/systemd/resolve/resolv.conf:/etc/resolv.conf:ro
     healthcheck:
       test:
         - CMD
