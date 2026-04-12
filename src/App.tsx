@@ -374,6 +374,21 @@ function AppShell() {
   const [newBotEndpoint, setNewBotEndpoint] = useState('');
   const [newBotSystemPrompt, setNewBotSystemPrompt] = useState('');
   const [newBotStarterPrompt, setNewBotStarterPrompt] = useState('');
+  const [editingBotId, setEditingBotId] = useState('');
+  const [editingBotTitle, setEditingBotTitle] = useState('');
+  const [editingBotDescription, setEditingBotDescription] = useState('');
+  const [editingBotCommand, setEditingBotCommand] = useState('');
+  const [editingBotUseWhen, setEditingBotUseWhen] = useState('');
+  const [editingBotBoundaries, setEditingBotBoundaries] = useState('');
+  const [editingBotProvider, setEditingBotProvider] = useState('');
+  const [editingBotModel, setEditingBotModel] = useState('');
+  const [editingBotMemoryMode, setEditingBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
+  const [editingBotExecutorType, setEditingBotExecutorType] = useState<AgentExecutorType>('internal-llm');
+  const [editingBotEndpoint, setEditingBotEndpoint] = useState('');
+  const [editingBotSystemPrompt, setEditingBotSystemPrompt] = useState('');
+  const [editingBotStarterPrompt, setEditingBotStarterPrompt] = useState('');
+  const [savingBotId, setSavingBotId] = useState('');
+  const [deletingBotId, setDeletingBotId] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
     anthropic: '',
     google: '',
@@ -402,8 +417,8 @@ function AppShell() {
   const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
   const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
   const usedFunctionCommands = useMemo(() => new Set(allFunctionPresets.map(item => item.command.toLowerCase())), [allFunctionPresets]);
-  const builtInAgentPresets = useMemo(() => botPresets.filter(item => item.builtIn), [botPresets]);
-  const customAgentPresets = useMemo(() => botPresets.filter(item => !item.builtIn), [botPresets]);
+  const builtInAgentPresets = useMemo(() => BOT_PRESETS, []);
+  const customAgentPresets = useMemo(() => customBots, [customBots]);
   const activeFunctionPreset = useMemo(
     () => allFunctionPresets.find(item => item.id === activeFunctionId) || null,
     [activeFunctionId, allFunctionPresets],
@@ -1048,7 +1063,7 @@ function AppShell() {
     return response.json() as Promise<T>;
   }
 
-  async function apiSend<T>(path: string, method: 'POST' | 'DELETE', body?: unknown, options?: { signal?: AbortSignal }) {
+  async function apiSend<T>(path: string, method: 'POST' | 'PUT' | 'DELETE', body?: unknown, options?: { signal?: AbortSignal }) {
     const response = await fetch(path, {
       method,
       headers: authHeaders,
@@ -1771,6 +1786,107 @@ function AppShell() {
       setNotice('Custom agent added.');
     } finally {
       setCreatingFunction('');
+    }
+  }
+
+  function startEditingCustomBot(agent: AgentDefinition) {
+    setEditingBotId(agent.id);
+    setEditingBotTitle(agent.title);
+    setEditingBotDescription(agent.description);
+    setEditingBotCommand(agent.command);
+    setEditingBotUseWhen(agent.useWhen || '');
+    setEditingBotBoundaries(agent.boundaries || '');
+    setEditingBotProvider(agent.provider || '');
+    setEditingBotModel(agent.model || '');
+    setEditingBotMemoryMode(agent.memoryMode || 'shared');
+    setEditingBotExecutorType(agent.executorType || 'internal-llm');
+    setEditingBotEndpoint(agent.endpoint || '');
+    setEditingBotSystemPrompt(agent.systemPrompt);
+    setEditingBotStarterPrompt(agent.starterPrompt);
+  }
+
+  function stopEditingCustomBot() {
+    setEditingBotId('');
+    setEditingBotTitle('');
+    setEditingBotDescription('');
+    setEditingBotCommand('');
+    setEditingBotUseWhen('');
+    setEditingBotBoundaries('');
+    setEditingBotProvider('');
+    setEditingBotModel('');
+    setEditingBotMemoryMode('shared');
+    setEditingBotExecutorType('internal-llm');
+    setEditingBotEndpoint('');
+    setEditingBotSystemPrompt('');
+    setEditingBotStarterPrompt('');
+  }
+
+  async function saveEditedCustomBot(agentId: string) {
+    const title = editingBotTitle.trim();
+    const description = editingBotDescription.trim();
+    const command = normalizeSlashCommand(editingBotCommand);
+    const useWhenValue = editingBotUseWhen.trim();
+    const boundariesValue = editingBotBoundaries.trim();
+    const providerValue = editingBotProvider.trim().toLowerCase();
+    const modelValue = editingBotModel.trim();
+    const endpointValue = editingBotEndpoint.trim();
+    const systemPromptValue = editingBotSystemPrompt.trim();
+    const starterPromptValue = editingBotStarterPrompt.trim();
+    const commandTaken = allFunctionPresets.some(item => item.id !== agentId && item.command === command);
+
+    if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
+      setNotice('Fill in all agent fields before saving.');
+      return;
+    }
+
+    if (RESERVED_SLASH_COMMANDS.has(command) || commandTaken) {
+      setNotice('That slash command is already in use.');
+      return;
+    }
+
+    if (editingBotExecutorType === 'remote-http' && !endpointValue) {
+      setNotice('Remote agents require an endpoint URL.');
+      return;
+    }
+
+    setSavingBotId(agentId);
+    try {
+      await apiSend(`/api/settings/functions/agents/${agentId}`, 'PUT', {
+        title,
+        description,
+        command,
+        useWhen: useWhenValue || null,
+        boundaries: boundariesValue || null,
+        provider: editingBotExecutorType === 'internal-llm' ? (providerValue || null) : null,
+        model: editingBotExecutorType === 'internal-llm' ? (modelValue || null) : null,
+        memoryMode: editingBotMemoryMode,
+        executorType: editingBotExecutorType,
+        endpoint: editingBotExecutorType === 'remote-http' ? endpointValue : null,
+        systemPrompt: systemPromptValue,
+        starterPrompt: starterPromptValue,
+      });
+      stopEditingCustomBot();
+      await refreshAll();
+      setNotice('Custom agent updated.');
+    } finally {
+      setSavingBotId('');
+    }
+  }
+
+  async function deleteCustomBot(agent: AgentDefinition) {
+    setDeletingBotId(agent.id);
+    try {
+      await apiSend(`/api/settings/functions/agents/${agent.id}`, 'DELETE');
+      if (activeFunctionId === agent.id) {
+        setActiveFunctionId('');
+      }
+      if (editingBotId === agent.id) {
+        stopEditingCustomBot();
+      }
+      await refreshAll();
+      setNotice('Custom agent deleted.');
+    } finally {
+      setDeletingBotId('');
     }
   }
 
@@ -3049,6 +3165,9 @@ function AppShell() {
                     <div className="grid gap-3 xl:grid-cols-2">
                       {customAgentPresets.map(item => {
                         const isActive = activeFunctionId === item.id;
+                        const isEditing = editingBotId === item.id;
+                        const isSaving = savingBotId === item.id;
+                        const isDeleting = deletingBotId === item.id;
 
                         return (
                           <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
@@ -3062,40 +3181,154 @@ function AppShell() {
                               </div>
                             </div>
 
-                            <div className={`text-xs ${subtleTextClass}`}>Slash command: /{item.command}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>Use when: {item.useWhen}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>Operating bounds: {item.boundaries}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>{getPresetActivationLabel(item)}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>{getPresetAutonomyLabel(item)}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>Executor: {getAgentExecutorLabel(item)}</div>
-                            {getAgentEndpoint(item) ? <div className={`text-xs ${subtleTextClass}`}>Endpoint: {getAgentEndpoint(item)}</div> : null}
-                            <div className={`text-xs ${subtleTextClass}`}>
-                              Provider: {getAgentExecutorType(item) === 'internal-llm' ? (item.provider ? formatProviderLabel(item.provider) : 'Inherit chat') : 'Remote endpoint'}
-                              {' · '}
-                              Model: {getAgentExecutorType(item) === 'internal-llm' ? (item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat') : 'Handled remotely'}
-                              {' · '}
-                              Memory: {item.memoryMode || 'shared'}
-                            </div>
+                            {isEditing ? (
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <input value={editingBotTitle} onChange={event => setEditingBotTitle(event.target.value)} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
+                                <input value={editingBotCommand} onChange={event => setEditingBotCommand(event.target.value)} placeholder="Slash command, e.g. security-review" className={textInputClass} />
+                                <div className="md:col-span-2">
+                                  <input value={editingBotDescription} onChange={event => setEditingBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <input value={editingBotUseWhen} onChange={event => setEditingBotUseWhen(event.target.value)} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <textarea value={editingBotBoundaries} onChange={event => setEditingBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
+                                </div>
+                                <select value={editingBotExecutorType} onChange={event => setEditingBotExecutorType(event.target.value as AgentExecutorType)} className={textInputClass}>
+                                  <option value="internal-llm">Internal Botty agent</option>
+                                  <option value="remote-http">Remote HTTP agent</option>
+                                </select>
+                                <input value={editingBotEndpoint} onChange={event => setEditingBotEndpoint(event.target.value)} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
+                                {editingBotExecutorType === 'internal-llm' ? (
+                                  <>
+                                    <select value={editingBotProvider ? getProviderSelectValue(editingBotProvider) : ''} onChange={event => {
+                                      const nextProvider = event.target.value;
+                                      if (!nextProvider) {
+                                        setEditingBotProvider('');
+                                        setEditingBotModel('');
+                                        return;
+                                      }
 
-                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                              <button
-                                onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
-                                disabled={applyingFunctionId === item.id}
-                                className={responsivePrimaryButtonClass}
-                              >
-                                {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
-                              </button>
-                              <button
-                                onClick={() => void activateFunctionPreset(item)}
-                                disabled={applyingFunctionId === item.id}
-                                className={responsiveSecondaryButtonClass}
-                              >
-                                {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
-                              </button>
-                            </div>
+                                      if (nextProvider === 'auto') {
+                                        setEditingBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
+                                        setEditingBotModel('');
+                                        return;
+                                      }
+
+                                      setEditingBotProvider(nextProvider);
+                                      setEditingBotModel(getPreferredSelectableModel(nextProvider, editingBotStarterPrompt, editingBotModel));
+                                    }} className={textInputClass}>
+                                      <option value="">Inherit chat provider</option>
+                                      {PROVIDERS.map(option => (
+                                        <option key={option.value} value={option.value}>{option.label}</option>
+                                      ))}
+                                    </select>
+                                    <select value={editingBotMemoryMode} onChange={event => setEditingBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                                      <option value="shared">Shared memory</option>
+                                      <option value="isolated">Isolated agent memory</option>
+                                      <option value="none">No memory</option>
+                                    </select>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
+                                    <select value={editingBotMemoryMode} onChange={event => setEditingBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                                      <option value="shared">Shared memory</option>
+                                      <option value="isolated">Isolated agent memory</option>
+                                      <option value="none">No memory</option>
+                                    </select>
+                                  </>
+                                )}
+                                <div className="md:col-span-2">
+                                  <select value={editingBotProvider && isAutoRouteProvider(editingBotProvider) ? editingBotProvider : editingBotModel} onChange={event => {
+                                    if (!editingBotProvider) {
+                                      setEditingBotModel(event.target.value);
+                                      return;
+                                    }
+
+                                    if (isAutoRouteProvider(editingBotProvider)) {
+                                      setEditingBotProvider(event.target.value);
+                                      return;
+                                    }
+
+                                    setEditingBotModel(event.target.value);
+                                  }} disabled={!editingBotProvider || editingBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!editingBotProvider || editingBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
+                                    {!editingBotProvider ? <option value="">Inherit provider default</option> : null}
+                                    {editingBotProvider && isAutoRouteProvider(editingBotProvider)
+                                      ? AUTO_ROUTE_OPTIONS.map(option => (
+                                          <option key={option.value} value={option.value}>{option.label}</option>
+                                        ))
+                                      : null}
+                                    {editingBotProvider && !isAutoRouteProvider(editingBotProvider) ? getSelectableModels(editingBotProvider, editingBotModel, true).map(option => (
+                                      <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, editingBotProvider)}</option>
+                                    )) : null}
+                                  </select>
+                                </div>
+                                <div className="md:col-span-2">
+                                  <textarea value={editingBotSystemPrompt} onChange={event => setEditingBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <textarea value={editingBotStarterPrompt} onChange={event => setEditingBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                                </div>
+                                <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                  <button type="button" onClick={() => void saveEditedCustomBot(item.id)} disabled={isSaving} className={responsivePrimaryButtonClass}>
+                                    <Save className="w-4 h-4" />
+                                    {isSaving ? 'Saving...' : 'Save changes'}
+                                  </button>
+                                  <button type="button" onClick={stopEditingCustomBot} disabled={isSaving} className={responsiveSecondaryButtonClass}>
+                                    Cancel
+                                  </button>
+                                  <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isSaving || isDeleting} className={responsiveDestructiveButtonClass}>
+                                    <Trash2 className="w-4 h-4" />
+                                    {isDeleting ? 'Deleting...' : 'Delete agent'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className={`text-xs ${subtleTextClass}`}>Slash command: /{item.command}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>Task focus: {item.starterPrompt}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>Use when: {item.useWhen}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>Operating bounds: {item.boundaries}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>{getPresetActivationLabel(item)}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>{getPresetAutonomyLabel(item)}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
+                                <div className={`text-xs ${subtleTextClass}`}>Executor: {getAgentExecutorLabel(item)}</div>
+                                {getAgentEndpoint(item) ? <div className={`text-xs ${subtleTextClass}`}>Endpoint: {getAgentEndpoint(item)}</div> : null}
+                                <div className={`text-xs ${subtleTextClass}`}>
+                                  Provider: {getAgentExecutorType(item) === 'internal-llm' ? (item.provider ? formatProviderLabel(item.provider) : 'Inherit chat') : 'Remote endpoint'}
+                                  {' · '}
+                                  Model: {getAgentExecutorType(item) === 'internal-llm' ? (item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat') : 'Handled remotely'}
+                                  {' · '}
+                                  Memory: {item.memoryMode || 'shared'}
+                                </div>
+
+                                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                  <button
+                                    onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
+                                    disabled={applyingFunctionId === item.id}
+                                    className={responsivePrimaryButtonClass}
+                                  >
+                                    {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
+                                  </button>
+                                  <button
+                                    onClick={() => void activateFunctionPreset(item)}
+                                    disabled={applyingFunctionId === item.id}
+                                    className={responsiveSecondaryButtonClass}
+                                  >
+                                    {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
+                                  </button>
+                                  <button type="button" onClick={() => startEditingCustomBot(item)} disabled={isDeleting} className={responsiveSecondaryButtonClass}>
+                                    Edit agent
+                                  </button>
+                                  <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
+                                    <Trash2 className="w-4 h-4" />
+                                    {isDeleting ? 'Deleting...' : 'Delete agent'}
+                                  </button>
+                                </div>
+                              </>
+                            )}
                           </div>
                         );
                       })}

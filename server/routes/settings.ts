@@ -7,7 +7,7 @@ import { authMiddleware } from '../middleware/auth.js';
 import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.js';
 import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
 import { isAgentExecutorType } from '../../shared/agentDefinitions.js';
-import { createCustomAgentForUser, listCustomAgentsForUser } from '../utils/agents.js';
+import { createCustomAgentForUser, deleteCustomAgentForUser, getCustomAgentForUser, listCustomAgentsForUser } from '../utils/agents.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -441,6 +441,153 @@ router.post('/functions', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error creating custom function:', error);
     res.status(500).json({ error: 'Failed to create custom function' });
+  }
+});
+
+router.put('/functions/agents/:agentId', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const uid = req.userId!;
+    const agentId = String(req.params.agentId || '').trim();
+
+    if (!agentId) {
+      return res.status(400).json({ error: 'Agent id is required.' });
+    }
+
+    const existingAgent = await getCustomAgentForUser(uid, agentId);
+    if (!existingAgent) {
+      return res.status(404).json({ error: 'Custom agent not found.' });
+    }
+
+    const normalized = normalizeStoredFunctionPreset({
+      id: existingAgent.id,
+      kind: 'agent',
+      title: req.body?.title,
+      description: req.body?.description,
+      command: req.body?.command,
+      useWhen: req.body?.useWhen,
+      boundaries: req.body?.boundaries,
+      systemPrompt: req.body?.systemPrompt,
+      starterPrompt: req.body?.starterPrompt,
+      provider: req.body?.provider,
+      model: req.body?.model,
+      memoryMode: req.body?.memoryMode,
+    }, 'agent');
+
+    if (!normalized) {
+      return res.status(400).json({ error: 'Title, description, prompt fields, and a valid command are required.' });
+    }
+
+    const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+    const existingRow = rows[0];
+    const currentSkills = readStoredFunctionPresets(existingRow?.customSkills, 'skill');
+    const currentBots = await listCustomAgentsForUser(uid);
+    const conflictingAgent = currentBots.find((item) => item.command === normalized.command && item.id !== agentId);
+
+    if (RESERVED_SLASH_COMMANDS.has(normalized.command)) {
+      return res.status(400).json({ error: 'That slash command is reserved by a built-in command, skill, or agent.' });
+    }
+
+    if (currentSkills.some((item) => item.command === normalized.command) || conflictingAgent) {
+      return res.status(400).json({ error: 'A custom skill or agent with that slash command already exists.' });
+    }
+
+    const executorType = isAgentExecutorType(req.body?.executorType) ? req.body.executorType : 'internal-llm';
+    const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
+    const config = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
+      ? req.body.config
+      : null;
+
+    const updatedAgent = await createCustomAgentForUser(uid, {
+      id: existingAgent.id,
+      kind: 'agent',
+      title: normalized.title,
+      description: normalized.description,
+      command: normalized.command,
+      useWhen: normalized.useWhen,
+      boundaries: normalized.boundaries,
+      systemPrompt: normalized.systemPrompt,
+      starterPrompt: normalized.starterPrompt,
+      provider: executorType === 'internal-llm' ? normalized.provider : null,
+      model: executorType === 'internal-llm' ? normalized.model : null,
+      memoryMode: normalized.memoryMode,
+      executorType,
+      endpoint: executorType === 'remote-http' ? endpoint : null,
+      config,
+    });
+
+    if (!updatedAgent) {
+      return res.status(400).json({ error: executorType === 'remote-http' ? 'Remote agents require a valid endpoint.' : 'Invalid agent definition.' });
+    }
+
+    if (existingRow?.systemPrompt === existingAgent.systemPrompt && updatedAgent.systemPrompt !== existingAgent.systemPrompt) {
+      await db
+        .insert(userSettings)
+        .values({
+          uid,
+          systemPrompt: updatedAgent.systemPrompt,
+          customSkills: existingRow?.customSkills || [],
+          customBots: existingRow?.customBots || [],
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: userSettings.uid,
+          set: {
+            systemPrompt: updatedAgent.systemPrompt,
+            updatedAt: new Date(),
+          },
+        });
+      updatedAgent.builtIn = false;
+    }
+
+    return res.json({ success: true, item: updatedAgent });
+  } catch (error) {
+    console.error('Error updating custom agent:', error);
+    res.status(500).json({ error: 'Failed to update custom agent' });
+  }
+});
+
+router.delete('/functions/agents/:agentId', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const uid = req.userId!;
+    const agentId = String(req.params.agentId || '').trim();
+
+    if (!agentId) {
+      return res.status(400).json({ error: 'Agent id is required.' });
+    }
+
+    const deletedAgent = await deleteCustomAgentForUser(uid, agentId);
+    if (!deletedAgent) {
+      return res.status(404).json({ error: 'Custom agent not found.' });
+    }
+
+    const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+    const existingRow = rows[0];
+
+    if (existingRow?.systemPrompt === deletedAgent.systemPrompt) {
+      await db
+        .insert(userSettings)
+        .values({
+          uid,
+          systemPrompt: null,
+          customSkills: existingRow?.customSkills || [],
+          customBots: existingRow?.customBots || [],
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: userSettings.uid,
+          set: {
+            systemPrompt: null,
+            updatedAt: new Date(),
+          },
+        });
+    }
+
+    return res.json({ success: true, item: deletedAgent });
+  } catch (error) {
+    console.error('Error deleting custom agent:', error);
+    res.status(500).json({ error: 'Failed to delete custom agent' });
   }
 });
 

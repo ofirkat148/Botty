@@ -73,15 +73,32 @@ test('ui can create and run a remote http agent', async () => {
     const agentCard = customAgentsSection.locator('div').filter({ hasText: agentTitle }).first();
     await agentCard.getByText('Executor: Remote HTTP agent').waitFor();
     await agentCard.getByText(`Endpoint: ${endpoint}`).waitFor();
-    await agentCard.getByRole('button', { name: 'Start agent chat' }).click();
+    await agentCard.getByRole('button', { name: 'Edit agent' }).click();
+    await agentCard.getByPlaceholder('Agent title, e.g. Security Reviewer').fill(`${agentTitle} Updated`);
+    await agentCard.getByPlaceholder('Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks').fill('Check the updated remote UI path end to end.');
+    await agentCard.getByPlaceholder('System prompt: define the specialist role, operating rules, and decision standards').fill('You are an updated remote UI smoke-test agent.');
+    await agentCard.getByRole('button', { name: 'Save changes' }).click();
+
+    await page.getByText('Custom agent updated.').waitFor();
+    await customAgentsSection.getByText(`${agentTitle} Updated`).waitFor();
+
+    const updatedAgentCard = customAgentsSection.locator('div').filter({ hasText: `${agentTitle} Updated` }).first();
+    await updatedAgentCard.getByRole('button', { name: 'Start agent chat' }).click();
 
     await page.getByRole('heading', { name: 'Chat' }).waitFor();
     await page.getByRole('button', { name: 'Send' }).click();
-    await page.getByText('Remote UI agent handled: Check the remote UI path end to end.').waitFor({ timeout: 15000 });
+    await page.getByText('Remote UI agent handled: Check the updated remote UI path end to end.').waitFor({ timeout: 15000 });
 
     assert.equal(requests.length, 1, 'expected one remote request from the UI flow');
     assert.equal(requests[0].agent?.command, agentCommand, 'expected remote request agent metadata');
-    assert.equal(requests[0].systemPrompt, 'You are a remote UI smoke-test agent.', 'expected remote request system prompt');
+    assert.equal(requests[0].systemPrompt, 'You are an updated remote UI smoke-test agent.', 'expected remote request system prompt');
+
+    await page.getByRole('button', { name: 'Agents' }).click();
+    await updatedAgentCard.getByRole('button', { name: 'Delete agent' }).click();
+    await page.getByText('Custom agent deleted.').waitFor();
+    await assert.doesNotReject(async () => {
+      await customAgentsSection.getByText(`${agentTitle} Updated`).waitFor({ state: 'detached', timeout: 15000 });
+    });
   } finally {
     await browser?.close();
     await new Promise((resolve, reject) => remoteServer.close((error) => error ? reject(error) : resolve(undefined)));

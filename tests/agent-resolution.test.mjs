@@ -125,6 +125,46 @@ test('remote http agents can be created and executed end to end', async () => {
     assert.equal(requests[0].agent?.command, 'remote-research', 'expected agent metadata in remote request');
     assert.equal(requests[0].systemPrompt, 'You are a remote research agent.', 'expected remote request system prompt');
     assert.equal(requests[0].messages?.[0]?.content, 'Previous message', 'expected remote request conversation history');
+
+    const updateAgent = await fetchJson(`/api/settings/functions/agents/${createAgent.body.item.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({
+        title: 'Remote Research Agent Updated',
+        description: 'Delegates execution to a remote HTTP endpoint.',
+        command: 'remote-research-updated',
+        executorType: 'remote-http',
+        endpoint,
+        memoryMode: 'shared',
+        systemPrompt: 'You are an updated remote research agent.',
+        starterPrompt: 'Use the updated remote research workflow.',
+      }),
+    });
+
+    assert.equal(updateAgent.response.status, 200, 'expected remote custom agent update to succeed');
+    assert.equal(updateAgent.body.item?.command, 'remote-research-updated', 'expected updated command');
+    assert.equal(updateAgent.body.item?.systemPrompt, 'You are an updated remote research agent.', 'expected updated system prompt');
+
+    const deleteAgent = await fetchJson(`/api/settings/functions/agents/${createAgent.body.item.id}`, {
+      method: 'DELETE',
+      headers,
+    });
+
+    assert.equal(deleteAgent.response.status, 200, 'expected remote custom agent deletion to succeed');
+
+    const missingAfterDelete = await fetchJson('/api/chat', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        prompt: 'This should fail after deletion.',
+        provider: 'auto',
+        activeAgentId: createAgent.body.item.id,
+        messages: [],
+      }),
+    });
+
+    assert.equal(missingAfterDelete.response.status, 400, 'expected deleted agent ids to be rejected');
+    assert.equal(missingAfterDelete.body.error, 'Active agent not found', 'expected deleted agent error message');
   } finally {
     await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve(undefined)));
   }

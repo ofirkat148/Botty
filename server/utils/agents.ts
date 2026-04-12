@@ -169,6 +169,17 @@ export async function resolveAgentForUser(uid: string, agentId: string) {
   return customAgents.find((agent) => agent.id === agentId) || null;
 }
 
+export async function getCustomAgentForUser(uid: string, agentId: string) {
+  const db = getDatabase();
+  const rows = await db
+    .select()
+    .from(agentDefinitions)
+    .where(eq(agentDefinitions.uid, uid));
+
+  const match = rows.find((row) => row.id === agentId);
+  return match ? rowToAgentDefinition(match) : null;
+}
+
 export async function replaceCustomAgentsForUser(uid: string, items: unknown) {
   const db = getDatabase();
   const normalizedAgents = Array.isArray(items)
@@ -215,4 +226,15 @@ export async function createCustomAgentForUser(uid: string, input: AgentCandidat
   });
 
   return normalized;
+}
+
+export async function deleteCustomAgentForUser(uid: string, agentId: string) {
+  const existingAgent = await getCustomAgentForUser(uid, agentId);
+  if (!existingAgent) {
+    return null;
+  }
+
+  const db = getDatabase();
+  await db.delete(agentDefinitions).where(eq(agentDefinitions.id, agentId));
+  return existingAgent;
 }
