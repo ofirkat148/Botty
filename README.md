@@ -14,6 +14,16 @@ Botty now runs as a Docker-first local stack with a React frontend build, a Node
 - systemd if you want the machine-managed boot path
 - `.env.local` for runtime configuration
 
+Fastest new-machine path after cloning the repo:
+
+```bash
+bash ops/install-botty.sh
+```
+
+That script creates `.env.local` if needed, installs a machine-specific `botty.service`, and starts the stack.
+
+Manual path:
+
 1. Copy `.env.example` to `.env.local`
 2. Set `JWT_SECRET` and any provider keys you want Botty to use
 3. Start the full stack with `sudo systemctl restart botty.service`

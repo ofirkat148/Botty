@@ -1,6 +1,25 @@
 # Botty Quick Start
 
-## 1. Configure Environment
+## 1. Fast Install On A New Linux Machine
+
+If the repo is already checked out on the target machine, the fastest path is:
+
+```bash
+cd /path/to/Botty
+bash ops/install-botty.sh
+```
+
+What this does:
+
+- installs Docker and the compose plugin on apt-based systems if they are missing
+- creates `.env.local` from `.env.example` if needed
+- generates a non-placeholder `JWT_SECRET`
+- installs a machine-specific `botty.service`
+- starts the Botty stack and prints health checks
+
+After the script finishes, review `.env.local` for any provider keys, public URL settings, or Telegram token you want to enable.
+
+## 2. Configure Environment Manually
 
 ```bash
 cd /home/ofirkat/Botty
@@ -17,7 +36,7 @@ LOCAL_LLM_URL=http://127.0.0.1:11435
 # TELEGRAM_BOT_TOKEN=123456:telegram-token
 ```
 
-## 2. Start The Full Stack
+## 3. Start The Full Stack
 
 ```bash
 sudo systemctl restart botty.service
@@ -35,7 +54,7 @@ If you prefer not to use systemd, you can run:
 docker compose up -d
 ```
 
-## 3. Open the App
+## 4. Open the App
 
 - App: `http://localhost:5000`
 
