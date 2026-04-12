@@ -7,11 +7,12 @@ Botty is published to `127.0.0.1:5000` on the host by default. These configs put
 Set these in `.env.local` before exposing the app publicly:
 
 ```env
-HOST=0.0.0.0
 PUBLIC_BASE_URL=https://botty.example.com
 CORS_ORIGINS=https://botty.example.com
 LOCAL_AUTH_ENABLED=false
 ```
+
+The current runtime keeps Botty itself bound to `127.0.0.1:5000` on the host through Compose, so you do not need to broaden `HOST` just to use a reverse proxy.
 
 Then restart the app service:
 
@@ -66,6 +67,8 @@ If Botty should be reachable from the public internet:
 3. Allow those ports in your local firewall.
 
 Do not publish PostgreSQL or Ollama directly unless you intentionally want them reachable outside the machine.
+
+On enterprise networks, Docker bridge DNS and some outbound services may be restricted. The current Botty runtime intentionally uses localhost-bound services plus the host resolver path to stay compatible with that environment.
 
 If you do not want direct public exposure, use a tunnel or private mesh instead:
 

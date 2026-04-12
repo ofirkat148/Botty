@@ -158,6 +158,7 @@ validate_env_file() {
 
 build_app_image() {
   print_step "Building Botty app image"
+  warn "This build reuses the host resolver path because some enterprise networks break Docker's default DNS behavior."
   run_as_root "${DOCKER_BIN}" compose -f "${COMPOSE_FILE}" build app
 }
 
@@ -303,9 +304,11 @@ print_post_install_notes() {
 - Service management: sudo systemctl restart ${SERVICE_NAME}
 - Health check: curl http://127.0.0.1:5000/api/health
 - Container status: ${DOCKER_BIN} compose -f ${COMPOSE_FILE} ps
+- Runtime model: host networking with localhost-only binds for app, postgres, and ollama
 - Review provider API keys in ${ENV_FILE} before using hosted models
 - Set TELEGRAM_BOT_TOKEN in ${ENV_FILE} if you want Telegram enabled
 - Set PUBLIC_BASE_URL and review ops/REVERSE_PROXY.md before public exposure
+- On enterprise networks, outbound DNS and Telegram access may still be restricted even when Botty itself is healthy
 EOF
 }
 

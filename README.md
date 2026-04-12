@@ -60,8 +60,9 @@ Operational notes:
 - Restarting `botty.service` now preserves the `postgres` and `ollama` containers and only restarts the `app` container.
 - The systemd unit sets `TimeoutStartSec=0` because first boot may need time to build the app image.
 - The app now runs from a prebuilt Docker image instead of installing dependencies and rebuilding on each container start.
-- PostgreSQL is no longer published on the host by default.
-- Botty and Ollama are bound to `127.0.0.1` on the host; publish them another way only if you intentionally want direct network exposure.
+- The runtime uses Docker host networking with explicit localhost binds because this host sits behind enterprise DNS and firewall controls that broke Docker bridge-network name resolution during live rollout.
+- Botty, PostgreSQL, and Ollama are all bound to `127.0.0.1` on the host; publish them another way only if you intentionally want direct network exposure.
+- Telegram may remain unavailable under enterprise egress restrictions even while the web app, database, and local LLM are healthy.
 
 After pulling new code, rebuild the app image before restarting the service:
 
@@ -100,11 +101,12 @@ If `ANTHROPIC_API_KEY` is set, the app will expose Anthropic in the provider lis
 
 ## External Access
 
-Inside the container, Botty listens on `0.0.0.0`, but Docker only publishes the app to `127.0.0.1:5000` by default. Reach it through a reverse proxy, tunnel, or another deliberate publishing step if you need remote access.
+The live runtime uses Docker host networking, but the services themselves bind to localhost: Botty on `127.0.0.1:5000`, Ollama on `127.0.0.1:11435`, and PostgreSQL on `127.0.0.1:5432`. Reach Botty through a reverse proxy, tunnel, or another deliberate publishing step if you need remote access.
 
-- `HOST` controls the bind address.
 - `PUBLIC_BASE_URL` can be set to your public URL, such as `https://botty.example.com`.
 - `CORS_ORIGINS` accepts a comma-separated list of allowed browser origins for external frontends.
+
+In this repository's current production-style path, Compose pins the app bind address to localhost explicitly. Treat `.env.local` as the source of public URL and auth policy, not as a way to make the container listen broadly on this host.
 
 Typical production setup is to place Botty behind Nginx, Caddy, Cloudflare Tunnel, Tailscale Funnel, or a cloud load balancer rather than exposing port `5000` directly.
 
@@ -140,3 +142,4 @@ Behavior:
 Security note:
 
 - `LOCAL_AUTH_ENABLED=true` is suitable for local or tightly controlled personal use. If you expose the Botty web app more broadly, disable local auth unless you have another trusted access layer in front of it.
+- On enterprise networks, Telegram reachability can be blocked independently of normal web access. A healthy `/api/health` response does not imply Telegram startup will succeed.

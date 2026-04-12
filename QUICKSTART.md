@@ -20,6 +20,8 @@ What this does:
 
 After the script finishes, review `.env.local` for any provider keys, public URL settings, or Telegram token you want to enable.
 
+This install path assumes an enterprise-restricted host is possible. The runtime uses host networking plus localhost-only binds so Botty can reuse the machine resolver path when Docker bridge DNS is unreliable.
+
 ## 2. Configure Environment Manually
 
 ```bash
@@ -77,10 +79,11 @@ sudo systemctl restart botty.service
 
 ## Optional: Reach Botty From Outside Your Machine
 
-- Leave `HOST=0.0.0.0` enabled.
 - Expose the app through a reverse proxy, Tailscale, or a tunnel such as Cloudflare Tunnel.
 - If you serve Botty from another origin, set `CORS_ORIGINS=https://your-domain.example`.
 - Ready-made configs are included in [ops/Caddyfile](/home/ofirkat/Botty/ops/Caddyfile) and [ops/nginx-botty.conf](/home/ofirkat/Botty/ops/nginx-botty.conf).
+
+The current runtime keeps Botty bound to `127.0.0.1:5000` on the host, so reverse proxy or tunneling is the supported way to expose it.
 
 ## Optional: Enable Telegram
 
@@ -95,9 +98,10 @@ sudo systemctl restart botty.service
 - Netlify, Firebase, and Google OAuth migration leftovers have been removed from the active runtime.
 - The default runtime is Docker-based.
 - Ollama is part of the Docker stack and listens on `127.0.0.1:11435`.
-- PostgreSQL is not published on the host by default.
+- PostgreSQL listens on `127.0.0.1:5432` on the host for the app runtime and is not exposed beyond localhost.
 - `LOCAL_AUTH_ENABLED=true` is intended for local or tightly controlled personal use, not broad public exposure.
 - If Telegram is unreachable at startup, Botty keeps serving the app and retries Telegram in the background.
+- Enterprise DNS filtering and firewall policy can affect Docker builds and Telegram connectivity even when the web app stays healthy.
 
 ## GitHub Sync Helpers
 
