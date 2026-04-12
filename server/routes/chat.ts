@@ -35,8 +35,13 @@ router.get('/providers', async (req: Request, res: Response) => {
 router.post('/', async (req: Request, res: Response) => {
   const abortController = new AbortController();
   const abortRequest = () => abortController.abort();
+  const abortOnResponseClose = () => {
+    if (!res.writableEnded) {
+      abortRequest();
+    }
+  };
   req.once('aborted', abortRequest);
-  req.once('close', abortRequest);
+  res.once('close', abortOnResponseClose);
 
   try {
     const result = await runChatForUser({
@@ -73,7 +78,7 @@ router.post('/', async (req: Request, res: Response) => {
     res.status(message === 'Prompt is required' || /^No API key configured/.test(message) ? 400 : 500).json({ error: message });
   } finally {
     req.off('aborted', abortRequest);
-    req.off('close', abortRequest);
+    res.off('close', abortOnResponseClose);
   }
 });
 

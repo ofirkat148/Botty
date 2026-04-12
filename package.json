@@ -12,6 +12,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "test:chat-regression": "node --test tests/chat-route.test.mjs",
+    "test:dashboard-smoke": "node --test tests/dashboard-smoke.test.mjs",
     "db:push": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio"
   },

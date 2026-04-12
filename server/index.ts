@@ -12,8 +12,8 @@ import settingsRoutes from './routes/settings.js';
 import keysRoutes from './routes/keys.js';
 import usageRoutes from './routes/usage.js';
 import chatRoutes from './routes/chat.js';
-import { startTelegramBot } from './services/telegram.js';
-import { reconcileAllFacts } from './utils/llm.js';
+import { getTelegramBotStatus, startTelegramBot } from './services/telegram.js';
+import { getLocalProviderStatus, reconcileAllFacts } from './utils/llm.js';
 
 // Load environment variables
 dotenv.config();
@@ -87,6 +87,34 @@ if (existsSync(distDir)) {
 // Initialize database on startup
 let dbInitialized = false;
 
+async function logStartupReadinessSummary() {
+  const frontendReady = existsSync(path.join(distDir, 'index.html'));
+  const [localProviderResult, telegramResult] = await Promise.allSettled([
+    getLocalProviderStatus(process.env.LOCAL_LLM_URL || process.env.LOCAL_LLM_URL_CONTAINER),
+    getTelegramBotStatus(),
+  ]);
+
+  const localProviderSummary = localProviderResult.status === 'fulfilled'
+    ? `${localProviderResult.value.readiness}: ${localProviderResult.value.detail}`
+    : `error: ${localProviderResult.reason instanceof Error ? localProviderResult.reason.message : 'unknown local model error'}`;
+
+  const telegramSummary = telegramResult.status === 'fulfilled'
+    ? telegramResult.value.configured
+      ? (telegramResult.value.running
+        ? `running${telegramResult.value.username ? ` as @${telegramResult.value.username}` : ''}`
+        : `configured but not running${telegramResult.value.error ? ` (${telegramResult.value.error})` : ''}`)
+      : (telegramResult.value.enabled ? 'not configured' : 'disabled')
+    : `error: ${telegramResult.reason instanceof Error ? telegramResult.reason.message : 'unknown telegram status error'}`;
+
+  console.log([
+    '📋 Startup readiness',
+    `- Frontend bundle: ${frontendReady ? 'ready' : 'missing dist/index.html'}`,
+    `- Database: ${dbInitialized ? 'ready' : 'not ready'}`,
+    `- Local LLM: ${localProviderSummary}`,
+    `- Telegram: ${telegramSummary}`,
+  ].join('\n'));
+}
+
 async function startServer() {
   try {
     // Initialize database
@@ -140,6 +168,8 @@ async function startServer() {
   } catch (error) {
     console.error('Failed to start Telegram bot:', error);
   }
+
+  await logStartupReadinessSummary();
 }
 
 startServer().catch(error => {

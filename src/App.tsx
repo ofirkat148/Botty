@@ -1,7 +1,4 @@
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
-import { GlobalWorkerOptions, getDocument } from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
-import { createWorker, PSM } from 'tesseract.js';
 import {
   Bot,
   Download,
@@ -29,15 +26,30 @@ import {
   Upload,
   X,
 } from 'lucide-react';
-
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
-
-const MAX_CHAT_ATTACHMENT_BYTES = 6 * 1024 * 1024;
-const MAX_CHAT_ATTACHMENT_CHARS = 12000;
-const MAX_CHAT_ATTACHMENT_PAGES = 20;
+import {
+  AUTO_ROUTE_MODES,
+  AUTO_ROUTE_OPTIONS,
+  BOT_PRESETS,
+  DEFAULT_MODEL_CATALOG,
+  DEFAULT_MODELS,
+  FUNCTION_PRESETS,
+  getFunctionPresetForPrompt,
+  MODEL_LABELS,
+  MODEL_TOKEN_LIMIT_RULES,
+  PROVIDERS,
+  SKILL_PRESETS,
+  type FunctionPreset,
+} from './config/chatConfig';
+import {
+  formatAttachmentSize,
+  isImageFile,
+  isPdfFile,
+  isSupportedAttachmentFile,
+  MAX_CHAT_ATTACHMENT_BYTES,
+  MAX_CHAT_ATTACHMENT_CHARS,
+  parseAttachmentFile,
+} from './utils/chatAttachments';
 const MAX_RECENT_SLASH_ITEMS = 4;
-
-let imageOcrWorkerPromise: Promise<Awaited<ReturnType<typeof createWorker>>> | null = null;
 
 type User = {
   id: string;
@@ -187,22 +199,6 @@ type MemoryRestorePreview = {
   includesSystemPrompt: boolean;
 };
 
-type FunctionPreset = {
-  id: string;
-  kind: 'skill' | 'agent';
-  title: string;
-  description: string;
-  command: string;
-  useWhen: string;
-  boundaries: string;
-  systemPrompt: string;
-  starterPrompt: string;
-  provider?: string | null;
-  model?: string | null;
-  memoryMode?: 'shared' | 'isolated' | 'none';
-  builtIn?: boolean;
-};
-
 type FunctionCatalogResponse = {
   skills: FunctionPreset[];
   bots: FunctionPreset[];
@@ -230,150 +226,6 @@ type SlashMenuItem = {
   category: 'command' | 'skill' | 'bot';
   preset?: FunctionPreset;
 };
-
-const AUTO_ROUTE_OPTIONS = [
-  { value: 'auto', label: 'Smart default' },
-  { value: 'fastest', label: 'Fastest' },
-  { value: 'cheapest', label: 'Cheapest' },
-  { value: 'best-quality', label: 'Best quality' },
-  { value: 'local-first', label: 'Local first' },
-] as const;
-
-const PROVIDERS = [
-  { value: 'auto', label: 'Auto route' },
-  { value: 'anthropic', label: 'Anthropic / Claude' },
-  { value: 'google', label: 'Google / Gemini' },
-  { value: 'openai', label: 'OpenAI' },
-  { value: 'local', label: 'Local OpenAI-compatible' },
-];
-
-const AUTO_ROUTE_MODES = new Set(['auto', 'fastest', 'cheapest', 'best-quality', 'local-first']);
-
-const DEFAULT_MODELS: Record<string, string> = {
-  anthropic: 'claude-3-7-sonnet-latest',
-  google: 'gemini-2.5-flash',
-  openai: 'gpt-4o-mini',
-  local: 'qwen2.5:3b',
-};
-
-const MODEL_TOKEN_LIMIT_RULES: Array<{ provider?: string; pattern: RegExp; limit: number }> = [
-  { provider: 'anthropic', pattern: /claude-3-(7|5)/i, limit: 200000 },
-  { provider: 'google', pattern: /gemini-(1\.5|2\.5)/i, limit: 1048576 },
-  { provider: 'openai', pattern: /gpt-4o(-mini)?|gpt-4\.1/i, limit: 128000 },
-  { provider: 'local', pattern: /qwen2\.5/i, limit: 32768 },
-  { provider: 'local', pattern: /gemma3/i, limit: 32768 },
-  { provider: 'local', pattern: /llama3\.2/i, limit: 8192 },
-  { provider: 'local', pattern: /smollm2/i, limit: 8192 },
-];
-
-const DEFAULT_MODEL_CATALOG: Record<string, string[]> = {
-  anthropic: ['claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest'],
-  google: ['gemini-2.5-flash', 'gemini-2.5-pro'],
-  openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
-  local: [DEFAULT_MODELS.local],
-};
-
-const MODEL_LABELS: Record<string, { label: string; hint?: string }> = {
-  'claude-3-7-sonnet-latest': { label: 'Claude 3.7 Sonnet', hint: 'strong reasoning' },
-  'claude-3-5-haiku-latest': { label: 'Claude 3.5 Haiku', hint: 'fast and lightweight' },
-  'gemini-2.5-flash': { label: 'Gemini 2.5 Flash', hint: 'fast general use' },
-  'gemini-2.5-pro': { label: 'Gemini 2.5 Pro', hint: 'deeper reasoning' },
-  'gpt-4o-mini': { label: 'GPT-4o Mini', hint: 'fast and cheap' },
-  'gpt-4o': { label: 'GPT-4o', hint: 'balanced quality' },
-  'gpt-4.1-mini': { label: 'GPT-4.1 Mini', hint: 'strong coding' },
-  'qwen2.5:3b': { label: 'Qwen 2.5 3B', hint: 'balanced local' },
-  'qwen2.5:1.5b': { label: 'Qwen 2.5 1.5B', hint: 'faster local' },
-  'llama3.2:1b': { label: 'Llama 3.2 1B', hint: 'small local' },
-  'gemma3:1b': { label: 'Gemma 3 1B', hint: 'small local' },
-  'smollm2:135m': { label: 'SmolLM2 135M', hint: 'tiny and fastest' },
-};
-
-const FUNCTION_PRESETS: FunctionPreset[] = [
-  {
-    id: 'skill-botty-development',
-    kind: 'skill',
-    builtIn: true,
-    title: 'Botty Development',
-    description: 'Full-stack product work across React, Express, memory, local LLM, settings, and Telegram.',
-    command: 'development',
-    useWhen: 'Use for focused implementation work, architecture changes, or debugging that should stay within the current chat session.',
-    boundaries: 'Acts as a capability overlay. It should inherit the current chat provider, memory, and session context rather than taking over the whole workflow.',
-    systemPrompt: 'You are Botty’s full-stack development mode. Make focused, production-minded changes across the React frontend, Express backend, PostgreSQL persistence, memory features, local LLM integration, and Telegram support. Prefer shared-layer fixes over route-specific patches. Keep changes minimal, validate after edits, and explain tradeoffs concretely.',
-    starterPrompt: 'Help me implement a Botty feature end to end.',
-  },
-  {
-    id: 'skill-botty-runtime-debug',
-    kind: 'skill',
-    builtIn: true,
-    title: 'Runtime Debug',
-    description: 'Diagnose fetch failures, localhost issues, service problems, Telegram startup, CORS, and Ollama connectivity.',
-    command: 'debug',
-    useWhen: 'Use for targeted runtime investigations where you want Botty to stay in your current thread and debug a concrete issue.',
-    boundaries: 'Acts as a diagnostic overlay. It should keep the current chat context and avoid behaving like a long-running autonomous specialist.',
-    systemPrompt: 'You are Botty’s runtime debugging mode. Diagnose issues methodically across systemd, localhost access, API behavior, CORS, Telegram startup, Ollama connectivity, and saved settings. Confirm whether the service is healthy before assuming an outage. Separate local application errors from upstream network failures, and prefer root-cause fixes over surface workarounds.',
-    starterPrompt: 'Debug the current Botty runtime issue and find the root cause.',
-  },
-  {
-    id: 'skill-botty-ops',
-    kind: 'skill',
-    builtIn: true,
-    title: 'Botty Ops',
-    description: 'Operational mode for Docker, systemd, PostgreSQL, ports, persistence, and reverse proxy work.',
-    command: 'ops',
-    useWhen: 'Use for focused operational tasks such as startup, deployment, persistence, ports, or reverse proxy changes inside the current chat.',
-    boundaries: 'Acts as an ops overlay. It should inherit the current session rather than becoming a persistent specialist with its own routing rules.',
-    systemPrompt: 'You are Botty’s operations mode. Focus on runtime configuration, Docker, PostgreSQL, systemd startup, reverse proxy setup, and production-style local serving. Use the smallest operational fix that restores service, avoid destructive resets, and verify outcomes with health checks and logs.',
-    starterPrompt: 'Help me operate or deploy Botty safely.',
-  },
-  {
-    id: 'agent-botty-builder',
-    kind: 'agent',
-    builtIn: true,
-    title: 'Botty Builder',
-    description: 'Implementation-focused mode for feature work and bug fixes in this repository.',
-    command: 'builder',
-    useWhen: 'Use when you want a dedicated specialist to own implementation work across multiple turns, files, and follow-up refinements.',
-    boundaries: 'Behaves like a specialist agent. It can own the session workflow and may use its own provider, model, or memory strategy when configured.',
-    systemPrompt: 'You are Botty Builder. Implement requested features or fixes directly and precisely. Read the relevant route, service, utility, and UI code first. Do not stop at analysis when a concrete change is needed. Avoid unrelated refactors, keep persistence and UI contracts aligned, and validate the final result.',
-    starterPrompt: 'Implement this change in Botty.',
-  },
-  {
-    id: 'agent-botty-reviewer',
-    kind: 'agent',
-    builtIn: true,
-    title: 'Botty Reviewer',
-    description: 'Review-focused mode for bugs, regressions, runtime risk, and missing tests.',
-    command: 'reviewer',
-    useWhen: 'Use when you want a dedicated review specialist to inspect changes, surface risks, and stay in review mode across the session.',
-    boundaries: 'Behaves like a review agent. It should own the review workflow rather than acting as a lightweight slash-command overlay.',
-    systemPrompt: 'You are Botty Reviewer. Review changes for defects, regressions, runtime risk, broken settings flows, memory issues, local LLM failures, Telegram issues, and deployment mistakes. Findings come first. Focus on correctness and behavior, not style. Use concise, severity-ordered review output with concrete file-level reasoning.',
-    starterPrompt: 'Review this Botty change for bugs and regressions.',
-  },
-  {
-    id: 'agent-botty-ops',
-    kind: 'agent',
-    builtIn: true,
-    title: 'Botty Ops',
-    description: 'Operations-focused mode for service health, environment settings, and startup failures.',
-    command: 'ops-bot',
-    useWhen: 'Use when an operations specialist should own a multi-step runtime or deployment task across several checks and fixes.',
-    boundaries: 'Behaves like an ops agent. It can steer the session and use dedicated provider or memory behavior, unlike a transient skill overlay.',
-    systemPrompt: 'You are Botty Ops. Handle runtime operations for the Botty app: systemd, Docker, PostgreSQL, localhost health, reverse proxy setup, external exposure, and startup failures. Do not assume the service is down before checking health and logs. Distinguish local application faults from upstream network problems.',
-    starterPrompt: 'Diagnose and fix this Botty runtime or deployment issue.',
-  },
-];
-
-const SKILL_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'skill');
-const BOT_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'agent');
-
-function getFunctionPresetForPrompt(value: string | null | undefined, presets: FunctionPreset[]) {
-  const trimmed = value?.trim() || '';
-  if (!trimmed) {
-    return null;
-  }
-
-  return presets.find(preset => preset.systemPrompt === trimmed) || null;
-}
 
 const TABS = [
   { value: 'chat', label: 'Chat', Icon: MessageSquare },
@@ -939,127 +791,6 @@ function AppShell() {
     return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
   }
 
-  function isReadableTextFile(file: File) {
-    const lowerName = file.name.toLowerCase();
-    const textExtensions = ['.txt', '.md', '.markdown', '.json', '.csv', '.ts', '.tsx', '.js', '.jsx', '.css', '.html', '.xml', '.yml', '.yaml', '.py', '.java', '.c', '.cpp', '.rs', '.go', '.sh', '.sql', '.log'];
-
-    return file.type.startsWith('text/')
-      || file.type === 'application/json'
-      || file.type === 'application/xml'
-      || textExtensions.some(extension => lowerName.endsWith(extension));
-  }
-
-  function isPdfFile(file: File) {
-    return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-  }
-
-  function isImageFile(file: File) {
-    const lowerName = file.name.toLowerCase();
-    const imageExtensions = ['.png', '.jpg', '.jpeg', '.webp', '.bmp', '.gif'];
-
-    return file.type.startsWith('image/') || imageExtensions.some(extension => lowerName.endsWith(extension));
-  }
-
-  async function readFileAsDataUrl(file: File) {
-    return await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
-      reader.onerror = () => reject(reader.error || new Error(`Failed to read ${file.name}`));
-      reader.readAsDataURL(file);
-    });
-  }
-
-  async function extractPdfText(file: File) {
-    const pdf = await getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
-    const totalPages = Math.min(pdf.numPages, MAX_CHAT_ATTACHMENT_PAGES);
-    const chunks: string[] = [];
-
-    for (let pageNumber = 1; pageNumber <= totalPages; pageNumber += 1) {
-      const page = await pdf.getPage(pageNumber);
-      const textContent = await page.getTextContent();
-      const pageText = textContent.items
-        .map(item => ('str' in item ? item.str : ''))
-        .join(' ')
-        .replace(/\s+/g, ' ')
-        .trim();
-
-      if (pageText) {
-        chunks.push(`Page ${pageNumber}: ${pageText}`);
-      }
-    }
-
-    return chunks.join('\n\n').trim();
-  }
-
-  async function getImageOcrWorker() {
-    if (!imageOcrWorkerPromise) {
-      imageOcrWorkerPromise = createWorker('eng', 1, {
-        logger: message => {
-          if (message.status === 'recognizing text') {
-            setNotice(`Running OCR: ${Math.round(message.progress * 100)}%`);
-          }
-        },
-      });
-    }
-
-    const worker = await imageOcrWorkerPromise;
-    await worker.setParameters({
-      tessedit_pageseg_mode: PSM.SPARSE_TEXT,
-      preserve_interword_spaces: '1',
-    });
-    return worker;
-  }
-
-  async function extractImageText(file: File) {
-    const worker = await getImageOcrWorker();
-    const imageUrl = await readFileAsDataUrl(file);
-    const { data } = await worker.recognize(imageUrl);
-    return data.text.replace(/\s+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
-  }
-
-  async function parseAttachmentFile(file: File) {
-    if (isReadableTextFile(file)) {
-      const content = (await file.text()).trim();
-      return {
-        content,
-        source: 'text' as const,
-        type: file.type || 'text/plain',
-      };
-    }
-
-    if (isPdfFile(file)) {
-      const content = await extractPdfText(file);
-      return {
-        content,
-        source: 'pdf' as const,
-        type: 'application/pdf',
-      };
-    }
-
-    if (isImageFile(file)) {
-      const content = await extractImageText(file);
-      return {
-        content,
-        source: 'image' as const,
-        type: file.type || 'image/*',
-      };
-    }
-
-    return null;
-  }
-
-  function formatAttachmentSize(size: number) {
-    if (size < 1024) {
-      return `${size} B`;
-    }
-
-    if (size < 1024 * 1024) {
-      return `${(size / 1024).toFixed(1)} KB`;
-    }
-
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
   useEffect(() => {
     document.documentElement.classList.toggle('dark', isDarkMode);
     window.localStorage.setItem('botty.theme', isDarkMode ? 'dark' : 'light');
@@ -1544,7 +1275,7 @@ function AppShell() {
     const nextAttachments: PendingAttachment[] = [];
 
     for (const file of files) {
-      if (!isReadableTextFile(file) && !isPdfFile(file) && !isImageFile(file)) {
+      if (!isSupportedAttachmentFile(file)) {
         setNotice(`Skipping ${file.name}: supported chat files are text, PDF, and images.`);
         continue;
       }
@@ -1562,7 +1293,9 @@ function AppShell() {
 
       let parsedAttachment: Awaited<ReturnType<typeof parseAttachmentFile>>;
       try {
-        parsedAttachment = await parseAttachmentFile(file);
+        parsedAttachment = await parseAttachmentFile(file, {
+          onOcrProgress: percent => setNotice(`Running OCR for ${file.name}... ${percent}%`),
+        });
       } catch (error) {
         setNotice(`Skipping ${file.name}: ${error instanceof Error ? error.message : 'could not parse file'}.`);
         continue;
@@ -2051,7 +1784,7 @@ function AppShell() {
     }
 
     for (const file of files) {
-      if (!isReadableTextFile(file) && !isPdfFile(file) && !isImageFile(file)) {
+      if (!isSupportedAttachmentFile(file)) {
         setNotice(`Skipping ${file.name}: supported fact files are text, PDF, and images.`);
         continue;
       }
@@ -2067,7 +1800,9 @@ function AppShell() {
         setNotice(`Running OCR for ${file.name}...`);
       }
 
-      const parsed = await parseAttachmentFile(file);
+      const parsed = await parseAttachmentFile(file, {
+        onOcrProgress: percent => setNotice(`Running OCR for ${file.name}... ${percent}%`),
+      });
       if (!parsed?.content) {
         setNotice(`Skipping ${file.name}: no usable text found.`);
         continue;

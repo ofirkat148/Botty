@@ -293,7 +293,7 @@ function getConfiguredProviderSource(provider: string, storedProviders: Set<stri
   return 'not-configured';
 }
 
-async function getLocalProviderStatus(localUrl?: string | null): Promise<ProviderStatus> {
+export async function getLocalProviderStatus(localUrl?: string | null): Promise<ProviderStatus> {
   const fallbackModel = getDefaultModel('local');
   const candidateUrls = getCandidateLocalLlmUrls(localUrl || process.env.LOCAL_LLM_URL);
   const explicitLocalUrl = Boolean(localUrl?.trim() || process.env.LOCAL_LLM_URL || process.env.LOCAL_LLM_URL_CONTAINER);

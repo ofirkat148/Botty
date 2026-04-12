@@ -34,8 +34,11 @@ let pollingSessionId = 0;
 let lastKnownUsername: string | null = null;
 let lastTelegramError: string | null = null;
 let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttemptCount = 0;
+let lastReconnectLogSignature: string | null = null;
 
-const TELEGRAM_RETRY_DELAY_MS = 30000;
+const TELEGRAM_RETRY_BASE_DELAY_MS = 30000;
+const TELEGRAM_RETRY_MAX_DELAY_MS = 5 * 60 * 1000;
 
 type TelegramRuntimeConfig = {
   token: string;
@@ -83,20 +86,70 @@ function clearReconnectTimeout() {
   reconnectTimeout = null;
 }
 
+function resetReconnectState() {
+  clearReconnectTimeout();
+  reconnectAttemptCount = 0;
+  lastReconnectLogSignature = null;
+}
+
+function getTelegramErrorMessage(error: unknown) {
+  const fallbackMessage = error instanceof Error ? error.message : 'Unknown Telegram error';
+  const cause = error instanceof Error && error.cause && typeof error.cause === 'object'
+    ? error.cause as NodeJS.ErrnoException
+    : null;
+
+  if (cause?.code === 'ECONNRESET') {
+    return 'Network connection reset while reaching Telegram';
+  }
+
+  if (cause?.code === 'ENOTFOUND') {
+    return 'Telegram hostname could not be resolved';
+  }
+
+  if (cause?.code === 'ETIMEDOUT') {
+    return 'Telegram request timed out';
+  }
+
+  if (cause?.code === 'ECONNREFUSED') {
+    return 'Telegram connection was refused';
+  }
+
+  if (fallbackMessage === 'fetch failed' && cause?.code) {
+    return `Telegram fetch failed (${cause.code})`;
+  }
+
+  return fallbackMessage;
+}
+
+function getReconnectDelayMs() {
+  const exponentialDelay = TELEGRAM_RETRY_BASE_DELAY_MS * (2 ** Math.max(0, reconnectAttemptCount - 1));
+  return Math.min(exponentialDelay, TELEGRAM_RETRY_MAX_DELAY_MS);
+}
+
 function scheduleTelegramReconnect() {
   if (reconnectTimeout || !activeConfig.enabled || !activeConfig.token) {
     return;
   }
 
-  console.warn(`Telegram bot unavailable. Retrying in ${Math.floor(TELEGRAM_RETRY_DELAY_MS / 1000)}s.`);
+  reconnectAttemptCount += 1;
+  const retryDelayMs = getReconnectDelayMs();
+  const retryDelaySeconds = Math.floor(retryDelayMs / 1000);
+  const retryReason = lastTelegramError || 'Unknown Telegram startup error';
+  const logSignature = `${retryReason}|${retryDelaySeconds}`;
+
+  if (lastReconnectLogSignature !== logSignature) {
+    console.warn(`Telegram bot unavailable: ${retryReason}. Retrying in ${retryDelaySeconds}s.`);
+    lastReconnectLogSignature = logSignature;
+  }
+
   reconnectTimeout = setTimeout(() => {
     reconnectTimeout = null;
     refreshTelegramBot().catch(error => {
-      const nextError = error instanceof Error ? error.message : 'Unknown Telegram startup error';
+      const nextError = getTelegramErrorMessage(error);
       lastTelegramError = nextError;
       scheduleTelegramReconnect();
     });
-  }, TELEGRAM_RETRY_DELAY_MS);
+  }, retryDelayMs);
 }
 
 async function loadTelegramConfig(): Promise<TelegramRuntimeConfig> {
@@ -136,11 +189,19 @@ async function loadTelegramConfig(): Promise<TelegramRuntimeConfig> {
 }
 
 async function telegramRequest<T>(token: string, method: string, body?: Record<string, unknown>): Promise<T> {
-  const response = await fetch(getTelegramApiUrl(token, method), {
-    method: body ? 'POST' : 'GET',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(getTelegramApiUrl(token, method), {
+      method: body ? 'POST' : 'GET',
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (error) {
+    throw new Error(getTelegramErrorMessage(error), {
+      cause: error,
+    });
+  }
 
   if (!response.ok) {
     const text = await response.text();
@@ -273,13 +334,15 @@ async function pollTelegramUpdates(token: string, sessionId: number) {
         allowed_updates: ['message'],
       });
       lastTelegramError = null;
+      reconnectAttemptCount = 0;
+      lastReconnectLogSignature = null;
 
       for (const update of updates) {
         pollingOffset = update.update_id + 1;
         await handleTelegramMessage(update);
       }
     } catch (error) {
-      const nextError = error instanceof Error ? error.message : 'Unknown Telegram polling error';
+      const nextError = getTelegramErrorMessage(error);
       const shouldLog = nextError !== lastTelegramError;
       lastTelegramError = nextError;
       if (shouldLog) {
@@ -310,7 +373,7 @@ export async function refreshTelegramBot() {
   const nextConfig = await loadTelegramConfig();
 
   if (!nextConfig.enabled || !nextConfig.token) {
-    clearReconnectTimeout();
+    resetReconnectState();
     if (pollingPromise) {
       pollingSessionId += 1;
       pollingPromise = null;
@@ -334,10 +397,12 @@ export async function refreshTelegramBot() {
     const me = await telegramRequest<{ username?: string }>(nextConfig.token, 'getMe');
     lastKnownUsername = me.username || null;
     lastTelegramError = null;
+    reconnectAttemptCount = 0;
+    lastReconnectLogSignature = null;
     console.log(`Telegram bot enabled${me.username ? ` as @${me.username}` : ''}`);
     pollingPromise = pollTelegramUpdates(nextConfig.token, sessionId)
       .catch(error => {
-        lastTelegramError = error instanceof Error ? error.message : 'Unknown Telegram bot error';
+        lastTelegramError = getTelegramErrorMessage(error);
         console.error('Telegram bot stopped:', error);
       })
       .finally(() => {
@@ -347,7 +412,7 @@ export async function refreshTelegramBot() {
       });
   } catch (error) {
     lastKnownUsername = null;
-    lastTelegramError = error instanceof Error ? error.message : 'Unknown Telegram startup error';
+    lastTelegramError = getTelegramErrorMessage(error);
     pollingPromise = null;
     scheduleTelegramReconnect();
     throw error;
@@ -359,7 +424,7 @@ export async function startTelegramBot() {
     await refreshTelegramBot();
   } catch (error) {
     pollingPromise = null;
-    const message = error instanceof Error ? error.message : 'Unknown Telegram startup error';
+    const message = getTelegramErrorMessage(error);
     lastTelegramError = message;
     console.warn(`Telegram bot startup deferred: ${message}`);
   }
