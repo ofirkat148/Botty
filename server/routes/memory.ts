@@ -5,6 +5,7 @@ import { facts, history, memoryFiles, memoryUrls, settings, userSettings } from 
 import { and, desc, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { consolidateFactRows, reconcileFactsForUser, saveFactsWithConsolidation } from '../utils/llm.js';
+import { listCustomAgentsForUser, replaceCustomAgentsForUser } from '../utils/agents.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -31,6 +32,7 @@ router.get('/export', async (req: Request, res: Response) => {
       db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1),
       db.select().from(history).where(eq(history.uid, uid)).orderBy(desc(history.timestamp)).limit(200),
     ]);
+    const customAgents = await listCustomAgentsForUser(uid);
 
     const payload = {
       version: 1,
@@ -51,10 +53,14 @@ router.get('/export', async (req: Request, res: Response) => {
         uid,
         systemPrompt: null,
         customSkills: [],
-        customBots: [],
+        customBots: customAgents,
       },
       history: userHistory,
     };
+
+    if (payload.userSettings) {
+      payload.userSettings.customBots = customAgents;
+    }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     res.setHeader('Content-Type', 'application/json');
@@ -183,19 +189,23 @@ router.post('/import', async (req: Request, res: Response) => {
           uid,
           systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
           customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
-          customBots: Array.isArray(incomingUserSettings.customBots) ? incomingUserSettings.customBots : [],
+          customBots: [],
           updatedAt: new Date(),
         }).onConflictDoUpdate({
           target: userSettings.uid,
           set: {
             systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
             customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
-            customBots: Array.isArray(incomingUserSettings.customBots) ? incomingUserSettings.customBots : [],
+            customBots: [],
             updatedAt: new Date(),
           },
         });
       }
     });
+
+    if (incomingUserSettings) {
+      await replaceCustomAgentsForUser(uid, incomingUserSettings.customBots);
+    }
 
     res.json({
       success: true,

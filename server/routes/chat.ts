@@ -52,14 +52,7 @@ router.post('/', async (req: Request, res: Response) => {
       requestedModel: String(req.body?.model || '').trim(),
       messages: Array.isArray(req.body?.messages) ? req.body.messages : [],
       incomingConversationId: String(req.body?.conversationId || '').trim(),
-      activeBot: req.body?.activeBot && typeof req.body.activeBot === 'object'
-        ? {
-            id: String(req.body.activeBot.id || '').trim(),
-            provider: typeof req.body.activeBot.provider === 'string' ? req.body.activeBot.provider : '',
-            model: typeof req.body.activeBot.model === 'string' ? req.body.activeBot.model : '',
-            memoryMode: req.body.activeBot.memoryMode,
-          }
-        : null,
+      activeAgentId: typeof req.body?.activeAgentId === 'string' ? req.body.activeAgentId.trim() : '',
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
       signal: abortController.signal,
     });
@@ -75,7 +68,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     const message = error instanceof Error ? error.message : 'Chat request failed';
     console.error('Chat route error:', error);
-    res.status(message === 'Prompt is required' || /^No API key configured/.test(message) ? 400 : 500).json({ error: message });
+    res.status(message === 'Prompt is required' || /^No API key configured/.test(message) || message === 'Active agent not found' ? 400 : 500).json({ error: message });
   } finally {
     req.off('aborted', abortRequest);
     res.off('close', abortOnResponseClose);

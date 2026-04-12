@@ -42,6 +42,7 @@ import {
   SKILL_PRESETS,
   type FunctionPreset,
 } from './config/chatConfig';
+import { type AgentDefinition, type AgentExecutorType } from '../shared/agentDefinitions';
 import {
   formatAttachmentSize,
   isImageFile,
@@ -203,7 +204,7 @@ type MemoryRestorePreview = {
 
 type FunctionCatalogResponse = {
   skills: FunctionPreset[];
-  bots: FunctionPreset[];
+  bots: AgentDefinition[];
 };
 
 type SlashCommand = {
@@ -283,7 +284,7 @@ function AppShell() {
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [memoryUrls, setMemoryUrls] = useState<MemoryUrl[]>([]);
   const [customSkills, setCustomSkills] = useState<FunctionPreset[]>([]);
-  const [customBots, setCustomBots] = useState<FunctionPreset[]>([]);
+  const [customBots, setCustomBots] = useState<AgentDefinition[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [dailyTokens, setDailyTokens] = useState(0);
   const [dailyModelUsage, setDailyModelUsage] = useState<ModelUsageEntry[]>([]);
@@ -369,6 +370,8 @@ function AppShell() {
   const [newBotProvider, setNewBotProvider] = useState('');
   const [newBotModel, setNewBotModel] = useState('');
   const [newBotMemoryMode, setNewBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
+  const [newBotExecutorType, setNewBotExecutorType] = useState<AgentExecutorType>('internal-llm');
+  const [newBotEndpoint, setNewBotEndpoint] = useState('');
   const [newBotSystemPrompt, setNewBotSystemPrompt] = useState('');
   const [newBotStarterPrompt, setNewBotStarterPrompt] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
@@ -460,6 +463,18 @@ function AppShell() {
     })),
   ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
   const activeBotPreset = useMemo(() => activeFunctionPreset?.kind === 'agent' ? activeFunctionPreset : null, [activeFunctionPreset]);
+
+  function getAgentExecutorType(agent: FunctionPreset | AgentDefinition): AgentExecutorType {
+    return 'executorType' in agent && agent.executorType === 'remote-http' ? 'remote-http' : 'internal-llm';
+  }
+
+  function getAgentEndpoint(agent: FunctionPreset | AgentDefinition) {
+    return 'endpoint' in agent && typeof agent.endpoint === 'string' ? agent.endpoint : '';
+  }
+
+  function getAgentExecutorLabel(agent: FunctionPreset | AgentDefinition) {
+    return getAgentExecutorType(agent) === 'remote-http' ? 'Remote HTTP agent' : 'Internal Botty agent';
+  }
 
   function formatProviderLabel(value?: string) {
     if (!value) {
@@ -1070,7 +1085,7 @@ function AppShell() {
       apiGet<ApiKey[]>('/api/keys'),
       apiGet<UsageResponse>('/api/usage'),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customBots?: FunctionPreset[] }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customBots?: AgentDefinition[] }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
     ]);
 
@@ -1228,14 +1243,7 @@ function AppShell() {
           content: item.content,
           type: item.type,
         })),
-        activeBot: activeBotPreset
-          ? {
-              id: activeBotPreset.id,
-              provider: activeBotPreset.provider || '',
-              model: activeBotPreset.model || '',
-              memoryMode: activeBotPreset.memoryMode || 'shared',
-            }
-          : null,
+        activeAgentId: activeBotPreset?.id || null,
       }, { signal: abortController.signal });
 
       setConversationId(response.conversationId);
@@ -1711,6 +1719,7 @@ function AppShell() {
     const boundariesValue = newBotBoundaries.trim();
     const providerValue = newBotProvider.trim().toLowerCase();
     const modelValue = newBotModel.trim();
+    const endpointValue = newBotEndpoint.trim();
     const systemPromptValue = newBotSystemPrompt.trim();
     const starterPromptValue = newBotStarterPrompt.trim();
 
@@ -1724,6 +1733,11 @@ function AppShell() {
       return;
     }
 
+    if (newBotExecutorType === 'remote-http' && !endpointValue) {
+      setNotice('Remote agents require an endpoint URL.');
+      return;
+    }
+
     setCreatingFunction('agent');
     try {
       await apiSend('/api/settings/functions', 'POST', {
@@ -1733,9 +1747,11 @@ function AppShell() {
         command,
         useWhen: useWhenValue || null,
         boundaries: boundariesValue || null,
-        provider: providerValue || null,
-        model: modelValue || null,
+        provider: newBotExecutorType === 'internal-llm' ? (providerValue || null) : null,
+        model: newBotExecutorType === 'internal-llm' ? (modelValue || null) : null,
         memoryMode: newBotMemoryMode,
+        executorType: newBotExecutorType,
+        endpoint: newBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
       });
@@ -1747,6 +1763,8 @@ function AppShell() {
       setNewBotProvider('');
       setNewBotModel('');
       setNewBotMemoryMode('shared');
+      setNewBotExecutorType('internal-llm');
+      setNewBotEndpoint('');
       setNewBotSystemPrompt('');
       setNewBotStarterPrompt('');
       await refreshAll();
@@ -2878,33 +2896,51 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <textarea value={newBotBoundaries} onChange={event => setNewBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
                     </div>
-                    <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
-                      const nextProvider = event.target.value;
-                      if (!nextProvider) {
-                        setNewBotProvider('');
-                        setNewBotModel('');
-                        return;
-                      }
-
-                      if (nextProvider === 'auto') {
-                        setNewBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
-                        setNewBotModel('');
-                        return;
-                      }
-
-                      setNewBotProvider(nextProvider);
-                      setNewBotModel(getPreferredSelectableModel(nextProvider, newBotStarterPrompt));
-                    }} className={textInputClass}>
-                      <option value="">Inherit chat provider</option>
-                      {PROVIDERS.map(option => (
-                        <option key={option.value} value={option.value}>{option.label}</option>
-                      ))}
+                    <select value={newBotExecutorType} onChange={event => setNewBotExecutorType(event.target.value as AgentExecutorType)} className={textInputClass}>
+                      <option value="internal-llm">Internal Botty agent</option>
+                      <option value="remote-http">Remote HTTP agent</option>
                     </select>
-                    <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
-                      <option value="shared">Shared memory</option>
-                      <option value="isolated">Isolated agent memory</option>
-                      <option value="none">No memory</option>
-                    </select>
+                    <input value={newBotEndpoint} onChange={event => setNewBotEndpoint(event.target.value)} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
+                    {newBotExecutorType === 'internal-llm' ? (
+                      <>
+                        <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
+                          const nextProvider = event.target.value;
+                          if (!nextProvider) {
+                            setNewBotProvider('');
+                            setNewBotModel('');
+                            return;
+                          }
+
+                          if (nextProvider === 'auto') {
+                            setNewBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
+                            setNewBotModel('');
+                            return;
+                          }
+
+                          setNewBotProvider(nextProvider);
+                          setNewBotModel(getPreferredSelectableModel(nextProvider, newBotStarterPrompt));
+                        }} className={textInputClass}>
+                          <option value="">Inherit chat provider</option>
+                          {PROVIDERS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                          <option value="shared">Shared memory</option>
+                          <option value="isolated">Isolated agent memory</option>
+                          <option value="none">No memory</option>
+                        </select>
+                      </>
+                    ) : (
+                      <>
+                        <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
+                        <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                          <option value="shared">Shared memory</option>
+                          <option value="isolated">Isolated agent memory</option>
+                          <option value="none">No memory</option>
+                        </select>
+                      </>
+                    )}
                     <div className="md:col-span-2">
                       <select value={newBotProvider && isAutoRouteProvider(newBotProvider) ? newBotProvider : newBotModel} onChange={event => {
                         if (!newBotProvider) {
@@ -2918,7 +2954,7 @@ function AppShell() {
                         }
 
                         setNewBotModel(event.target.value);
-                      }} disabled={!newBotProvider} className={`${textInputClass} ${!newBotProvider ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
+                      }} disabled={!newBotProvider || newBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!newBotProvider || newBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
                         {!newBotProvider ? <option value="">Inherit provider default</option> : null}
                         {newBotProvider && isAutoRouteProvider(newBotProvider)
                           ? AUTO_ROUTE_OPTIONS.map(option => (
@@ -2973,6 +3009,7 @@ function AppShell() {
                           <div className={`text-xs ${subtleTextClass}`}>{getPresetAutonomyLabel(item)}</div>
                           <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
                           <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
+                          <div className={`text-xs ${subtleTextClass}`}>Executor: {getAgentExecutorLabel(item)}</div>
                           <div className={`text-xs ${subtleTextClass}`}>
                             Provider: {item.provider ? formatProviderLabel(item.provider) : 'Inherit chat'}
                             {' · '}
@@ -3033,10 +3070,12 @@ function AppShell() {
                             <div className={`text-xs ${subtleTextClass}`}>{getPresetAutonomyLabel(item)}</div>
                             <div className={`text-xs ${subtleTextClass}`}>{getPresetRoutingLabel(item)}</div>
                             <div className={`text-xs ${subtleTextClass}`}>{getPresetMemoryLabel(item)}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>Executor: {getAgentExecutorLabel(item)}</div>
+                            {getAgentEndpoint(item) ? <div className={`text-xs ${subtleTextClass}`}>Endpoint: {getAgentEndpoint(item)}</div> : null}
                             <div className={`text-xs ${subtleTextClass}`}>
-                              Provider: {item.provider ? formatProviderLabel(item.provider) : 'Inherit chat'}
+                              Provider: {getAgentExecutorType(item) === 'internal-llm' ? (item.provider ? formatProviderLabel(item.provider) : 'Inherit chat') : 'Remote endpoint'}
                               {' · '}
-                              Model: {item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat'}
+                              Model: {getAgentExecutorType(item) === 'internal-llm' ? (item.model ? formatModelDisplay(item.model, item.provider || undefined) : 'Inherit chat') : 'Handled remotely'}
                               {' · '}
                               Memory: {item.memoryMode || 'shared'}
                             </div>

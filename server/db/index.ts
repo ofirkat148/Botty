@@ -160,6 +160,50 @@ async function bootstrapSchema(pool: Pool) {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_definitions (
+      id TEXT PRIMARY KEY,
+      uid VARCHAR(255) NOT NULL,
+      title VARCHAR(255) NOT NULL,
+      description TEXT NOT NULL,
+      command VARCHAR(100) NOT NULL,
+      use_when TEXT NOT NULL,
+      boundaries TEXT NOT NULL,
+      system_prompt TEXT NOT NULL,
+      starter_prompt TEXT NOT NULL,
+      provider VARCHAR(100),
+      model VARCHAR(255),
+      memory_mode VARCHAR(20) DEFAULT 'shared',
+      executor_type VARCHAR(64) NOT NULL DEFAULT 'internal-llm',
+      endpoint TEXT,
+      config JSONB,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      UNIQUE(uid, command)
+    )
+  `);
+
+  await pool.query(`
+    ALTER TABLE agent_definitions
+    ADD COLUMN IF NOT EXISTS executor_type VARCHAR(64) NOT NULL DEFAULT 'internal-llm'
+  `);
+
+  await pool.query(`
+    ALTER TABLE agent_definitions
+    ADD COLUMN IF NOT EXISTS endpoint TEXT
+  `);
+
+  await pool.query(`
+    ALTER TABLE agent_definitions
+    ADD COLUMN IF NOT EXISTS config JSONB
+  `);
+
+  await pool.query(`
+    ALTER TABLE agent_definitions
+    ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS daily_usage (
       id TEXT PRIMARY KEY,
       uid VARCHAR(255) NOT NULL,

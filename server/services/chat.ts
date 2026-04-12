@@ -20,6 +20,8 @@ import {
   learnFactsFromConversation,
   shouldRetryWithAnotherProvider,
 } from '../utils/llm.js';
+import { resolveAgentForUser } from '../utils/agents.js';
+import type { AgentDefinition } from '../../shared/agentDefinitions.js';
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -32,13 +34,6 @@ type ChatAttachment = {
   type?: string;
 };
 
-type ActiveBotConfig = {
-  id: string;
-  provider?: string | null;
-  model?: string | null;
-  memoryMode?: BotMemoryMode;
-};
-
 export type RunChatForUserInput = {
   uid: string;
   prompt: string;
@@ -47,7 +42,7 @@ export type RunChatForUserInput = {
   requestedModel?: string;
   messages?: ChatMessage[];
   incomingConversationId?: string | null;
-  activeBot?: ActiveBotConfig | null;
+  activeAgentId?: string | null;
   attachments?: ChatAttachment[];
   signal?: AbortSignal;
 };
@@ -93,6 +88,78 @@ function buildPromptWithAttachments(prompt: string, attachments: ChatAttachment[
   return `${basePrompt}\n\n[ATTACHMENTS]\n${attachmentBlock}`;
 }
 
+async function runRemoteHttpAgent(params: {
+  agent: AgentDefinition;
+  prompt: string;
+  systemPrompt: string;
+  messages: ChatMessage[];
+  attachments: ChatAttachment[];
+  signal?: AbortSignal;
+}) {
+  const { agent, prompt, systemPrompt, messages, attachments, signal } = params;
+  const endpoint = agent.endpoint?.trim();
+
+  if (!endpoint) {
+    throw new Error('Remote agent endpoint is not configured');
+  }
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    signal,
+    body: JSON.stringify({
+      agent: {
+        id: agent.id,
+        title: agent.title,
+        command: agent.command,
+        description: agent.description,
+        useWhen: agent.useWhen,
+        boundaries: agent.boundaries,
+      },
+      prompt,
+      systemPrompt,
+      messages,
+      attachments,
+      config: agent.config || null,
+    }),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(body.trim() || `Remote agent request failed with ${response.status}`);
+  }
+
+  const payload = await response.json().catch(() => ({} as Record<string, unknown>));
+  const responseText = typeof payload.responseText === 'string'
+    ? payload.responseText.trim()
+    : typeof payload.text === 'string'
+      ? payload.text.trim()
+      : typeof payload.message === 'string'
+        ? payload.message.trim()
+        : '';
+
+  if (!responseText) {
+    throw new Error('Remote agent returned an empty response');
+  }
+
+  const tokensUsed = typeof payload.tokensUsed === 'number' && Number.isFinite(payload.tokensUsed)
+    ? Math.max(0, payload.tokensUsed)
+    : Math.ceil((systemPrompt.length + prompt.length + responseText.length) / 4);
+  const model = typeof payload.model === 'string' && payload.model.trim()
+    ? payload.model.trim()
+    : agent.model?.trim() || 'external-agent';
+
+  return {
+    responseText,
+    tokensUsed,
+    provider: 'remote-http',
+    model,
+    apiKey: '',
+  };
+}
+
 export async function runChatForUser(input: RunChatForUserInput): Promise<RunChatForUserResult> {
   if (input.signal?.aborted) {
     throw new DOMException('The operation was aborted.', 'AbortError');
@@ -104,16 +171,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   const requestedModel = String(input.requestedModel || '').trim();
   const messages = Array.isArray(input.messages) ? input.messages : [];
   const incomingConversationId = String(input.incomingConversationId || '').trim();
-  const activeBot = input.activeBot && typeof input.activeBot.id === 'string'
-    ? {
-        id: input.activeBot.id.trim(),
-        provider: typeof input.activeBot.provider === 'string' ? input.activeBot.provider.trim().toLowerCase() : '',
-        model: typeof input.activeBot.model === 'string' ? input.activeBot.model.trim() : '',
-        memoryMode: (input.activeBot.memoryMode === 'isolated' || input.activeBot.memoryMode === 'none')
-          ? input.activeBot.memoryMode
-          : 'shared' as BotMemoryMode,
-      }
-    : null;
+  const activeAgentId = String(input.activeAgentId || '').trim();
   const attachments = normalizeChatAttachments(input.attachments);
 
   if (!prompt && attachments.length === 0) {
@@ -121,15 +179,20 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   }
 
   const promptForModel = buildPromptWithAttachments(prompt, attachments);
+  const activeAgent = activeAgentId ? await resolveAgentForUser(uid, activeAgentId) : null;
+
+  if (activeAgentId && !activeAgent) {
+    throw new Error('Active agent not found');
+  }
 
   const runtimeSettings = await getRuntimeSettings(uid);
   const availableProviders = await getAvailableProviders(uid);
   const defaultLocalModel = availableProviders.includes('local')
     ? await getDefaultLocalModel(runtimeSettings.localUrl)
     : null;
-  const effectiveProvider = activeBot?.provider || requestedProvider;
+  const effectiveProvider = activeAgent?.provider || requestedProvider;
   const routingMode = normalizeRoutingMode(input.routingMode || effectiveProvider);
-  const effectiveModel = activeBot?.model || requestedModel;
+  const effectiveModel = activeAgent?.model || requestedModel;
   const shouldAutoRoute = isRoutingModeValue(effectiveProvider) || routingMode !== 'auto' || !effectiveProvider;
   const routes = shouldAutoRoute
     ? getRouteCandidatesForMode(routingMode, prompt, availableProviders, { defaultLocalModel })
@@ -137,17 +200,17 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
         provider: effectiveProvider,
         model: effectiveModel || getSuggestedModel(effectiveProvider, prompt, { defaultLocalModel }),
       }];
-  const memoryMode = activeBot?.memoryMode || 'shared';
+  const memoryMode = (activeAgent?.memoryMode || 'shared') as BotMemoryMode;
 
   const memoryContext = runtimeSettings.useMemory || runtimeSettings.sandboxMode || memoryMode === 'isolated'
     ? await getMemoryContext(uid, {
         sandboxMode: runtimeSettings.sandboxMode,
-        botId: memoryMode === 'isolated' ? activeBot?.id || null : null,
+        botId: memoryMode === 'isolated' ? activeAgent?.id || null : null,
         memoryMode,
       })
     : '';
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: runtimeSettings.systemPrompt,
+    systemPrompt: activeAgent?.systemPrompt || runtimeSettings.systemPrompt,
     memoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
@@ -158,55 +221,73 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   let model = '';
   let apiKey = '';
 
-  for (let index = 0; index < routes.length; index += 1) {
-    const route = routes[index];
-    const nextApiKey = route.provider === 'local' ? '' : await getProviderApiKey(uid, route.provider);
+  if (activeAgent?.executorType === 'remote-http') {
+    const remoteResult = await runRemoteHttpAgent({
+      agent: activeAgent,
+      prompt: promptForModel,
+      systemPrompt,
+      messages,
+      attachments,
+      signal: input.signal,
+    });
 
-    if (route.provider !== 'local' && !nextApiKey) {
-      if (shouldAutoRoute) {
-        attemptErrors.push(`${route.provider}: not configured`);
-        continue;
-      }
+    responseText = remoteResult.responseText;
+    tokensUsed = remoteResult.tokensUsed;
+    provider = remoteResult.provider;
+    model = remoteResult.model;
+    apiKey = remoteResult.apiKey;
+  } else {
 
-      throw new Error(`No API key configured for ${route.provider}.`);
-    }
+    for (let index = 0; index < routes.length; index += 1) {
+      const route = routes[index];
+      const nextApiKey = route.provider === 'local' ? '' : await getProviderApiKey(uid, route.provider);
 
-    try {
-      const result = await callLLM({
-        prompt: promptForModel,
-        provider: route.provider,
-        model: route.model,
-        apiKey: nextApiKey,
-        systemPrompt,
-        messages,
-        localUrl: runtimeSettings.localUrl,
-        signal: input.signal,
-      });
-
-      responseText = result.responseText;
-      tokensUsed = result.tokensUsed;
-      provider = route.provider;
-      model = route.model;
-      apiKey = nextApiKey;
-      break;
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw error;
-      }
-
-      const message = error instanceof Error ? error.message : 'Unknown provider failure';
-      attemptErrors.push(`${route.provider}: ${message}`);
-
-      const hasFallback = index < routes.length - 1;
-      if (!shouldAutoRoute || !hasFallback || !shouldRetryWithAnotherProvider(error)) {
-        if (shouldAutoRoute && attemptErrors.length > 1) {
-          throw new Error(`Auto route failed across configured providers. ${attemptErrors.join(' | ')}`);
+      if (route.provider !== 'local' && !nextApiKey) {
+        if (shouldAutoRoute) {
+          attemptErrors.push(`${route.provider}: not configured`);
+          continue;
         }
 
-        throw error;
+        throw new Error(`No API key configured for ${route.provider}.`);
       }
 
-      console.warn(`Auto route fallback: ${route.provider} failed, trying next provider.`, error);
+      try {
+        const result = await callLLM({
+          prompt: promptForModel,
+          provider: route.provider,
+          model: route.model,
+          apiKey: nextApiKey,
+          systemPrompt,
+          messages,
+          localUrl: runtimeSettings.localUrl,
+          signal: input.signal,
+        });
+
+        responseText = result.responseText;
+        tokensUsed = result.tokensUsed;
+        provider = route.provider;
+        model = route.model;
+        apiKey = nextApiKey;
+        break;
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw error;
+        }
+
+        const message = error instanceof Error ? error.message : 'Unknown provider failure';
+        attemptErrors.push(`${route.provider}: ${message}`);
+
+        const hasFallback = index < routes.length - 1;
+        if (!shouldAutoRoute || !hasFallback || !shouldRetryWithAnotherProvider(error)) {
+          if (shouldAutoRoute && attemptErrors.length > 1) {
+            throw new Error(`Auto route failed across configured providers. ${attemptErrors.join(' | ')}`);
+          }
+
+          throw error;
+        }
+
+        console.warn(`Auto route fallback: ${route.provider} failed, trying next provider.`, error);
+      }
     }
   }
 
@@ -246,7 +327,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
         model,
         apiKey,
         localUrl: runtimeSettings.localUrl,
-        botId: memoryMode === 'isolated' ? activeBot?.id || null : null,
+        botId: memoryMode === 'isolated' ? activeAgent?.id || null : null,
       });
     } catch (memoryError) {
       console.error('Automatic memory learning failed:', memoryError);

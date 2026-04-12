@@ -6,6 +6,8 @@ import { eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.js';
 import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
+import { isAgentExecutorType } from '../../shared/agentDefinitions.js';
+import { createCustomAgentForUser, listCustomAgentsForUser } from '../utils/agents.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -275,18 +277,20 @@ router.get('/user-settings', async (req: Request, res: Response) => {
       .where(eq(userSettings.uid, uid));
 
     if (userSettingsData.length === 0) {
+      const customAgents = await listCustomAgentsForUser(uid);
       return res.json({
         uid,
         systemPrompt: null,
         customSkills: [],
-        customBots: [],
+        customBots: customAgents,
       });
     }
 
+    const customAgents = await listCustomAgentsForUser(uid);
     res.json({
       ...userSettingsData[0],
       customSkills: readStoredFunctionPresets(userSettingsData[0]?.customSkills, 'skill'),
-      customBots: readStoredFunctionPresets(userSettingsData[0]?.customBots, 'agent'),
+      customBots: customAgents,
     });
   } catch (error) {
     console.error('Error fetching user settings:', error);
@@ -329,10 +333,11 @@ router.get('/functions', async (req: Request, res: Response) => {
     const uid = req.userId!;
     const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
     const row = rows[0];
+    const customAgents = await listCustomAgentsForUser(uid);
 
     res.json({
       skills: readStoredFunctionPresets(row?.customSkills, 'skill'),
-      bots: readStoredFunctionPresets(row?.customBots, 'agent'),
+      bots: customAgents,
     });
   } catch (error) {
     console.error('Error fetching custom functions:', error);
@@ -372,7 +377,7 @@ router.post('/functions', async (req: Request, res: Response) => {
     const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
     const existingRow = rows[0];
     const currentSkills = readStoredFunctionPresets(existingRow?.customSkills, 'skill');
-    const currentBots = readStoredFunctionPresets(existingRow?.customBots, 'agent');
+    const currentBots = await listCustomAgentsForUser(uid);
     const existingCommands = new Set([...currentSkills, ...currentBots].map(item => item.command));
 
     if (RESERVED_SLASH_COMMANDS.has(normalized.command)) {
@@ -383,8 +388,38 @@ router.post('/functions', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'A custom skill or agent with that slash command already exists.' });
     }
 
-    const nextSkills = kind === 'skill' ? [...currentSkills, normalized] : currentSkills;
-    const nextBots = kind === 'agent' ? [...currentBots, normalized] : currentBots;
+    if (kind === 'agent') {
+      const executorType = isAgentExecutorType(req.body?.executorType) ? req.body.executorType : 'internal-llm';
+      const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
+      const config = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
+        ? req.body.config
+        : null;
+      const createdAgent = await createCustomAgentForUser(uid, {
+        id: normalized.id,
+        kind: 'agent',
+        title: normalized.title,
+        description: normalized.description,
+        command: normalized.command,
+        useWhen: normalized.useWhen,
+        boundaries: normalized.boundaries,
+        systemPrompt: normalized.systemPrompt,
+        starterPrompt: normalized.starterPrompt,
+        provider: normalized.provider,
+        model: normalized.model,
+        memoryMode: normalized.memoryMode,
+        executorType,
+        endpoint: executorType === 'remote-http' ? endpoint : null,
+        config,
+      });
+
+      if (!createdAgent) {
+        return res.status(400).json({ error: executorType === 'remote-http' ? 'Remote agents require a valid endpoint.' : 'Invalid agent definition.' });
+      }
+
+      return res.json({ success: true, item: createdAgent });
+    }
+
+    const nextSkills = [...currentSkills, normalized];
 
     await db
       .insert(userSettings)
@@ -392,14 +427,12 @@ router.post('/functions', async (req: Request, res: Response) => {
         uid,
         systemPrompt: existingRow?.systemPrompt || null,
         customSkills: nextSkills,
-        customBots: nextBots,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: userSettings.uid,
         set: {
           customSkills: nextSkills,
-          customBots: nextBots,
           updatedAt: new Date(),
         },
       });

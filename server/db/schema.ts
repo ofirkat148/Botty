@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb } from 'drizzle-orm/pg-core';
+import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, unique } from 'drizzle-orm/pg-core';
 
 // Users table
 export const users = pgTable('users', {
@@ -92,6 +92,29 @@ export const userSettings = pgTable('user_settings', {
   customBots: jsonb('custom_bots'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
+
+export const agentDefinitions = pgTable('agent_definitions', {
+  id: text('id').primaryKey().notNull(),
+  uid: varchar('uid', { length: 255 }).notNull(),
+  title: varchar('title', { length: 255 }).notNull(),
+  description: text('description').notNull(),
+  command: varchar('command', { length: 100 }).notNull(),
+  useWhen: text('use_when').notNull(),
+  boundaries: text('boundaries').notNull(),
+  systemPrompt: text('system_prompt').notNull(),
+  starterPrompt: text('starter_prompt').notNull(),
+  provider: varchar('provider', { length: 100 }),
+  model: varchar('model', { length: 255 }),
+  memoryMode: varchar('memory_mode', { length: 20 }).default('shared'),
+  executorType: varchar('executor_type', { length: 64 }).default('internal-llm').notNull(),
+  endpoint: text('endpoint'),
+  config: jsonb('config'),
+  enabled: boolean('enabled').default(true).notNull(),
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+}, (table) => ({
+  uidCommandUnique: unique('agent_definitions_uid_command_unique').on(table.uid, table.command),
+}));
 
 // Daily Usage table
 export const dailyUsage = pgTable('daily_usage', {
