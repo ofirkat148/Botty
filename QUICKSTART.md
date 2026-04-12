@@ -88,3 +88,14 @@ Useful checks:
 - The default runtime is Docker-based.
 - Ollama is part of the Docker stack and listens on `127.0.0.1:11435`.
 - If Telegram is unreachable at startup, Botty keeps serving the app and retries Telegram in the background.
+
+## GitHub Sync Helpers
+
+If this machine can reach GitHub normally, you can use:
+
+```bash
+bash ops/git-pull.sh
+bash ops/git-push.sh
+```
+
+These default to the current branch on `origin` and avoid merge commits by pulling with `--ff-only`.

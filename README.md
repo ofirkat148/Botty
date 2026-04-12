@@ -55,6 +55,16 @@ Use:
 
 This creates a `.bundle` file containing all refs, plus a `.sha256` file when `sha256sum` is available.
 
+## GitHub Pull/Push Helpers
+
+For normal online sync to GitHub, use:
+
+- `bash ops/git-pull.sh` to fast-forward pull the current branch from `origin`
+- `bash ops/git-push.sh` to push the current branch to `origin`
+- `bash ops/git-push.sh origin main --tags` if you also want to push tags explicitly
+
+Both scripts can take a remote name as the first argument and a branch name as the second argument.
+
 ## Local Auth
 
 The app uses local email-based sign-in for single-user development. Enter any valid email in the UI and Botty will create or reuse that identity in PostgreSQL.
