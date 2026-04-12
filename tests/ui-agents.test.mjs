@@ -95,6 +95,8 @@ test('ui can create and run a remote http agent', async () => {
 
     await page.getByRole('button', { name: 'Agents' }).click();
     await updatedAgentCard.getByRole('button', { name: 'Delete agent' }).click();
+    await updatedAgentCard.getByText('Delete this custom agent?').waitFor();
+    await updatedAgentCard.getByRole('button', { name: 'Confirm delete' }).click();
     await page.getByText('Custom agent deleted.').waitFor();
     await assert.doesNotReject(async () => {
       await customAgentsSection.getByText(`${agentTitle} Updated`).waitFor({ state: 'detached', timeout: 15000 });

@@ -389,6 +389,7 @@ function AppShell() {
   const [editingBotStarterPrompt, setEditingBotStarterPrompt] = useState('');
   const [savingBotId, setSavingBotId] = useState('');
   const [deletingBotId, setDeletingBotId] = useState('');
+  const [confirmingDeleteBotId, setConfirmingDeleteBotId] = useState('');
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
     anthropic: '',
     google: '',
@@ -1821,6 +1822,14 @@ function AppShell() {
     setEditingBotStarterPrompt('');
   }
 
+  function requestDeleteCustomBot(agentId: string) {
+    setConfirmingDeleteBotId(agentId);
+  }
+
+  function cancelDeleteCustomBot() {
+    setConfirmingDeleteBotId('');
+  }
+
   async function saveEditedCustomBot(agentId: string) {
     const title = editingBotTitle.trim();
     const description = editingBotDescription.trim();
@@ -1877,6 +1886,7 @@ function AppShell() {
     setDeletingBotId(agent.id);
     try {
       await apiSend(`/api/settings/functions/agents/${agent.id}`, 'DELETE');
+      setConfirmingDeleteBotId('');
       if (activeFunctionId === agent.id) {
         setActiveFunctionId('');
       }
@@ -3168,6 +3178,7 @@ function AppShell() {
                         const isEditing = editingBotId === item.id;
                         const isSaving = savingBotId === item.id;
                         const isDeleting = deletingBotId === item.id;
+                        const isConfirmingDelete = confirmingDeleteBotId === item.id;
 
                         return (
                           <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
@@ -3303,29 +3314,47 @@ function AppShell() {
                                   {' · '}
                                   Memory: {item.memoryMode || 'shared'}
                                 </div>
+                                {isConfirmingDelete ? (
+                                  <div className={`rounded-[1rem] border px-3 py-3 text-sm ${isDarkMode ? 'border-red-900/60 bg-red-950/20 text-red-200' : 'border-red-200 bg-red-50 text-red-800'}`}>
+                                    Delete this custom agent?
+                                    {isActive ? ' It is currently active, so Botty will clear the active agent mode after deletion.' : ''}
+                                  </div>
+                                ) : null}
 
                                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                   <button
                                     onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
-                                    disabled={applyingFunctionId === item.id}
+                                    disabled={applyingFunctionId === item.id || isConfirmingDelete}
                                     className={responsivePrimaryButtonClass}
                                   >
                                     {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
                                   </button>
                                   <button
                                     onClick={() => void activateFunctionPreset(item)}
-                                    disabled={applyingFunctionId === item.id}
+                                    disabled={applyingFunctionId === item.id || isConfirmingDelete}
                                     className={responsiveSecondaryButtonClass}
                                   >
                                     {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
                                   </button>
-                                  <button type="button" onClick={() => startEditingCustomBot(item)} disabled={isDeleting} className={responsiveSecondaryButtonClass}>
+                                  <button type="button" onClick={() => startEditingCustomBot(item)} disabled={isDeleting || isConfirmingDelete} className={responsiveSecondaryButtonClass}>
                                     Edit agent
                                   </button>
-                                  <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
-                                    <Trash2 className="w-4 h-4" />
-                                    {isDeleting ? 'Deleting...' : 'Delete agent'}
-                                  </button>
+                                  {isConfirmingDelete ? (
+                                    <>
+                                      <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
+                                        <Trash2 className="w-4 h-4" />
+                                        {isDeleting ? 'Deleting...' : 'Confirm delete'}
+                                      </button>
+                                      <button type="button" onClick={cancelDeleteCustomBot} disabled={isDeleting} className={responsiveSecondaryButtonClass}>
+                                        Cancel delete
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button type="button" onClick={() => requestDeleteCustomBot(item.id)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
+                                      <Trash2 className="w-4 h-4" />
+                                      Delete agent
+                                    </button>
+                                  )}
                                 </div>
                               </>
                             )}
