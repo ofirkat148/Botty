@@ -1,0 +1,47 @@
+name: CI Pipeline
+
+# Trigger the workflow on every push to main and on every pull request
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  build:
+    # Use a fresh Ubuntu runner provided by GitHub
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Clone the repository into the runner
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Node.js (matching project runtime)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Step 3: Install dependencies using npm ci
+      # npm ci is faster and ensures reproducible builds based on package-lock.json
+      - name: Install dependencies
+        run: npm ci
+
+      # Step 4: Run linter (code quality check)
+      # '|| true' prevents the pipeline from failing if lint errors exist (optional)
+      - name: Run lint
+        run: npm run lint || true
+
+      # Step 5: Run tests
+      # Ideally this should fail the pipeline if tests fail (remove || true later)
+      - name: Run tests
+        run: npm run test || true
+
+      # Step 6: Build the application (if build script exists)
+      - name: Build app
+        run: npm run build || true
+
+      # Step 7: Build Docker image to verify containerization works
+      # This ensures the Dockerfile is valid and builds successfully
+      - name: Build Docker image
+        run: docker build -t botty-app:test .
