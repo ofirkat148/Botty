@@ -28,18 +28,23 @@ jobs:
         run: npm ci
 
       # Step 4: Run linter (code quality check)
-      # '|| true' prevents the pipeline from failing if lint errors exist (optional)
       - name: Run lint
-        run: npm run lint || true
+        run: npm run lint 
 
       # Step 5: Run tests
-      # Ideally this should fail the pipeline if tests fail (remove || true later)
-      - name: Run tests
-        run: npm run test || true
+      # Ideally this should fail the pipeline if tests fail to prevent merging broken code.
+      - name: Run chat regression tests
+        run: npm run test:chat-regression
+
+      - name: Run dashboard smoke tests
+        run: npm run test:dashboard-smoke
+
+      - name: Run UI agents tests
+        run: npm run test:ui-agents
 
       # Step 6: Build the application (if build script exists)
       - name: Build app
-        run: npm run build || true
+        run: npm run build 
 
       # Step 7: Build Docker image to verify containerization works
       # This ensures the Dockerfile is valid and builds successfully
