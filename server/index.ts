@@ -119,7 +119,13 @@ async function startServer() {
     await initializeDatabase();
     dbInitialized = true;
     console.log('✅ Database initialized successfully');
-    await reconcileAllFacts();
+    const RECONCILE_TIMEOUT_MS = 30_000;
+    await Promise.race([
+      reconcileAllFacts(),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('reconcileAllFacts timed out after 30s')), RECONCILE_TIMEOUT_MS)
+      ),
+    ]);
     console.log('✅ Facts reconciled successfully');
   } catch (error) {
     console.error('❌ Failed to initialize database:', error);

@@ -934,6 +934,7 @@ export async function getMemoryContext(uid: string, options?: { sandboxMode?: bo
       : db.select().from(memoryUrls).where(eq(memoryUrls.uid, uid)).limit(5),
   ]);
 
+  const MAX_MEMORY_CHARS = 8_000;
   const sections: string[] = [];
 
   if (userFacts.length > 0) {
@@ -948,7 +949,8 @@ export async function getMemoryContext(uid: string, options?: { sandboxMode?: bo
     sections.push(`[${sandboxMode ? 'KNOWN SITES' : 'URLS'}]\n${userUrls.map(item => `- ${item.title || item.url}\n${item.url}`).join('\n\n')}`);
   }
 
-  return sections.join('\n\n');
+  const joined = sections.join('\n\n');
+  return joined.length > MAX_MEMORY_CHARS ? joined.slice(0, MAX_MEMORY_CHARS) : joined;
 }
 
 export function buildChatSystemPrompt(params: {
