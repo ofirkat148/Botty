@@ -12,8 +12,10 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "test:agent-resolution": "node --test tests/agent-resolution.test.mjs",
     "test:chat-regression": "node --test tests/chat-route.test.mjs",
     "test:dashboard-smoke": "node --test tests/dashboard-smoke.test.mjs",
+    "test:function-presets": "node --test tests/function-presets.test.mjs",
     "test:ui-agents": "node --test tests/ui-agents.test.mjs",
     "db:push": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio"

@@ -18,7 +18,9 @@ export const apiKeys = pgTable('api_keys', {
   provider: varchar('provider', { length: 100 }).notNull(),
   encryptedKey: text('encrypted_key').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  uidProviderUnique: unique().on(t.uid, t.provider),
+}));
 
 // Chat History table
 export const history = pgTable('history', {

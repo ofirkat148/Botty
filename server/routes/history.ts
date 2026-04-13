@@ -34,7 +34,7 @@ router.get('/', async (req: Request, res: Response) => {
 // POST /api/history - Add a new chat entry
 router.post('/', async (req: Request, res: Response) => {
   try {
-    const { prompt, response, model, tokensUsed, conversationId } = req.body;
+    const { prompt, response, model, provider, tokensUsed, conversationId } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
 
@@ -57,7 +57,7 @@ router.post('/', async (req: Request, res: Response) => {
 
     await db.insert(history).values(newEntry);
 
-    await incrementDailyUsage(uid, 'unknown', model, tokensUsed || 0);
+    await incrementDailyUsage(uid, provider || 'local', model, tokensUsed || 0);
 
     res.json(newEntry);
   } catch (error) {
