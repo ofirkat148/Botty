@@ -6,6 +6,7 @@ SERVICE_NAME="botty.service"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${REPO_DIR}/docker-compose.yml"
+HOST_RESOLVER_PATH="/run/systemd/resolve/resolv.conf"
 TARGET_USER="${SUDO_USER:-${USER}}"
 TARGET_GROUP=""
 ENV_FILE_DEFAULT="${REPO_DIR}/.env.local"
@@ -103,11 +104,30 @@ resolve_docker_bin() {
   [[ -n "${DOCKER_BIN}" ]] || fail "Could not resolve docker binary path"
 }
 
+ensure_compose_prerequisites() {
+  [[ -f "${COMPOSE_FILE}" ]] || fail "Could not find ${COMPOSE_FILE}"
+
+  if [[ ! -r "${HOST_RESOLVER_PATH}" ]]; then
+    fail "Missing ${HOST_RESOLVER_PATH}. The current docker-compose.yml mounts this resolver file into the app and ollama containers to keep DNS working on restricted networks. Enable systemd-resolved on this host or update the Compose runtime before continuing."
+  fi
+}
+
 read_env_value() {
   local key="$1"
   local line
   line="$(grep -E "^${key}=" "${ENV_FILE}" | tail -n 1 || true)"
   printf '%s' "${line#*=}"
+}
+
+append_env_value_if_missing() {
+  local key="$1"
+  local value="$2"
+
+  if grep -Eq "^${key}=" "${ENV_FILE}"; then
+    return
+  fi
+
+  printf '\n%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
 }
 
 env_value_is_truthy() {
@@ -129,12 +149,14 @@ validate_env_file() {
   local telegram_enabled
   local telegram_token
   local public_base_url
+  local gemini_api_key
 
   jwt_secret="$(read_env_value JWT_SECRET)"
   local_auth_enabled="$(read_env_value LOCAL_AUTH_ENABLED)"
   telegram_enabled="$(read_env_value TELEGRAM_BOT_ENABLED)"
   telegram_token="$(read_env_value TELEGRAM_BOT_TOKEN)"
   public_base_url="$(read_env_value PUBLIC_BASE_URL)"
+  gemini_api_key="$(read_env_value GEMINI_API_KEY)"
 
   [[ -n "${jwt_secret}" ]] || fail "JWT_SECRET is missing from ${ENV_FILE}"
   [[ "${jwt_secret}" != "your-super-secret-jwt-key-change-this-in-production" ]] || fail "JWT_SECRET is still using the example placeholder in ${ENV_FILE}"
@@ -143,8 +165,12 @@ validate_env_file() {
     fail "PUBLIC_BASE_URL must start with http:// or https://"
   fi
 
-  if env_value_is_truthy "${telegram_enabled}" && [[ -z "${telegram_token}" ]]; then
+  if { [[ -z "${telegram_enabled}" ]] || env_value_is_truthy "${telegram_enabled}"; } && [[ -z "${telegram_token}" ]]; then
     warn "TELEGRAM_BOT_ENABLED is true but TELEGRAM_BOT_TOKEN is empty; the web app will still run, but Telegram will stay unconfigured"
+  fi
+
+  if [[ "${gemini_api_key}" == "MY_GEMINI_API_KEY" ]]; then
+    warn "GEMINI_API_KEY is still using the example placeholder; hosted Gemini requests will fail until you set a real key or clear the value"
   fi
 
   if [[ -z "$(read_env_value CORS_ORIGINS)" && -n "${public_base_url}" ]]; then
@@ -153,6 +179,23 @@ validate_env_file() {
 
   if [[ -n "${public_base_url}" ]] && env_value_is_truthy "${local_auth_enabled}"; then
     warn "LOCAL_AUTH_ENABLED is true while PUBLIC_BASE_URL is set. Local auth is intended for trusted personal deployments only; disable it before broader public exposure."
+  fi
+}
+
+sync_env_file_defaults() {
+  local current_local_llm_url
+
+  append_env_value_if_missing PUBLIC_BASE_URL ""
+  append_env_value_if_missing CORS_ORIGINS ""
+  append_env_value_if_missing TELEGRAM_BOT_TOKEN ""
+  append_env_value_if_missing TELEGRAM_BOT_ENABLED "true"
+  append_env_value_if_missing TELEGRAM_ALLOWED_CHAT_IDS ""
+  append_env_value_if_missing TELEGRAM_PROVIDER "auto"
+  append_env_value_if_missing TELEGRAM_MODEL ""
+
+  current_local_llm_url="$(read_env_value LOCAL_LLM_URL)"
+  if [[ -z "${current_local_llm_url}" || "${current_local_llm_url}" == "http://localhost:11434" ]]; then
+    sed -i 's|^LOCAL_LLM_URL=.*|LOCAL_LLM_URL=http://127.0.0.1:11435|' "${ENV_FILE}"
   fi
 }
 
@@ -318,6 +361,7 @@ main() {
   require_command curl
   require_command systemctl
   resolve_target_account
+  ensure_compose_prerequisites
 
   if [[ ! -f "${ENV_TEMPLATE}" ]]; then
     fail "Could not find ${ENV_TEMPLATE}"
@@ -326,6 +370,7 @@ main() {
   ensure_docker
   ensure_user_in_docker_group
   ensure_env_file
+  sync_env_file_defaults
   validate_env_file
   build_app_image
   install_systemd_unit
