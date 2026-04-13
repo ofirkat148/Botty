@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, unique, index } from 'drizzle-orm/pg-core';
 
 // Users table
 export const users = pgTable('users', {
@@ -43,7 +43,9 @@ export const facts = pgTable('facts', {
   content: text('content').notNull(),
   isSkill: boolean('is_skill').default(false),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
-});
+}, (t) => ({
+  botIdIdx: index('facts_bot_id_idx').on(t.botId),
+}));
 
 // Memory Files table
 export const memoryFiles = pgTable('memory_files', {

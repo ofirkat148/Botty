@@ -7,10 +7,6 @@ const PROVIDER_ENV_KEYS: Record<string, string[]> = {
   anthropic: ['ANTHROPIC_API_KEY'],
   google: ['GEMINI_API_KEY', 'API_KEY', 'GOOGLE_API_KEY'],
   openai: ['OPENAI_API_KEY'],
-  groq: ['GROQ_API_KEY'],
-  deepseek: ['DEEPSEEK_API_KEY'],
-  mistral: ['MISTRAL_API_KEY'],
-  xai: ['XAI_API_KEY'],
 };
 
 const DEFAULT_MODELS = {

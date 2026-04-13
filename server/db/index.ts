@@ -59,6 +59,10 @@ async function bootstrapSchema(pool: Pool) {
   `);
 
   await pool.query(`
+    CREATE INDEX IF NOT EXISTS facts_bot_id_idx ON facts (bot_id)
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS memory_files (
       id TEXT PRIMARY KEY,
       uid VARCHAR(255) NOT NULL,

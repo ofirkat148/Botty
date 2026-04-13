@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
-import { appSettings, settings, userSettings } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { appSettings, facts, settings, userSettings } from '../db/schema.js';
+import { and, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.js';
 import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
@@ -560,6 +560,10 @@ router.delete('/functions/agents/:agentId', async (req: Request, res: Response) 
     const deletedAgent = await deleteCustomAgentForUser(uid, agentId);
     if (!deletedAgent) {
       return res.status(404).json({ error: 'Custom agent not found.' });
+    }
+
+    if (deletedAgent.memoryMode === 'isolated') {
+      await db.delete(facts).where(and(eq(facts.uid, uid), eq(facts.botId, agentId)));
     }
 
     const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
