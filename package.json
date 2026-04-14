@@ -25,6 +25,7 @@
     "test:history-archive": "node --test tests/history-archive.test.mjs",
     "test:memory-backup": "node --test tests/memory-backup.test.mjs",
     "test:routing-unit": "node --test --import tsx/esm tests/routing-unit.test.mjs",
+    "test:ui-features": "node --test tests/ui-features.test.mjs",
     "migrate:encrypt-keys": "node ops/migrate-encrypt-keys.mjs",
     "db:push": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio"
