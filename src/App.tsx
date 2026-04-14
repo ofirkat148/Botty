@@ -3810,7 +3810,7 @@ function AppShell() {
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
                       {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
-                      {!showArchivedHistory ? <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button> : null}
+                      <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
                         <Download className="w-4 h-4" />
                       </button>

@@ -208,15 +208,17 @@ function classifyPrompt(prompt: string) {
   const isCodeHeavy = /code|debug|refactor|typescript|javascript|react|sql|query|stack trace|traceback|bug|architecture|implement|fix/.test(lower);
   const isAnalysisHeavy = /analyze|analysis|compare|reason|tradeoff|explain|design|plan/.test(lower);
   const isLightweight = wordCount > 0 && wordCount <= 18 && /summarize|rewrite|translate|title|tagline|grammar|short|brief/.test(lower);
+  const isShortConversational = wordCount > 0 && wordCount <= 10 && !isCodeHeavy && !isAnalysisHeavy;
 
   return {
     wordCount,
     prefersReasoning: isCodeHeavy || isAnalysisHeavy || wordCount > 120,
     isLightweight,
+    isShortConversational,
   };
 }
 
-export function getSuggestedModel(provider: string, prompt: string, options?: { defaultLocalModel?: string | null }) {
+export function getSuggestedModel(provider: string, prompt: string, options?: { defaultLocalModel?: string | null; preferQuality?: boolean }) {
   if (provider === 'local') {
     return options?.defaultLocalModel?.trim() || getDefaultModel('local');
   }
@@ -225,6 +227,18 @@ export function getSuggestedModel(provider: string, prompt: string, options?: { 
     return classifyPrompt(prompt).prefersReasoning
       ? 'claude-3-7-sonnet-latest'
       : 'claude-3-5-haiku-latest';
+  }
+
+  if (provider === 'google') {
+    return options?.preferQuality && classifyPrompt(prompt).prefersReasoning
+      ? 'gemini-2.5-pro'
+      : 'gemini-2.5-flash';
+  }
+
+  if (provider === 'openai') {
+    return options?.preferQuality && classifyPrompt(prompt).prefersReasoning
+      ? 'gpt-4o'
+      : getDefaultModel('openai');
   }
 
   return getDefaultModel(provider);
@@ -1009,13 +1023,13 @@ export function buildChatSystemPrompt(params: {
 }
 
 function getSmartRoute(prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }): ProviderRoute {
-  const { prefersReasoning, isLightweight } = classifyPrompt(prompt);
+  const { prefersReasoning, isLightweight, isShortConversational } = classifyPrompt(prompt);
   const hasAnthropic = availableProviders.includes('anthropic');
   const hasGoogle = availableProviders.includes('google');
   const hasOpenai = availableProviders.includes('openai');
   const hasLocal = availableProviders.includes('local');
 
-  if (hasLocal && isLightweight && !prefersReasoning) {
+  if (hasLocal && (isLightweight || isShortConversational) && !prefersReasoning) {
     return { provider: 'local', model: getSuggestedModel('local', prompt, options) };
   }
 
@@ -1065,7 +1079,7 @@ function orderProvidersForMode(mode: RoutingMode, prompt: string, availableProvi
     'local-first': ['local', smartPrimary, 'google', 'openai', 'anthropic'],
   };
 
-  const ranked = preferredOrder[mode].filter(provider => uniqueProviders.includes(provider));
+  const ranked = Array.from(new Set(preferredOrder[mode].filter(provider => uniqueProviders.includes(provider))));
   const remainder = uniqueProviders.filter(provider => !ranked.includes(provider));
 
   return [...ranked, ...remainder];
@@ -1077,9 +1091,10 @@ export function getRouteCandidatesForMode(
   availableProviders: string[],
   options?: { defaultLocalModel?: string | null },
 ): ProviderRoute[] {
+  const extendedOptions = { ...options, preferQuality: mode === 'best-quality' };
   return orderProvidersForMode(mode, prompt, availableProviders, options).map(provider => ({
     provider,
-    model: getSuggestedModel(provider, prompt, options),
+    model: getSuggestedModel(provider, prompt, extendedOptions),
   }));
 }
 
