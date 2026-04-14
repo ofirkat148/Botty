@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useReducer, useState } from 'react';
 import {
   Bot,
   Download,
@@ -43,6 +43,7 @@ import {
   type FunctionPreset,
 } from './config/chatConfig';
 import { type AgentDefinition, type AgentExecutorType } from '../shared/agentDefinitions';
+import { useChatReducer, type ChatMessage } from './hooks/useChatReducer';
 import {
   formatAttachmentSize,
   isImageFile,
@@ -270,11 +271,18 @@ function AppShell() {
   const [provider, setProvider] = useState('auto');
   const [model, setModel] = useState('');
   const [prompt, setPrompt] = useState('');
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isSending, setIsSending] = useState(false);
+  const [chatState, dispatchChat] = useChatReducer();
+  const { messages, conversationId, isSending, chatError } = chatState;
+  const setConversationId = (id: string | null) => dispatchChat({ type: 'LOAD_HISTORY', messages, conversationId: id ?? '' });
+  const setMessages = (updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+    // Compatibility shim: allow callers to pass an array or an updater function.
+    // Full callers have been migrated to dispatch actions; this covers any remaining
+    // external setMessages usages that were not yet updated.
+    dispatchChat({ type: 'LOAD_HISTORY', messages: typeof updater === 'function' ? updater(messages) : updater, conversationId: conversationId ?? '' });
+  };
+  const setIsSending = (value: boolean) => dispatchChat({ type: 'SET_SENDING', value });
+  const setChatError = (msg: string) => msg ? dispatchChat({ type: 'SET_ERROR', message: msg }) : dispatchChat({ type: 'CLEAR_ERROR' });
   const [isListening, setIsListening] = useState(false);
-  const [chatError, setChatError] = useState('');
   const [availableProviders, setAvailableProviders] = useState<string[]>([]);
   const [defaultLocalModel, setDefaultLocalModel] = useState(DEFAULT_MODELS.local);
   const [modelCatalog, setModelCatalog] = useState<Record<string, string[]>>(DEFAULT_MODEL_CATALOG);
@@ -1226,8 +1234,7 @@ function AppShell() {
     localStorage.removeItem('botty.user');
     setToken('');
     setUser(null);
-    setMessages([]);
-    setConversationId(null);
+    dispatchChat({ type: 'RESET' });
     setHistory([]);
     setAvailableProviders([]);
   }
@@ -1239,11 +1246,9 @@ function AppShell() {
     }
 
     const displayPrompt = text || `Attached ${pendingAttachments.length} file${pendingAttachments.length === 1 ? '' : 's'}`;
-    const nextMessages = [...messages, { role: 'user' as const, content: displayPrompt }];
-    setMessages(nextMessages);
+    dispatchChat({ type: 'ADD_USER_MESSAGE', content: displayPrompt });
     setPrompt('');
-    setChatError('');
-    setIsSending(true);
+    dispatchChat({ type: 'SET_SENDING', value: true });
     const abortController = new AbortController();
     chatAbortControllerRef.current = abortController;
 
@@ -1275,8 +1280,7 @@ function AppShell() {
         throw new Error(`Stream request failed: ${streamRes.status}`);
       }
 
-      // Add an empty assistant bubble that we'll fill incrementally
-      setMessages(prev => [...prev, { role: 'assistant' as const, content: '' }]);
+      dispatchChat({ type: 'ADD_ASSISTANT_PLACEHOLDER' });
 
       const reader = streamRes.body.getReader();
       const decoder = new TextDecoder();
@@ -1295,14 +1299,7 @@ function AppShell() {
           try {
             const event = JSON.parse(line.slice(5).trim()) as { type: string; delta?: string; meta?: typeof meta; error?: string };
             if (event.type === 'chunk' && typeof event.delta === 'string') {
-              setMessages(prev => {
-                const updated = [...prev];
-                const last = updated[updated.length - 1];
-                if (last?.role === 'assistant') {
-                  updated[updated.length - 1] = { ...last, content: last.content + event.delta };
-                }
-                return updated;
-              });
+              dispatchChat({ type: 'APPEND_ASSISTANT_CHUNK', delta: event.delta });
             } else if (event.type === 'done' && event.meta) {
               meta = event.meta;
             } else if (event.type === 'error') {
@@ -1316,21 +1313,14 @@ function AppShell() {
       }
 
       if (meta) {
-        setConversationId(meta.conversationId);
-        setMessages(prev => {
-          const updated = [...prev];
-          const last = updated[updated.length - 1];
-          if (last?.role === 'assistant') {
-            updated[updated.length - 1] = {
-              ...last,
-              content: meta!.text,
-              model: meta!.model,
-              provider: meta!.provider,
-              routingMode: meta!.routingMode,
-              tokensUsed: meta!.tokensUsed,
-            };
-          }
-          return updated;
+        dispatchChat({
+          type: 'FINALIZE_ASSISTANT',
+          content: meta.text,
+          model: meta.model,
+          provider: meta.provider,
+          routingMode: meta.routingMode,
+          tokensUsed: meta.tokensUsed,
+          conversationId: meta.conversationId,
         });
         setDailyTokens(prev => prev + meta!.tokensUsed);
       }
@@ -1342,28 +1332,18 @@ function AppShell() {
       await refreshAll();
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        setChatError('Response stopped.');
+        dispatchChat({ type: 'SET_ERROR', message: 'Response stopped.' });
         return;
       }
 
       const message = error instanceof Error ? error.message : 'Chat request failed';
-      setChatError(message);
-      // Remove the optimistic user message and any partial assistant bubble
-      setMessages(prev => {
-        const trimmed = [...prev];
-        while (trimmed.length > 0 && trimmed[trimmed.length - 1].role === 'assistant' && !trimmed[trimmed.length - 1].model) {
-          trimmed.pop();
-        }
-        if (trimmed.length > 0 && trimmed[trimmed.length - 1].role === 'user') {
-          trimmed.pop();
-        }
-        return trimmed;
-      });
+      dispatchChat({ type: 'SET_ERROR', message });
+      dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
     } finally {
       if (chatAbortControllerRef.current === abortController) {
         chatAbortControllerRef.current = null;
       }
-      setIsSending(false);
+      dispatchChat({ type: 'SET_SENDING', value: false });
     }
   }
 
@@ -1528,9 +1508,7 @@ function AppShell() {
   }
 
   function startNewChat() {
-    setConversationId(null);
-    setMessages([]);
-    setChatError('');
+    dispatchChat({ type: 'RESET' });
     setActiveTab('chat');
     setIsSidebarDrawerOpen(false);
   }
@@ -1544,14 +1522,13 @@ function AppShell() {
       .filter(item => item.conversationId === selectedConversationId)
       .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
 
-    const nextMessages: Message[] = [];
+    const nextMessages: ChatMessage[] = [];
     conversationRows.forEach(item => {
       nextMessages.push({ role: 'user', content: item.prompt });
       nextMessages.push({ role: 'assistant', content: item.response, model: item.model, tokensUsed: item.tokensUsed || 0 });
     });
 
-    setConversationId(selectedConversationId);
-    setMessages(nextMessages);
+    dispatchChat({ type: 'LOAD_HISTORY', messages: nextMessages, conversationId: selectedConversationId });
     setActiveTab('chat');
   }
 
@@ -1569,9 +1546,7 @@ function AppShell() {
     setApplyingFunctionId(preset.id);
     try {
       if (options?.startNewChat) {
-        setConversationId(null);
-        setMessages([]);
-        setChatError('');
+        dispatchChat({ type: 'RESET' });
       }
 
       await saveSystemPromptOnly(preset.systemPrompt);

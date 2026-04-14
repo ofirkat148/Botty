@@ -14,6 +14,7 @@ import settingsRoutes from './routes/settings.js';
 import keysRoutes from './routes/keys.js';
 import usageRoutes from './routes/usage.js';
 import chatRoutes from './routes/chat.js';
+import metricsRoutes from './routes/metrics.js';
 import { getTelegramBotStatus, startTelegramBot } from './services/telegram.js';
 import { getLocalProviderStatus, reconcileAllFacts } from './utils/llm.js';
 import { logger } from './utils/logger.js';
@@ -173,6 +174,7 @@ async function startServer() {
   app.use('/api/settings', settingsRoutes);
   app.use('/api/keys', keysRoutes);
   app.use('/api/usage', usageRoutes);
+  app.use('/api/metrics', metricsRoutes);
 
   // Fallback to Vite for client-side routing
   app.get('*', (req, res) => {
