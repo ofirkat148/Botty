@@ -523,6 +523,20 @@ function AppShell() {
   ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
   const activeBotPreset = useMemo(() => activePreset?.kind === 'agent' ? activePreset : null, [activePreset]);
 
+  const conversationTokenWarning = useMemo(() => {
+    if (messages.length === 0) return null;
+    const lastAssistant = [...messages].reverse().find(m => m.role === 'assistant' && m.model);
+    if (!lastAssistant?.model || !lastAssistant?.provider) return null;
+    const limit = getEstimatedModelTokenLimit(lastAssistant.provider, lastAssistant.model);
+    if (!limit) return null;
+    const totalUsed = messages.reduce((sum, m) => sum + (m.tokensUsed || 0), 0);
+    if (totalUsed === 0) return null;
+    const pct = totalUsed / limit;
+    if (pct >= 0.9) return { level: 'critical' as const, pct, totalUsed, limit };
+    if (pct >= 0.75) return { level: 'warning' as const, pct, totalUsed, limit };
+    return null;
+  }, [messages]);
+
   function getAgentExecutorType(agent: FunctionPreset | AgentDefinition): AgentExecutorType {
     return 'executorType' in agent && agent.executorType === 'remote-http' ? 'remote-http' : 'internal-llm';
   }
@@ -2848,6 +2862,14 @@ function AppShell() {
                   </div>
 
                   <div className="flex-1 overflow-auto space-y-3 pr-1 sm:space-y-4 sm:pr-2">
+                    {conversationTokenWarning ? (
+                      <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${conversationTokenWarning.level === 'critical' ? (isDarkMode ? 'border-red-400/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-800') : (isDarkMode ? 'border-amber-400/20 bg-amber-500/8 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800')}`}>
+                        <Layers className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                        <span>
+                          Context is {Math.round(conversationTokenWarning.pct * 100)}% full ({conversationTokenWarning.totalUsed.toLocaleString()} / {conversationTokenWarning.limit.toLocaleString()} tokens). Consider starting a new chat or using /new-chat.
+                        </span>
+                      </div>
+                    ) : null}
                     {messages.length === 0 ? (
                       <div className={`h-full min-h-[360px] flex items-center justify-center ${emptyStateClass}`}>
                         <div className="max-w-md text-center">
