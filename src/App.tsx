@@ -972,6 +972,9 @@ function AppShell() {
       const nextIsFullscreen = Boolean(document.fullscreenElement);
       setIsFullscreen(nextIsFullscreen);
 
+      // Sync CSS state with native fullscreen when it changes externally (e.g. user presses Esc).
+      setIsFullscreen(nextIsFullscreen);
+
       if (nextIsFullscreen) {
         setIsChatSidebarOpen(true);
         return;
@@ -1136,6 +1139,17 @@ function AppShell() {
 
     void refreshAll();
   }, [user]);
+
+  // Re-fetch history whenever the archived/active toggle changes
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+
+    apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history')
+      .then(rows => setHistory(rows))
+      .catch(() => {/* silent */});
+  }, [showArchivedHistory]);
 
   useEffect(() => {
     if (!user || activeTab !== 'settings') {
@@ -1678,17 +1692,20 @@ function AppShell() {
     setRecentSlashItemIds(currentIds => [itemId, ...currentIds.filter(value => value !== itemId)].slice(0, MAX_RECENT_SLASH_ITEMS));
   }
 
-  async function toggleFullscreenMode() {
-    try {
-      if (!document.fullscreenElement) {
-        await document.documentElement.requestFullscreen();
-        return;
+  function toggleFullscreenMode() {
+    // Toggle the CSS-driven fullscreen state immediately — reliable across all environments.
+    setIsFullscreen(current => {
+      const next = !current;
+      // Best-effort: try to also engage/disengage the browser native fullscreen API.
+      if (next) {
+        document.documentElement.requestFullscreen().catch(() => {/* non-fatal */});
+      } else {
+        if (document.fullscreenElement) {
+          document.exitFullscreen().catch(() => {/* non-fatal */});
+        }
       }
-
-      await document.exitFullscreen();
-    } catch (error) {
-      setNotice(error instanceof Error ? error.message : 'Failed to toggle fullscreen mode.');
-    }
+      return next;
+    });
   }
 
   function toggleSidebarPreference() {
@@ -3925,7 +3942,7 @@ function AppShell() {
                   />
                   <button
                     type="button"
-                    onClick={() => { setShowArchivedHistory(v => !v); void refreshAll(); }}
+                    onClick={() => setShowArchivedHistory(v => !v)}
                     className={responsiveSecondaryButtonClass}
                     title={showArchivedHistory ? 'Show active conversations' : 'Show archived conversations'}
                   >
