@@ -237,6 +237,11 @@ async function bootstrapSchema(pool: Pool) {
     ALTER TABLE settings
     ADD COLUMN IF NOT EXISTS history_retention_days INTEGER
   `);
+
+  await pool.query(`
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS pinned_conversations JSONB
+  `);
 }
 
 export async function initializeDatabase() {

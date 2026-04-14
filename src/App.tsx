@@ -18,6 +18,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
+  Pin,
   Plus,
   RefreshCw,
   Save,
@@ -301,6 +302,7 @@ function AppShell() {
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [factsSearch, setFactsSearch] = useState('');
   const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
+  const [pinnedConversations, setPinnedConversations] = useState<Set<string>>(new Set());
   const [conversationModels, setConversationModels] = useState<Record<string, { provider: string; model: string }>>({});
   const [editingLabelId, setEditingLabelId] = useState('');
   const [labelDraft, setLabelDraft] = useState('');
@@ -1179,7 +1181,7 @@ function AppShell() {
       apiGet<ApiKey[]>('/api/keys'),
       apiGet<UsageResponse>(`/api/usage?days=${usagePeriodRef.current}`),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null; pinnedConversations?: string[] | null }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
       apiGet<{ total: number; counts: Record<string, number> }>('/api/memory/facts/agent-counts'),
     ]);
@@ -1207,6 +1209,7 @@ function AppShell() {
     setSystemPrompt(userSettingsData.systemPrompt || '');
     setActivePresetId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...BUILT_IN_PRESETS, ...(functionsData.skills || []), ...(functionsData.agents || [])])?.id || '');
     setConversationLabels(userSettingsData.conversationLabels || {});
+    setPinnedConversations(new Set(Array.isArray(userSettingsData.pinnedConversations) ? userSettingsData.pinnedConversations : []));
     setConversationModels(userSettingsData.conversationModels || {});
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
@@ -2132,6 +2135,17 @@ function AppShell() {
     setConversationLabels(next);
     setEditingLabelId('');
     await apiSend('/api/settings/user-settings', 'POST', { conversationLabels: next });
+  }
+
+  async function togglePinConversation(id: string) {
+    const next = new Set(pinnedConversations);
+    if (next.has(id)) {
+      next.delete(id);
+    } else {
+      next.add(id);
+    }
+    setPinnedConversations(next);
+    await apiSend('/api/settings/user-settings', 'POST', { pinnedConversations: Array.from(next) });
   }
 
   function exportConversation(conv: { id: string; items: HistoryEntry[] }) {
@@ -3885,8 +3899,12 @@ function AppShell() {
                     entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
                     entry.response.toLowerCase().includes(historySearch.toLowerCase())
                   ) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())
-                ).map(item => (
-                  <div key={item.id} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between`}>
+                ).sort((a, b) => {
+                  const aPinned = pinnedConversations.has(a.id) ? 0 : 1;
+                  const bPinned = pinnedConversations.has(b.id) ? 0 : 1;
+                  return aPinned - bPinned;
+                }).map(item => (
+                  <div key={item.id} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between ${pinnedConversations.has(item.id) ? (isDarkMode ? 'ring-1 ring-amber-400/30' : 'ring-1 ring-amber-400/60') : ''}`}>
                     <div className="min-w-0 flex-1">
                       {editingLabelId === item.id ? (
                         <form onSubmit={event => { event.preventDefault(); void saveConversationLabel(item.id, labelDraft); }} className="mb-2 flex gap-2">
@@ -3918,6 +3936,7 @@ function AppShell() {
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
                       {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
+                      {!showArchivedHistory ? <button onClick={() => void togglePinConversation(item.id)} className={`${responsiveSecondaryButtonClass} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`} title={pinnedConversations.has(item.id) ? 'Unpin conversation' : 'Pin conversation'}><Pin className="w-4 h-4" /></button> : null}
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
                         <Download className="w-4 h-4" />

@@ -359,10 +359,11 @@ router.post('/user-settings', async (req: Request, res: Response) => {
     const existing = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
     const current = existing[0];
 
-    const { systemPrompt, conversationLabels, conversationModels } = req.body;
+    const { systemPrompt, conversationLabels, conversationModels, pinnedConversations } = req.body;
     const nextSystemPrompt = 'systemPrompt' in req.body ? (systemPrompt || null) : (current?.systemPrompt ?? null);
     const nextLabels = 'conversationLabels' in req.body ? (conversationLabels || null) : (current?.conversationLabels ?? null);
     const nextModels = 'conversationModels' in req.body ? (conversationModels || null) : (current?.conversationModels ?? null);
+    const nextPinned = 'pinnedConversations' in req.body ? (Array.isArray(pinnedConversations) ? pinnedConversations : null) : (current?.pinnedConversations ?? null);
 
     await db
       .insert(userSettings)
@@ -371,6 +372,7 @@ router.post('/user-settings', async (req: Request, res: Response) => {
         systemPrompt: nextSystemPrompt,
         conversationLabels: nextLabels,
         conversationModels: nextModels,
+        pinnedConversations: nextPinned,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -379,6 +381,7 @@ router.post('/user-settings', async (req: Request, res: Response) => {
           systemPrompt: nextSystemPrompt,
           conversationLabels: nextLabels,
           conversationModels: nextModels,
+          pinnedConversations: nextPinned,
           updatedAt: new Date(),
         },
       });
