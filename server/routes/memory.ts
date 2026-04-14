@@ -190,6 +190,11 @@ router.post('/import', async (req: Request, res: Response) => {
           !Array.isArray(incomingUserSettings.conversationLabels)
           ? incomingUserSettings.conversationLabels
           : null;
+        const incomingModels = incomingUserSettings.conversationModels &&
+          typeof incomingUserSettings.conversationModels === 'object' &&
+          !Array.isArray(incomingUserSettings.conversationModels)
+          ? incomingUserSettings.conversationModels
+          : null;
 
         await tx.insert(userSettings).values({
           uid,
@@ -197,6 +202,7 @@ router.post('/import', async (req: Request, res: Response) => {
           customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
           customBots: [],
           conversationLabels: incomingLabels,
+          conversationModels: incomingModels,
           updatedAt: new Date(),
         }).onConflictDoUpdate({
           target: userSettings.uid,
@@ -205,6 +211,7 @@ router.post('/import', async (req: Request, res: Response) => {
             customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
             customBots: [],
             conversationLabels: incomingLabels,
+            conversationModels: incomingModels,
             updatedAt: new Date(),
           },
         });

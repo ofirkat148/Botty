@@ -96,6 +96,7 @@ export const userSettings = pgTable('user_settings', {
   customSkills: jsonb('custom_skills'),
   customBots: jsonb('custom_bots'),
   conversationLabels: jsonb('conversation_labels'),
+  conversationModels: jsonb('conversation_models'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

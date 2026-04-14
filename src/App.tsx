@@ -299,6 +299,7 @@ function AppShell() {
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [factsSearch, setFactsSearch] = useState('');
   const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
+  const [conversationModels, setConversationModels] = useState<Record<string, { provider: string; model: string }>>({});
   const [editingLabelId, setEditingLabelId] = useState('');
   const [labelDraft, setLabelDraft] = useState('');
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -1157,7 +1158,7 @@ function AppShell() {
       apiGet<ApiKey[]>('/api/keys'),
       apiGet<UsageResponse>('/api/usage'),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
       apiGet<{ total: number; counts: Record<string, number> }>('/api/memory/facts/agent-counts'),
     ]);
@@ -1184,6 +1185,7 @@ function AppShell() {
     setSystemPrompt(userSettingsData.systemPrompt || '');
     setActivePresetId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...BUILT_IN_PRESETS, ...(functionsData.skills || []), ...(functionsData.agents || [])])?.id || '');
     setConversationLabels(userSettingsData.conversationLabels || {});
+    setConversationModels(userSettingsData.conversationModels || {});
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     const nextModelCatalog = {
@@ -1366,6 +1368,11 @@ function AppShell() {
           conversationId: meta.conversationId,
         });
         setDailyTokens(prev => prev + meta!.tokensUsed);
+        if (meta.conversationId && meta.provider && meta.model) {
+          const nextModels = { ...conversationModels, [meta.conversationId]: { provider: meta.provider, model: meta.model } };
+          setConversationModels(nextModels);
+          void apiSend('/api/settings/user-settings', 'POST', { conversationModels: nextModels });
+        }
       }
 
       setPendingAttachments([]);
@@ -1573,6 +1580,11 @@ function AppShell() {
 
     dispatchChat({ type: 'LOAD_HISTORY', messages: nextMessages, conversationId: selectedConversationId });
     setActiveTab('chat');
+    const pinnedModel = conversationModels[selectedConversationId];
+    if (pinnedModel?.provider) {
+      setProvider(pinnedModel.provider);
+      setModel(pinnedModel.model || '');
+    }
   }
 
   function openTab(tab: TabValue) {
@@ -1993,6 +2005,12 @@ function AppShell() {
       delete next[selectedConversationId];
       setConversationLabels(next);
       void apiSend('/api/settings/user-settings', 'POST', { conversationLabels: next });
+    }
+    if (conversationModels[selectedConversationId]) {
+      const next = { ...conversationModels };
+      delete next[selectedConversationId];
+      setConversationModels(next);
+      void apiSend('/api/settings/user-settings', 'POST', { conversationModels: next });
     }
 
     await apiSend(`/api/history/group/${selectedConversationId}`, 'DELETE');
