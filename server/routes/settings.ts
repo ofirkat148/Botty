@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { appSettings, facts, settings, userSettings } from '../db/schema.js';
 import { and, eq } from 'drizzle-orm';
@@ -13,12 +13,41 @@ const router = Router();
 router.use(authMiddleware);
 const APP_SETTINGS_ID = 'global';
 
+const _TOK_ALGORITHM = 'aes-256-gcm';
+const _TOK_IV_LEN = 12;
+const _TOK_TAG_LEN = 16;
+const _TOK_VERSION_PREFIX = 'v1:';
+
+function getTokenEncryptionKey(): Buffer {
+  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error('KEY_ENCRYPTION_SECRET env var must be set to store the Telegram bot token');
+  }
+  return createHash('sha256').update(secret).digest();
+}
+
 function encryptValue(value: string): string {
-  return Buffer.from(value).toString('base64');
+  const key = getTokenEncryptionKey();
+  const iv = randomBytes(_TOK_IV_LEN);
+  const cipher = createCipheriv(_TOK_ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return _TOK_VERSION_PREFIX + Buffer.concat([iv, tag, encrypted]).toString('base64');
 }
 
 function decryptValue(value: string): string {
-  return Buffer.from(value, 'base64').toString();
+  if (!value.startsWith(_TOK_VERSION_PREFIX)) {
+    // Legacy base64 migration path
+    return Buffer.from(value, 'base64').toString('utf8');
+  }
+  const key = getTokenEncryptionKey();
+  const raw = Buffer.from(value.slice(_TOK_VERSION_PREFIX.length), 'base64');
+  const iv = raw.subarray(0, _TOK_IV_LEN);
+  const tag = raw.subarray(_TOK_IV_LEN, _TOK_IV_LEN + _TOK_TAG_LEN);
+  const ciphertext = raw.subarray(_TOK_IV_LEN + _TOK_TAG_LEN);
+  const decipher = createDecipheriv(_TOK_ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ciphertext) + decipher.final('utf8');
 }
 
 type StoredFunctionPreset = {

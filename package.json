@@ -18,6 +18,9 @@
     "test:function-presets": "node --test tests/function-presets.test.mjs",
     "test:ui-agents": "node --test tests/ui-agents.test.mjs",
     "test:security": "node --test tests/security.test.mjs",
+    "test:memory": "node --test tests/memory-consolidation.test.mjs",
+    "test:provider-fallback": "node --test tests/provider-fallback.test.mjs",
+    "test:telegram": "node --test tests/telegram-status.test.mjs",
     "db:push": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio"
   },

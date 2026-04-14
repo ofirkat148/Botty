@@ -82,6 +82,15 @@ jobs:
       - name: Run UI agents tests
         run: npm run test:ui-agents
 
+      - name: Run memory consolidation tests
+        run: npm run test:memory
+
+      - name: Run provider routing/fallback tests
+        run: npm run test:provider-fallback
+
+      - name: Run Telegram status tests
+        run: npm run test:telegram
+
       - name: Show logs on failure
         if: failure()
         run: |
