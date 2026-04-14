@@ -8,13 +8,50 @@ import crypto from 'crypto';
 const router = Router();
 router.use(authMiddleware);
 
-function encryptKey(key: string): string {
-  // Simple encryption - use a more robust solution in production
-  return Buffer.from(key).toString('base64');
+const ALGORITHM = 'aes-256-gcm';
+const KEY_LEN = 32;
+const IV_LEN = 12;
+const TAG_LEN = 16;
+const VERSION_PREFIX = 'v1:';
+
+function getDerivedEncryptionKey(): Buffer {
+  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error('KEY_ENCRYPTION_SECRET env var must be set and at least 16 characters');
+  }
+  return crypto.createHash('sha256').update(secret).digest();
 }
 
-function decryptKey(encrypted: string): string {
-  return Buffer.from(encrypted, 'base64').toString();
+function encryptKey(plaintext: string): string {
+  const key = getDerivedEncryptionKey();
+  const iv = crypto.randomBytes(IV_LEN);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return VERSION_PREFIX + Buffer.concat([iv, tag, encrypted]).toString('base64');
+}
+
+function decryptKey(stored: string): string {
+  // Migration: handle legacy base64-only values that lack the version prefix
+  if (!stored.startsWith(VERSION_PREFIX)) {
+    try {
+      return Buffer.from(stored, 'base64').toString('utf8');
+    } catch {
+      throw new Error('Failed to decrypt API key');
+    }
+  }
+
+  const key = getDerivedEncryptionKey();
+  const raw = Buffer.from(stored.slice(VERSION_PREFIX.length), 'base64');
+  if (raw.length < IV_LEN + TAG_LEN + 1) {
+    throw new Error('Encrypted API key is malformed');
+  }
+  const iv = raw.subarray(0, IV_LEN);
+  const tag = raw.subarray(IV_LEN, IV_LEN + TAG_LEN);
+  const ciphertext = raw.subarray(IV_LEN + TAG_LEN);
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ciphertext) + decipher.final('utf8');
 }
 
 // GET /api/keys - Get all API keys for current user

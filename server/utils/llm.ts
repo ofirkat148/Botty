@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, createDecipheriv } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
 import { apiKeys, dailyUsage, facts, memoryFiles, memoryUrls, settings, userSettings } from '../db/schema.js';
@@ -115,8 +115,29 @@ function isConfiguredSecret(value?: string | null) {
   return true;
 }
 
+const _KEY_ALGORITHM = 'aes-256-gcm';
+const _KEY_IV_LEN = 12;
+const _KEY_TAG_LEN = 16;
+const _KEY_VERSION_PREFIX = 'v1:';
+
 function decodeKey(encryptedKey: string): string {
-  return Buffer.from(encryptedKey, 'base64').toString();
+  if (!encryptedKey.startsWith(_KEY_VERSION_PREFIX)) {
+    // Legacy base64 migration path - keys stored before AES encryption was added
+    return Buffer.from(encryptedKey, 'base64').toString('utf8');
+  }
+
+  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error('KEY_ENCRYPTION_SECRET env var must be set to decrypt stored API keys');
+  }
+  const key = createHash('sha256').update(secret).digest();
+  const raw = Buffer.from(encryptedKey.slice(_KEY_VERSION_PREFIX.length), 'base64');
+  const iv = raw.subarray(0, _KEY_IV_LEN);
+  const tag = raw.subarray(_KEY_IV_LEN, _KEY_IV_LEN + _KEY_TAG_LEN);
+  const ciphertext = raw.subarray(_KEY_IV_LEN + _KEY_TAG_LEN);
+  const decipher = createDecipheriv(_KEY_ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ciphertext) + decipher.final('utf8');
 }
 
 function normalizeLocalLlmUrl(value?: string | null) {
@@ -575,10 +596,16 @@ function combineFactContents(left: string, right: string) {
   return `${leftParsed.prefix} ${joinFactClauses(mergedClauses)}`;
 }
 
+const MAX_FACTS_PER_SCOPE = 100;
+
 export function consolidateFactRows(rows: FactRow[]) {
+  // Guard against O(n²) blowup on very large fact sets
+  const capped = rows.length > MAX_FACTS_PER_SCOPE
+    ? rows.slice(rows.length - MAX_FACTS_PER_SCOPE)
+    : rows;
   const consolidated: FactRow[] = [];
 
-  for (const row of rows) {
+  for (const row of capped) {
     const cleanedContent = cleanFactContent(row.content);
     const standardizedContent = standardizeFactContent(cleanedContent);
     if (!standardizedContent) {
@@ -1411,4 +1438,214 @@ export async function callLLM(params: {
   }
 
   return { responseText, tokensUsed };
+}
+
+/**
+ * Streaming variant of callLLM. Calls `onChunk` for each text delta and
+ * resolves with final token usage. Supports Anthropic, OpenAI, and local
+ * (OpenAI-compatible) providers. Falls back to Google non-streaming.
+ */
+export async function streamCallLLM(params: {
+  prompt: string;
+  provider: string;
+  model: string;
+  apiKey: string;
+  systemPrompt: string;
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  localUrl?: string;
+  signal?: AbortSignal;
+  onChunk: (delta: string) => void;
+}): Promise<{ tokensUsed: number }> {
+  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl, signal, onChunk } = params;
+  throwIfAborted(signal);
+
+  // Helper: consume an OpenAI-compatible SSE stream
+  async function consumeOpenAIStream(response: Response): Promise<{ text: string; tokensUsed: number }> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    let tokensUsed = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        if (!trimmed.startsWith('data:')) continue;
+        try {
+          const json = JSON.parse(trimmed.slice(5).trim()) as any;
+          const delta = json.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && delta) {
+            fullText += delta;
+            onChunk(delta);
+          }
+          if (json.usage?.total_tokens) tokensUsed = json.usage.total_tokens;
+        } catch { /* skip malformed SSE lines */ }
+      }
+    }
+
+    return { text: fullText, tokensUsed };
+  }
+
+  if (provider === 'anthropic') {
+    const payloadMessages = [
+      ...messages.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: prompt },
+    ];
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 2048,
+        stream: true,
+        system: systemPrompt || 'You are a helpful assistant.',
+        messages: payloadMessages,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new LLMProviderError(provider, summarizeProviderErrorBody(body, `Anthropic request failed with ${response.status}`), { statusCode: response.status, retryable: isRetryableStatus(response.status) });
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        try {
+          const json = JSON.parse(trimmed.slice(5).trim()) as any;
+          if (json.type === 'content_block_delta') {
+            const delta = json.delta?.text;
+            if (typeof delta === 'string' && delta) {
+              fullText += delta;
+              onChunk(delta);
+            }
+          }
+          if (json.type === 'message_delta' && json.usage) {
+            outputTokens = json.usage.output_tokens || 0;
+          }
+          if (json.type === 'message_start' && json.message?.usage) {
+            inputTokens = json.message.usage.input_tokens || 0;
+          }
+        } catch { /* skip malformed SSE lines */ }
+      }
+    }
+
+    const tokensUsed = inputTokens + outputTokens || Math.ceil((systemPrompt.length + prompt.length + fullText.length) / 4);
+    return { tokensUsed };
+
+  } else if (provider === 'openai') {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+          ...messages,
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new LLMProviderError(provider, summarizeProviderErrorBody(body, `OpenAI request failed with ${response.status}`), { statusCode: response.status, retryable: isRetryableStatus(response.status) });
+    }
+
+    const { text: fullText, tokensUsed } = await consumeOpenAIStream(response);
+    return { tokensUsed: tokensUsed || Math.ceil((systemPrompt.length + prompt.length + fullText.length) / 4) };
+
+  } else if (provider === 'local') {
+    const candidateUrls = getCandidateLocalLlmUrls(localUrl);
+    let lastError: unknown = null;
+    let succeeded = false;
+    let totalTokens = 0;
+    let totalText = '';
+
+    for (const candidateUrl of candidateUrls) {
+      throwIfAborted(signal);
+      const endpoint = `${candidateUrl.replace(/\/$/, '')}/v1/chat/completions`;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal,
+          body: JSON.stringify({
+            model,
+            stream: true,
+            messages: [
+              { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+              ...messages,
+              { role: 'user', content: prompt },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new LLMProviderError(provider, summarizeProviderErrorBody(body, `Local LLM request failed with ${response.status}`), { statusCode: response.status, retryable: isRetryableStatus(response.status) });
+        }
+
+        const result = await consumeOpenAIStream(response);
+        totalText = result.text;
+        totalTokens = result.tokensUsed || Math.ceil((systemPrompt.length + prompt.length + totalText.length) / 4);
+        succeeded = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        const normalizedError = normalizeProviderError(provider, error, 'Local LLM request failed');
+        if (!normalizedError.retryable) throw normalizedError;
+      }
+    }
+
+    if (!succeeded) {
+      throw normalizeProviderError(provider, lastError, 'Local LLM streaming request failed');
+    }
+
+    return { tokensUsed: totalTokens };
+
+  } else if (provider === 'google') {
+    // Google GenAI SDK does not expose a simple SSE stream in this integration;
+    // fall back to non-streaming and deliver the whole response as a single chunk.
+    const result = await callLLM({ prompt, provider, model, apiKey, systemPrompt, messages, localUrl, signal });
+    onChunk(result.responseText);
+    return { tokensUsed: result.tokensUsed };
+
+  } else {
+    throw new Error(`Unsupported provider: ${provider}`);
+  }
 }

@@ -1,6 +1,13 @@
 import jwt from 'jsonwebtoken';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const _jwtSecret = process.env.JWT_SECRET;
+if (!_jwtSecret || _jwtSecret.trim().length < 16) {
+  throw new Error(
+    'JWT_SECRET environment variable must be set and at least 16 characters long. ' +
+    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"'
+  );
+}
+const JWT_SECRET = _jwtSecret.trim();
 const TOKEN_EXPIRY = '24h';
 
 export interface TokenPayload {

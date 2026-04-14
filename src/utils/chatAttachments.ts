@@ -72,6 +72,23 @@ async function getOcrWorker(onProgress?: (percent: number) => void) {
   return await ocrWorkerPromise;
 }
 
+/**
+ * Terminate the shared Tesseract worker and free its memory.
+ * Call this in a cleanup effect when the component that uses OCR unmounts.
+ */
+export async function terminateOcrWorker() {
+  if (!ocrWorkerPromise) return;
+  try {
+    const worker = await ocrWorkerPromise;
+    await worker.terminate();
+  } catch {
+    // Ignore termination errors — worker may already be gone
+  } finally {
+    ocrWorkerPromise = null;
+    ocrProgressHandler = null;
+  }
+}
+
 async function extractPdfText(file: File) {
   const pdfModule = await getPdfModule();
   const pdf = await pdfModule.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;

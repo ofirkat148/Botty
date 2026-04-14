@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { history } from '../db/schema.js';
-import { and, eq, desc } from 'drizzle-orm';
+import { and, eq, desc, like, or } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { incrementDailyUsage } from '../utils/llm.js';
 
@@ -12,17 +12,26 @@ const router = Router();
 router.use(authMiddleware);
 
 // GET /api/history - Get chat history for the current user
+// Query params: ?q=search+term&limit=50
 router.get('/', async (req: Request, res: Response) => {
   try {
     const db = getDatabase();
     const uid = req.userId!;
+    const rawLimit = Number(req.query.limit) || 50;
+    const limit = Math.min(Math.max(1, rawLimit), 200);
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+
+    const baseCondition = eq(history.uid, uid);
+    const whereCondition = q
+      ? and(baseCondition, or(like(history.prompt, `%${q}%`), like(history.response, `%${q}%`)))
+      : baseCondition;
 
     const rows = await db
       .select()
       .from(history)
-      .where(eq(history.uid, uid))
+      .where(whereCondition)
       .orderBy(desc(history.timestamp))
-      .limit(50);
+      .limit(limit);
 
     res.json(rows);
   } catch (error) {

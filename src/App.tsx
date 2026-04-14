@@ -51,6 +51,7 @@ import {
   MAX_CHAT_ATTACHMENT_BYTES,
   MAX_CHAT_ATTACHMENT_CHARS,
   parseAttachmentFile,
+  terminateOcrWorker,
 } from './utils/chatAttachments';
 const MAX_RECENT_SLASH_ITEMS = 4;
 
@@ -831,6 +832,13 @@ function AppShell() {
     window.localStorage.setItem('botty.theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
+  // Terminate the shared Tesseract OCR worker when the app unmounts
+  useEffect(() => {
+    return () => {
+      terminateOcrWorker().catch(() => {});
+    };
+  }, []);
+
   useEffect(() => {
     if (!notice) {
       return undefined;
@@ -1239,43 +1247,98 @@ function AppShell() {
     const abortController = new AbortController();
     chatAbortControllerRef.current = abortController;
 
-    try {
-      const response = await apiSend<{
-        text: string;
-        tokensUsed: number;
-        model: string;
-        provider: string;
-        conversationId: string;
-        routingMode: string | null;
-      }>('/api/chat', 'POST', {
-        prompt: text,
-        provider: isAutoRouteProvider(provider) ? 'auto' : provider,
-        routingMode: isAutoRouteProvider(provider) ? provider : undefined,
-        model: isAutoRouteProvider(provider) ? undefined : model,
-        conversationId,
-        messages: messages.slice(-10),
-        attachments: pendingAttachments.map(item => ({
-          name: item.name,
-          content: item.content,
-          type: item.type,
-        })),
-        activeAgentId: activeBotPreset?.id || null,
-      }, { signal: abortController.signal });
+    const body = {
+      prompt: text,
+      provider: isAutoRouteProvider(provider) ? 'auto' : provider,
+      routingMode: isAutoRouteProvider(provider) ? provider : undefined,
+      model: isAutoRouteProvider(provider) ? undefined : model,
+      conversationId,
+      messages: messages.slice(-10),
+      attachments: pendingAttachments.map(item => ({
+        name: item.name,
+        content: item.content,
+        type: item.type,
+      })),
+      activeAgentId: activeBotPreset?.id || null,
+    };
 
-      setConversationId(response.conversationId);
+    try {
+      // SSE streaming path
+      const streamRes = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      });
+
+      if (!streamRes.ok || !streamRes.body) {
+        throw new Error(`Stream request failed: ${streamRes.status}`);
+      }
+
+      // Add an empty assistant bubble that we'll fill incrementally
+      setMessages(prev => [...prev, { role: 'assistant' as const, content: '' }]);
+
+      const reader = streamRes.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+      let meta: { id: string; text: string; tokensUsed: number; model: string; provider: string; conversationId: string; routingMode: string | null } | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            const event = JSON.parse(line.slice(5).trim()) as { type: string; delta?: string; meta?: typeof meta; error?: string };
+            if (event.type === 'chunk' && typeof event.delta === 'string') {
+              setMessages(prev => {
+                const updated = [...prev];
+                const last = updated[updated.length - 1];
+                if (last?.role === 'assistant') {
+                  updated[updated.length - 1] = { ...last, content: last.content + event.delta };
+                }
+                return updated;
+              });
+            } else if (event.type === 'done' && event.meta) {
+              meta = event.meta;
+            } else if (event.type === 'error') {
+              throw new Error(event.error || 'Stream error');
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof Error && parseErr.message !== 'Stream error') continue;
+            throw parseErr;
+          }
+        }
+      }
+
+      if (meta) {
+        setConversationId(meta.conversationId);
+        setMessages(prev => {
+          const updated = [...prev];
+          const last = updated[updated.length - 1];
+          if (last?.role === 'assistant') {
+            updated[updated.length - 1] = {
+              ...last,
+              content: meta!.text,
+              model: meta!.model,
+              provider: meta!.provider,
+              routingMode: meta!.routingMode,
+              tokensUsed: meta!.tokensUsed,
+            };
+          }
+          return updated;
+        });
+        setDailyTokens(prev => prev + meta!.tokensUsed);
+      }
+
       setPendingAttachments([]);
       if (attachmentInputRef.current) {
         attachmentInputRef.current.value = '';
       }
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: response.text,
-        model: response.model,
-        provider: response.provider,
-        routingMode: response.routingMode,
-        tokensUsed: response.tokensUsed,
-      }]);
-      setDailyTokens(prev => prev + response.tokensUsed);
       await refreshAll();
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -1285,7 +1348,17 @@ function AppShell() {
 
       const message = error instanceof Error ? error.message : 'Chat request failed';
       setChatError(message);
-      setMessages(prev => prev.slice(0, -1));
+      // Remove the optimistic user message and any partial assistant bubble
+      setMessages(prev => {
+        const trimmed = [...prev];
+        while (trimmed.length > 0 && trimmed[trimmed.length - 1].role === 'assistant' && !trimmed[trimmed.length - 1].model) {
+          trimmed.pop();
+        }
+        if (trimmed.length > 0 && trimmed[trimmed.length - 1].role === 'user') {
+          trimmed.pop();
+        }
+        return trimmed;
+      });
     } finally {
       if (chatAbortControllerRef.current === abortController) {
         chatAbortControllerRef.current = null;

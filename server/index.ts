@@ -1,5 +1,7 @@
 import express from 'express';
 import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
+import pinoHttp from 'pino-http';
 import dotenv from 'dotenv';
 import path from 'path';
 import { existsSync } from 'fs';
@@ -14,6 +16,7 @@ import usageRoutes from './routes/usage.js';
 import chatRoutes from './routes/chat.js';
 import { getTelegramBotStatus, startTelegramBot } from './services/telegram.js';
 import { getLocalProviderStatus, reconcileAllFacts } from './utils/llm.js';
+import { logger } from './utils/logger.js';
 
 // Load environment variables
 dotenv.config();
@@ -49,7 +52,14 @@ function getCorsOrigins() {
 
 function isAllowedOrigin(origin: string) {
   const allowedOrigins = getCorsOrigins();
-  if (allowedOrigins.includes(origin) || process.env.CORS_ORIGINS === '*') {
+  if (process.env.CORS_ORIGINS === '*') {
+    const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim();
+    if (publicBaseUrl && !publicBaseUrl.startsWith('http://localhost') && !publicBaseUrl.startsWith('http://127.0.0.1')) {
+      console.warn('[security] CORS_ORIGINS=* is set with a non-localhost PUBLIC_BASE_URL. This allows any origin. Restrict CORS_ORIGINS in production.');
+    }
+    return true;
+  }
+  if (allowedOrigins.includes(origin)) {
     return true;
   }
 
@@ -65,6 +75,13 @@ function isAllowedOrigin(origin: string) {
 }
 
 // Middleware
+app.use(pinoHttp({
+  logger,
+  // Skip logging health checks to reduce noise
+  autoLogging: {
+    ignore: (req) => req.url === '/api/health',
+  },
+}));
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || isAllowedOrigin(origin)) {
@@ -137,8 +154,17 @@ async function startServer() {
     res.json({ status: 'ok', database: dbInitialized ? 'connected' : 'disconnected' });
   });
 
+  // Rate limit auth endpoints — 20 requests per 15 minutes per IP
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many authentication requests, please try again later.' },
+  });
+
   // Authentication routes
-  app.use('/api/auth', authRoutes);
+  app.use('/api/auth', authLimiter, authRoutes);
 
   // Application routes
   app.use('/api/chat', chatRoutes);

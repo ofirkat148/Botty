@@ -145,6 +145,7 @@ validate_env_file() {
   print_step "Validating runtime configuration"
 
   local jwt_secret
+  local key_encryption_secret
   local local_auth_enabled
   local telegram_enabled
   local telegram_token
@@ -152,6 +153,7 @@ validate_env_file() {
   local gemini_api_key
 
   jwt_secret="$(read_env_value JWT_SECRET)"
+  key_encryption_secret="$(read_env_value KEY_ENCRYPTION_SECRET)"
   local_auth_enabled="$(read_env_value LOCAL_AUTH_ENABLED)"
   telegram_enabled="$(read_env_value TELEGRAM_BOT_ENABLED)"
   telegram_token="$(read_env_value TELEGRAM_BOT_TOKEN)"
@@ -160,6 +162,9 @@ validate_env_file() {
 
   [[ -n "${jwt_secret}" ]] || fail "JWT_SECRET is missing from ${ENV_FILE}"
   [[ "${jwt_secret}" != "your-super-secret-jwt-key-change-this-in-production" ]] || fail "JWT_SECRET is still using the example placeholder in ${ENV_FILE}"
+
+  [[ -n "${key_encryption_secret}" ]] || fail "KEY_ENCRYPTION_SECRET is missing from ${ENV_FILE}. Generate one with: openssl rand -hex 32"
+  [[ "${key_encryption_secret}" != "your-key-encryption-secret-change-this-in-production" ]] || fail "KEY_ENCRYPTION_SECRET is still using the example placeholder in ${ENV_FILE}"
 
   if [[ -n "${public_base_url}" && ! "${public_base_url}" =~ ^https?:// ]]; then
     fail "PUBLIC_BASE_URL must start with http:// or https://"
@@ -187,6 +192,7 @@ sync_env_file_defaults() {
 
   append_env_value_if_missing PUBLIC_BASE_URL ""
   append_env_value_if_missing CORS_ORIGINS ""
+  append_env_value_if_missing KEY_ENCRYPTION_SECRET "$(openssl rand -hex 32)"
   append_env_value_if_missing TELEGRAM_BOT_TOKEN ""
   append_env_value_if_missing TELEGRAM_BOT_ENABLED "true"
   append_env_value_if_missing TELEGRAM_ALLOWED_CHAT_IDS ""
@@ -248,6 +254,11 @@ ensure_env_file() {
   local generated_secret
   generated_secret="$(openssl rand -hex 32)"
   sed -i "s/^JWT_SECRET=.*/JWT_SECRET=${generated_secret}/" "${ENV_FILE}"
+
+  local generated_enc_secret
+  generated_enc_secret="$(openssl rand -hex 32)"
+  sed -i "s/^KEY_ENCRYPTION_SECRET=.*/KEY_ENCRYPTION_SECRET=${generated_enc_secret}/" "${ENV_FILE}"
+
   sed -i 's|^LOCAL_LLM_URL=.*|LOCAL_LLM_URL=http://127.0.0.1:11435|' "${ENV_FILE}"
 
   echo "Created ${ENV_FILE}. Review API keys and Telegram settings before exposing Botty publicly." >&2
@@ -349,6 +360,7 @@ print_post_install_notes() {
 - Container status: ${DOCKER_BIN} compose -f ${COMPOSE_FILE} ps
 - Runtime model: host networking with localhost-only binds for app, postgres, and ollama
 - Review provider API keys in ${ENV_FILE} before using hosted models
+- JWT_SECRET and KEY_ENCRYPTION_SECRET are auto-generated on first install; back them up before migrating
 - Set TELEGRAM_BOT_TOKEN in ${ENV_FILE} if you want Telegram enabled
 - Set PUBLIC_BASE_URL and review ops/REVERSE_PROXY.md before public exposure
 - On enterprise networks, outbound DNS and Telegram access may still be restricted even when Botty itself is healthy
