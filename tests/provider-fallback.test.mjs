@@ -13,14 +13,13 @@ import { buildAuthHeaders, fetchJson, localModel, loginLocalUser } from './helpe
 // ---------------------------------------------------------------------------
 // Provider status endpoint
 // ---------------------------------------------------------------------------
-test('GET /api/providers returns structured provider list', async () => {
+test('GET /api/chat/providers returns structured provider list', async () => {
   const { token } = await loginLocalUser('provider-status-test');
   const headers = buildAuthHeaders(token);
 
-  const { response, body } = await fetchJson('/api/providers', { headers });
+  const { response, body } = await fetchJson('/api/chat/providers', { headers });
   assert.equal(response.status, 200, 'expected providers endpoint to succeed');
-  assert.ok(Array.isArray(body.providers) || typeof body.providers === 'object',
-    'expected providers field in response');
+  assert.ok(Array.isArray(body.providers), 'expected providers array in response');
   assert.ok(Array.isArray(body.providerStatuses), 'expected providerStatuses array');
 
   for (const status of body.providerStatuses) {
@@ -36,7 +35,7 @@ test('local provider is reported as ready when mock is running', async () => {
   const { token } = await loginLocalUser('local-provider-ready-test');
   const headers = buildAuthHeaders(token);
 
-  const { body } = await fetchJson('/api/providers', { headers });
+  const { body } = await fetchJson('/api/chat/providers', { headers });
   const localStatus = body.providerStatuses?.find((s) => s.provider === 'local');
   assert.ok(localStatus, 'expected local provider status to be present');
   assert.equal(localStatus.readiness, 'ready', 'expected local provider to be ready with mock running');
