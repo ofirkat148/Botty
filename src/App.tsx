@@ -44,6 +44,7 @@ import {
 } from './config/chatConfig';
 import { type AgentDefinition, type AgentExecutorType } from '../shared/agentDefinitions';
 import { useChatReducer, type ChatMessage } from './hooks/useChatReducer';
+import { useSkillFormReducer, useNewBotFormReducer, useBotEditorReducer } from './hooks/useBotFormReducer';
 import {
   formatAttachmentSize,
   isImageFile,
@@ -364,38 +365,43 @@ function AppShell() {
   const factFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
-  const [newSkillTitle, setNewSkillTitle] = useState('');
-  const [newSkillDescription, setNewSkillDescription] = useState('');
-  const [newSkillCommand, setNewSkillCommand] = useState('');
-  const [newSkillUseWhen, setNewSkillUseWhen] = useState('');
-  const [newSkillBoundaries, setNewSkillBoundaries] = useState('');
-  const [newSkillSystemPrompt, setNewSkillSystemPrompt] = useState('');
-  const [newSkillStarterPrompt, setNewSkillStarterPrompt] = useState('');
-  const [newBotTitle, setNewBotTitle] = useState('');
-  const [newBotDescription, setNewBotDescription] = useState('');
-  const [newBotCommand, setNewBotCommand] = useState('');
-  const [newBotUseWhen, setNewBotUseWhen] = useState('');
-  const [newBotBoundaries, setNewBotBoundaries] = useState('');
-  const [newBotProvider, setNewBotProvider] = useState('');
-  const [newBotModel, setNewBotModel] = useState('');
-  const [newBotMemoryMode, setNewBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
-  const [newBotExecutorType, setNewBotExecutorType] = useState<AgentExecutorType>('internal-llm');
-  const [newBotEndpoint, setNewBotEndpoint] = useState('');
-  const [newBotSystemPrompt, setNewBotSystemPrompt] = useState('');
-  const [newBotStarterPrompt, setNewBotStarterPrompt] = useState('');
-  const [editingBotId, setEditingBotId] = useState('');
-  const [editingBotTitle, setEditingBotTitle] = useState('');
-  const [editingBotDescription, setEditingBotDescription] = useState('');
-  const [editingBotCommand, setEditingBotCommand] = useState('');
-  const [editingBotUseWhen, setEditingBotUseWhen] = useState('');
-  const [editingBotBoundaries, setEditingBotBoundaries] = useState('');
-  const [editingBotProvider, setEditingBotProvider] = useState('');
-  const [editingBotModel, setEditingBotModel] = useState('');
-  const [editingBotMemoryMode, setEditingBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
-  const [editingBotExecutorType, setEditingBotExecutorType] = useState<AgentExecutorType>('internal-llm');
-  const [editingBotEndpoint, setEditingBotEndpoint] = useState('');
-  const [editingBotSystemPrompt, setEditingBotSystemPrompt] = useState('');
-  const [editingBotStarterPrompt, setEditingBotStarterPrompt] = useState('');
+  const { state: newSkill, patch: patchNewSkill, reset: resetNewSkill } = useSkillFormReducer();
+  const newSkillTitle = newSkill.title;
+  const newSkillDescription = newSkill.description;
+  const newSkillCommand = newSkill.command;
+  const newSkillUseWhen = newSkill.useWhen;
+  const newSkillBoundaries = newSkill.boundaries;
+  const newSkillSystemPrompt = newSkill.systemPrompt;
+  const newSkillStarterPrompt = newSkill.starterPrompt;
+
+  const { state: newBot, patch: patchNewBot, reset: resetNewBot } = useNewBotFormReducer();
+  const newBotTitle = newBot.title;
+  const newBotDescription = newBot.description;
+  const newBotCommand = newBot.command;
+  const newBotUseWhen = newBot.useWhen;
+  const newBotBoundaries = newBot.boundaries;
+  const newBotProvider = newBot.provider;
+  const newBotModel = newBot.model;
+  const newBotMemoryMode = newBot.memoryMode;
+  const newBotExecutorType = newBot.executorType;
+  const newBotEndpoint = newBot.endpoint;
+  const newBotSystemPrompt = newBot.systemPrompt;
+  const newBotStarterPrompt = newBot.starterPrompt;
+
+  const { state: editingBot, patch: patchEditingBot, reset: resetEditingBot, load: loadEditingBot } = useBotEditorReducer();
+  const editingBotId = editingBot.id;
+  const editingBotTitle = editingBot.title;
+  const editingBotDescription = editingBot.description;
+  const editingBotCommand = editingBot.command;
+  const editingBotUseWhen = editingBot.useWhen;
+  const editingBotBoundaries = editingBot.boundaries;
+  const editingBotProvider = editingBot.provider;
+  const editingBotModel = editingBot.model;
+  const editingBotMemoryMode = editingBot.memoryMode;
+  const editingBotExecutorType = editingBot.executorType;
+  const editingBotEndpoint = editingBot.endpoint;
+  const editingBotSystemPrompt = editingBot.systemPrompt;
+  const editingBotStarterPrompt = editingBot.starterPrompt;
   const [savingBotId, setSavingBotId] = useState('');
   const [deletingBotId, setDeletingBotId] = useState('');
   const [confirmingDeleteBotId, setConfirmingDeleteBotId] = useState('');
@@ -1771,13 +1777,7 @@ function AppShell() {
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
       });
-      setNewSkillTitle('');
-      setNewSkillDescription('');
-      setNewSkillCommand('');
-      setNewSkillUseWhen('');
-      setNewSkillBoundaries('');
-      setNewSkillSystemPrompt('');
-      setNewSkillStarterPrompt('');
+      resetNewSkill();
       await refreshAll();
       setNotice('Custom skill added.');
     } finally {
@@ -1831,18 +1831,7 @@ function AppShell() {
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
       });
-      setNewBotTitle('');
-      setNewBotDescription('');
-      setNewBotCommand('');
-      setNewBotUseWhen('');
-      setNewBotBoundaries('');
-      setNewBotProvider('');
-      setNewBotModel('');
-      setNewBotMemoryMode('shared');
-      setNewBotExecutorType('internal-llm');
-      setNewBotEndpoint('');
-      setNewBotSystemPrompt('');
-      setNewBotStarterPrompt('');
+      resetNewBot();
       await refreshAll();
       setNotice('Custom agent added.');
     } finally {
@@ -1851,35 +1840,25 @@ function AppShell() {
   }
 
   function startEditingCustomBot(agent: AgentDefinition) {
-    setEditingBotId(agent.id);
-    setEditingBotTitle(agent.title);
-    setEditingBotDescription(agent.description);
-    setEditingBotCommand(agent.command);
-    setEditingBotUseWhen(agent.useWhen || '');
-    setEditingBotBoundaries(agent.boundaries || '');
-    setEditingBotProvider(agent.provider || '');
-    setEditingBotModel(agent.model || '');
-    setEditingBotMemoryMode(agent.memoryMode || 'shared');
-    setEditingBotExecutorType(agent.executorType || 'internal-llm');
-    setEditingBotEndpoint(agent.endpoint || '');
-    setEditingBotSystemPrompt(agent.systemPrompt);
-    setEditingBotStarterPrompt(agent.starterPrompt);
+    loadEditingBot({
+      id: agent.id,
+      title: agent.title,
+      description: agent.description,
+      command: agent.command,
+      useWhen: agent.useWhen || '',
+      boundaries: agent.boundaries || '',
+      provider: agent.provider || '',
+      model: agent.model || '',
+      memoryMode: agent.memoryMode || 'shared',
+      executorType: agent.executorType || 'internal-llm',
+      endpoint: agent.endpoint || '',
+      systemPrompt: agent.systemPrompt,
+      starterPrompt: agent.starterPrompt,
+    });
   }
 
   function stopEditingCustomBot() {
-    setEditingBotId('');
-    setEditingBotTitle('');
-    setEditingBotDescription('');
-    setEditingBotCommand('');
-    setEditingBotUseWhen('');
-    setEditingBotBoundaries('');
-    setEditingBotProvider('');
-    setEditingBotModel('');
-    setEditingBotMemoryMode('shared');
-    setEditingBotExecutorType('internal-llm');
-    setEditingBotEndpoint('');
-    setEditingBotSystemPrompt('');
-    setEditingBotStarterPrompt('');
+    resetEditingBot();
   }
 
   function requestDeleteCustomBot(agentId: string) {
@@ -2975,22 +2954,22 @@ function AppShell() {
                     <h3 className="font-medium">Create skill</h3>
                   </div>
                   <form onSubmit={createCustomSkill} className="grid gap-3 md:grid-cols-2">
-                    <input value={newSkillTitle} onChange={event => setNewSkillTitle(event.target.value)} placeholder="Skill title, e.g. Architecture Critic" className={textInputClass} />
-                    <input value={newSkillCommand} onChange={event => setNewSkillCommand(event.target.value)} placeholder="Slash command, e.g. architecture" className={textInputClass} />
+                    <input value={newSkillTitle} onChange={event => patchNewSkill({ title: event.target.value })} placeholder="Skill title, e.g. Architecture Critic" className={textInputClass} />
+                    <input value={newSkillCommand} onChange={event => patchNewSkill({ command: event.target.value })} placeholder="Slash command, e.g. architecture" className={textInputClass} />
                     <div className="md:col-span-2">
-                      <input value={newSkillDescription} onChange={event => setNewSkillDescription(event.target.value)} placeholder="Capability summary, e.g. critiques designs and tradeoffs" className={textInputClass} />
+                      <input value={newSkillDescription} onChange={event => patchNewSkill({ description: event.target.value })} placeholder="Capability summary, e.g. critiques designs and tradeoffs" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <input value={newSkillUseWhen} onChange={event => setNewSkillUseWhen(event.target.value)} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
+                      <input value={newSkillUseWhen} onChange={event => patchNewSkill({ useWhen: event.target.value })} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillBoundaries} onChange={event => setNewSkillBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, and should not take over the whole session" className={textareaClass} />
+                      <textarea value={newSkillBoundaries} onChange={event => patchNewSkill({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, and should not take over the whole session" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillSystemPrompt} onChange={event => setNewSkillSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this focused capability" className={textareaClass} />
+                      <textarea value={newSkillSystemPrompt} onChange={event => patchNewSkill({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this focused capability" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillStarterPrompt} onChange={event => setNewSkillStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
+                      <textarea value={newSkillStarterPrompt} onChange={event => patchNewSkill({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'skill'} className={responsivePrimaryButtonClass}>
@@ -3093,47 +3072,44 @@ function AppShell() {
                     <h3 className="font-medium">Create agent</h3>
                   </div>
                   <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2">
-                    <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
-                    <input value={newBotCommand} onChange={event => setNewBotCommand(event.target.value)} placeholder="Slash command, e.g. security-review" className={textInputClass} />
+                    <input value={newBotTitle} onChange={event => patchNewBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
+                    <input value={newBotCommand} onChange={event => patchNewBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
                     <div className="md:col-span-2">
-                      <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
+                      <input value={newBotDescription} onChange={event => patchNewBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <input value={newBotUseWhen} onChange={event => setNewBotUseWhen(event.target.value)} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
+                      <input value={newBotUseWhen} onChange={event => patchNewBot({ useWhen: event.target.value })} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotBoundaries} onChange={event => setNewBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
+                      <textarea value={newBotBoundaries} onChange={event => patchNewBot({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
                     </div>
-                    <select value={newBotExecutorType} onChange={event => setNewBotExecutorType(event.target.value as AgentExecutorType)} className={textInputClass}>
+                    <select value={newBotExecutorType} onChange={event => patchNewBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                       <option value="internal-llm">Internal Botty agent</option>
                       <option value="remote-http">Remote HTTP agent</option>
                     </select>
-                    <input value={newBotEndpoint} onChange={event => setNewBotEndpoint(event.target.value)} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
+                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
                     {newBotExecutorType === 'internal-llm' ? (
                       <>
                         <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
                           const nextProvider = event.target.value;
                           if (!nextProvider) {
-                            setNewBotProvider('');
-                            setNewBotModel('');
+                            patchNewBot({ provider: '', model: '' });
                             return;
                           }
 
                           if (nextProvider === 'auto') {
-                            setNewBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
-                            setNewBotModel('');
+                            patchNewBot({ provider: isAutoRouteProvider(newBotProvider) ? newBotProvider : 'auto', model: '' });
                             return;
                           }
 
-                          setNewBotProvider(nextProvider);
-                          setNewBotModel(getPreferredSelectableModel(nextProvider, newBotStarterPrompt));
+                          patchNewBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, newBotStarterPrompt) });
                         }} className={textInputClass}>
                           <option value="">Inherit chat provider</option>
                           {PROVIDERS.map(option => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
-                        <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                           <option value="shared">Shared memory</option>
                           <option value="isolated">Isolated agent memory</option>
                           <option value="none">No memory</option>
@@ -3142,7 +3118,7 @@ function AppShell() {
                     ) : (
                       <>
                         <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
-                        <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                           <option value="shared">Shared memory</option>
                           <option value="isolated">Isolated agent memory</option>
                           <option value="none">No memory</option>
@@ -3152,16 +3128,16 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <select value={newBotProvider && isAutoRouteProvider(newBotProvider) ? newBotProvider : newBotModel} onChange={event => {
                         if (!newBotProvider) {
-                          setNewBotModel(event.target.value);
+                          patchNewBot({ model: event.target.value });
                           return;
                         }
 
                         if (isAutoRouteProvider(newBotProvider)) {
-                          setNewBotProvider(event.target.value);
+                          patchNewBot({ provider: event.target.value });
                           return;
                         }
 
-                        setNewBotModel(event.target.value);
+                        patchNewBot({ model: event.target.value });
                       }} disabled={!newBotProvider || newBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!newBotProvider || newBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
                         {!newBotProvider ? <option value="">Inherit provider default</option> : null}
                         {newBotProvider && isAutoRouteProvider(newBotProvider)
@@ -3175,10 +3151,10 @@ function AppShell() {
                       </select>
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotSystemPrompt} onChange={event => setNewBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
+                      <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotStarterPrompt} onChange={event => setNewBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                      <textarea value={newBotStarterPrompt} onChange={event => patchNewBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
@@ -3276,47 +3252,44 @@ function AppShell() {
 
                             {isEditing ? (
                               <div className="grid gap-3 md:grid-cols-2">
-                                <input value={editingBotTitle} onChange={event => setEditingBotTitle(event.target.value)} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
-                                <input value={editingBotCommand} onChange={event => setEditingBotCommand(event.target.value)} placeholder="Slash command, e.g. security-review" className={textInputClass} />
+                                <input value={editingBotTitle} onChange={event => patchEditingBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
+                                <input value={editingBotCommand} onChange={event => patchEditingBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
                                 <div className="md:col-span-2">
-                                  <input value={editingBotDescription} onChange={event => setEditingBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
+                                  <input value={editingBotDescription} onChange={event => patchEditingBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <input value={editingBotUseWhen} onChange={event => setEditingBotUseWhen(event.target.value)} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
+                                  <input value={editingBotUseWhen} onChange={event => patchEditingBot({ useWhen: event.target.value })} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <textarea value={editingBotBoundaries} onChange={event => setEditingBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
+                                  <textarea value={editingBotBoundaries} onChange={event => patchEditingBot({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
                                 </div>
-                                <select value={editingBotExecutorType} onChange={event => setEditingBotExecutorType(event.target.value as AgentExecutorType)} className={textInputClass}>
+                                <select value={editingBotExecutorType} onChange={event => patchEditingBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                                   <option value="internal-llm">Internal Botty agent</option>
                                   <option value="remote-http">Remote HTTP agent</option>
                                 </select>
-                                <input value={editingBotEndpoint} onChange={event => setEditingBotEndpoint(event.target.value)} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
+                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
                                 {editingBotExecutorType === 'internal-llm' ? (
                                   <>
                                     <select value={editingBotProvider ? getProviderSelectValue(editingBotProvider) : ''} onChange={event => {
                                       const nextProvider = event.target.value;
                                       if (!nextProvider) {
-                                        setEditingBotProvider('');
-                                        setEditingBotModel('');
+                                        patchEditingBot({ provider: '', model: '' });
                                         return;
                                       }
 
                                       if (nextProvider === 'auto') {
-                                        setEditingBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
-                                        setEditingBotModel('');
+                                        patchEditingBot({ provider: isAutoRouteProvider(editingBotProvider) ? editingBotProvider : 'auto', model: '' });
                                         return;
                                       }
 
-                                      setEditingBotProvider(nextProvider);
-                                      setEditingBotModel(getPreferredSelectableModel(nextProvider, editingBotStarterPrompt, editingBotModel));
+                                      patchEditingBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, editingBotStarterPrompt, editingBotModel) });
                                     }} className={textInputClass}>
                                       <option value="">Inherit chat provider</option>
                                       {PROVIDERS.map(option => (
                                         <option key={option.value} value={option.value}>{option.label}</option>
                                       ))}
                                     </select>
-                                    <select value={editingBotMemoryMode} onChange={event => setEditingBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                                       <option value="shared">Shared memory</option>
                                       <option value="isolated">Isolated agent memory</option>
                                       <option value="none">No memory</option>
@@ -3325,7 +3298,7 @@ function AppShell() {
                                 ) : (
                                   <>
                                     <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
-                                    <select value={editingBotMemoryMode} onChange={event => setEditingBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                                       <option value="shared">Shared memory</option>
                                       <option value="isolated">Isolated agent memory</option>
                                       <option value="none">No memory</option>
@@ -3335,16 +3308,16 @@ function AppShell() {
                                 <div className="md:col-span-2">
                                   <select value={editingBotProvider && isAutoRouteProvider(editingBotProvider) ? editingBotProvider : editingBotModel} onChange={event => {
                                     if (!editingBotProvider) {
-                                      setEditingBotModel(event.target.value);
+                                      patchEditingBot({ model: event.target.value });
                                       return;
                                     }
 
                                     if (isAutoRouteProvider(editingBotProvider)) {
-                                      setEditingBotProvider(event.target.value);
+                                      patchEditingBot({ provider: event.target.value });
                                       return;
                                     }
 
-                                    setEditingBotModel(event.target.value);
+                                    patchEditingBot({ model: event.target.value });
                                   }} disabled={!editingBotProvider || editingBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!editingBotProvider || editingBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
                                     {!editingBotProvider ? <option value="">Inherit provider default</option> : null}
                                     {editingBotProvider && isAutoRouteProvider(editingBotProvider)
@@ -3358,10 +3331,10 @@ function AppShell() {
                                   </select>
                                 </div>
                                 <div className="md:col-span-2">
-                                  <textarea value={editingBotSystemPrompt} onChange={event => setEditingBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
+                                  <textarea value={editingBotSystemPrompt} onChange={event => patchEditingBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <textarea value={editingBotStarterPrompt} onChange={event => setEditingBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                                  <textarea value={editingBotStarterPrompt} onChange={event => patchEditingBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
                                 </div>
                                 <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                   <button type="button" onClick={() => void saveEditedCustomBot(item.id)} disabled={isSaving} className={responsivePrimaryButtonClass}>
