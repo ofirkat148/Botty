@@ -1026,25 +1026,23 @@ export function buildChatSystemPrompt(params: {
 }
 
 function getSmartRoute(prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }): ProviderRoute {
-  const { prefersReasoning, isLightweight, isShortConversational } = classifyPrompt(prompt);
+  const { prefersReasoning } = classifyPrompt(prompt);
   const hasAnthropic = availableProviders.includes('anthropic');
   const hasGoogle = availableProviders.includes('google');
   const hasOpenai = availableProviders.includes('openai');
   const hasLocal = availableProviders.includes('local');
 
-  if (hasLocal && (isLightweight || isShortConversational) && !prefersReasoning) {
-    return { provider: 'local', model: getSuggestedModel('local', prompt, options) };
-  }
-
+  // Reasoning: Anthropic is best, then OpenAI, then Google
   if (hasAnthropic && prefersReasoning) {
     return { provider: 'anthropic', model: getSuggestedModel('anthropic', prompt, options) };
   }
 
-  if (hasGoogle && !prefersReasoning) {
+  // Non-reasoning: Google Flash is fast and cheap, prefer it
+  if (hasGoogle) {
     return { provider: 'google', model: getSuggestedModel('google', prompt, options) };
   }
 
-  if (hasOpenai && !prefersReasoning) {
+  if (hasOpenai) {
     return { provider: 'openai', model: getSuggestedModel('openai', prompt, options) };
   }
 
@@ -1054,14 +1052,6 @@ function getSmartRoute(prompt: string, availableProviders: string[], options?: {
 
   if (hasLocal) {
     return { provider: 'local', model: getSuggestedModel('local', prompt, options) };
-  }
-
-  if (hasGoogle) {
-    return { provider: 'google', model: getSuggestedModel('google', prompt, options) };
-  }
-
-  if (hasOpenai) {
-    return { provider: 'openai', model: getSuggestedModel('openai', prompt, options) };
   }
 
   throw new Error('No configured providers found. Add an API key in Settings or set ANTHROPIC_API_KEY in your environment.');
@@ -1085,7 +1075,7 @@ function orderProvidersForMode(mode: RoutingMode, prompt: string, availableProvi
 
   const preferredOrder: Record<RoutingMode, string[]> = {
     auto: autoFallback,
-    fastest: ['local', 'google', 'openai', 'anthropic'],
+    fastest: ['google', 'openai', 'anthropic', 'local'],
     cheapest: ['local', 'google', 'openai', 'anthropic'],
     'best-quality': ['anthropic', 'openai', 'google', 'local'],
     'local-first': ['local', smartPrimary, 'google', 'openai', 'anthropic'],
