@@ -1,0 +1,93 @@
+name: CI Pipeline
+
+# Trigger the workflow on every push to main and on every pull request
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+
+jobs:
+  build:
+    # Use a fresh Ubuntu runner provided by GitHub
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: botty_user
+          POSTGRES_PASSWORD: botty_pass
+          POSTGRES_DB: botty_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U botty_user -d botty_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://botty_user:botty_pass@127.0.0.1:5432/botty_db
+      BOTTY_TEST_BASE_URL: http://127.0.0.1:5000
+      LOCAL_LLM_URL: http://127.0.0.1:11434
+
+    steps:
+      # Step 1: Clone the repository into the runner
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Step 2: Install Node.js (matching project runtime)
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Step 3: Install dependencies using npm ci
+      # npm ci is faster and ensures reproducible builds based on package-lock.json
+      - name: Install dependencies
+        run: npm ci
+
+      # Step 4: Run linter (code quality check)
+      - name: Run lint
+        run: npm run lint
+
+      # Step 5: Build frontend assets for server fallback routes
+      - name: Build app
+        run: npm run build
+
+      # Step 6: Start a lightweight local-LLM mock for CI chat tests
+      - name: Start local LLM mock
+        run: |
+          node -e "const http=require('http');const server=http.createServer(async(req,res)=>{if(req.url==='/api/tags'){res.writeHead(200,{'Content-Type':'application/json'});return res.end(JSON.stringify({models:[{name:'smollm2:135m'}]}));}if(req.url==='/v1/chat/completions'&&req.method==='POST'){res.writeHead(200,{'Content-Type':'application/json'});return res.end(JSON.stringify({choices:[{message:{content:'ok'}}],usage:{total_tokens:3}}));}res.writeHead(404);res.end('not found');});server.listen(11434,'127.0.0.1');setInterval(()=>{},1<<30);" > llm-mock.log 2>&1 &
+
+      # Step 7: Start the app server used by integration tests
+      - name: Start app
+        run: npm run start > app.log 2>&1 &
+
+      # Step 8: Wait until the app health endpoint is ready
+      - name: Wait for readiness
+        run: |
+          timeout 90 bash -c 'until curl -fsS http://127.0.0.1:5000/api/health; do sleep 2; done'
+
+      # Step 9: Run tests against the live app
+      - name: Run chat regression tests
+        run: npm run test:chat-regression
+
+      - name: Run dashboard smoke tests
+        run: npm run test:dashboard-smoke
+
+      - name: Run UI agents tests
+        run: npm run test:ui-agents
+
+      - name: Show logs on failure
+        if: failure()
+        run: |
+          echo '=== app.log ==='
+          cat app.log || true
+          echo '=== llm-mock.log ==='
+          cat llm-mock.log || true
+
+      # Step 10: Build Docker image to verify containerization works
+      # This ensures the Dockerfile is valid and builds successfully
+      - name: Build Docker image
+        run: docker build -t botty-app:test .

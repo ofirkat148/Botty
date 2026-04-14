@@ -70,6 +70,52 @@ After pulling new code, rebuild the app image before restarting the service:
 docker compose build app
 sudo systemctl restart botty.service
 ```
+## Quick Install & Troubleshooting
+
+- **Install:**
+```bash
+./install-botty.sh
+```
+
+- **Check service and containers:**
+```bash
+systemctl status botty.service
+docker compose ps
+```
+
+- **If the service failed:** rebuild the app and restart the service:
+```bash
+docker compose build app
+sudo systemctl restart botty.service
+```
+
+- **If there are Docker credential/config issues:** inspect and back up the project `config.json` as user `<USER>`, remove `credsStore` from the Docker config, then restart the service:
+```bash
+# View the app config (as user '<USER>')
+sudo -u <USER> cat config.json
+
+# Back up Docker config
+sudo -u <USER> cp config.json /home/<USER>/.docker/config.json.bak
+
+# Remove "credsStore" from the Docker config using Python
+sudo -u <USER> python3 - <<'PY'
+import json
+p="/home/<USER>/.docker/config.json"
+d=json.load(open(p))
+d.pop("credsStore", None)
+json.dump(d, open(p, "w"), indent=2)
+PY
+
+# Restart the service after the change
+sudo systemctl restart botty.service
+```
+
+- **Final checks:**
+```bash
+systemctl status botty.service
+docker compose ps
+```
+```
 
 ## Git Export
 

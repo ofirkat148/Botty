@@ -10,7 +10,7 @@ RUN npm config set fetch-timeout 120000 && \
 
 COPY package*.json ./
 
-RUN --mount=type=secret,id=botty_resolv_conf,target=/etc/resolv.conf \
+RUN --mount=type=secret,id=botty_resolv_conf,target=/etc/resolv.conf,required=false \
     --mount=type=cache,target=/root/.npm \
     npm install
 
