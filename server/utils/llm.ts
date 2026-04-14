@@ -202,7 +202,7 @@ export function isRoutingModeValue(value?: string | null) {
     || normalized === 'local-first';
 }
 
-function classifyPrompt(prompt: string) {
+export function classifyPrompt(prompt: string) {
   const lower = prompt.trim().toLowerCase();
   const wordCount = lower.split(/\s+/).filter(Boolean).length;
   const isCodeHeavy = /code|debug|refactor|typescript|javascript|react|sql|query|stack trace|traceback|bug|architecture|implement|fix/.test(lower);

@@ -7,6 +7,7 @@ export type ChatMessage = {
   provider?: string;
   routingMode?: string | null;
   tokensUsed?: number | null;
+  isCompact?: boolean;
 };
 
 export type ChatState = {
@@ -26,6 +27,7 @@ type ChatAction =
   | { type: 'CLEAR_ERROR' }
   | { type: 'ROLLBACK_OPTIMISTIC' }
   | { type: 'LOAD_HISTORY'; messages: ChatMessage[]; conversationId: string }
+  | { type: 'COMPACT_HISTORY'; summary: string; keepLast: number }
   | { type: 'RESET' };
 
 const initialState: ChatState = {
@@ -91,6 +93,15 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
 
     case 'LOAD_HISTORY':
       return { ...state, messages: action.messages, conversationId: action.conversationId };
+
+    case 'COMPACT_HISTORY': {
+      const kept = state.messages.slice(-action.keepLast);
+      const summaryMessages: ChatMessage[] = [
+        { role: 'user', content: `[Context from earlier in this conversation]: ${action.summary}`, isCompact: true },
+        { role: 'assistant', content: 'Understood, continuing from the summary.', isCompact: true },
+      ];
+      return { ...state, messages: [...summaryMessages, ...kept] };
+    }
 
     case 'RESET':
       return initialState;

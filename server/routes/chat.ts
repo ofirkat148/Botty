@@ -1,10 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { authMiddleware } from '../middleware/auth.js';
 import {
+  callLLM,
   getAvailableProviders,
   getDefaultLocalModel,
+  getProviderApiKey,
   getProviderModelCatalog,
   getProviderStatuses,
+  getSuggestedModel,
   isAbortError,
   getRuntimeSettings,
 } from '../utils/llm.js';
@@ -131,6 +134,56 @@ router.post('/stream', async (req: Request, res: Response) => {
     req.off('aborted', abortRequest);
     res.off('close', abortRequest);
     if (!res.writableEnded) res.end();
+  }
+});
+
+// POST /api/chat/compact — Summarize older messages into a compact context summary
+router.post('/compact', async (req: Request, res: Response) => {
+  const uid = req.userId!;
+  const rawMessages: Array<{ role: string; content: string; isCompact?: boolean }> = Array.isArray(req.body?.messages) ? req.body.messages : [];
+
+  // Only summarize real (non-compact) messages; need at least 4 to be worth it
+  const realMessages = rawMessages.filter(m => !m.isCompact && (m.role === 'user' || m.role === 'assistant'));
+  if (realMessages.length < 4) {
+    return res.json({ summary: '' });
+  }
+
+  try {
+    const runtimeSettings = await getRuntimeSettings(uid);
+    const availableProviders = await getAvailableProviders(uid);
+
+    // Pick the first available provider (prefer fast cloud models for summarization)
+    const preferredOrder = ['anthropic', 'google', 'openai', 'local'] as const;
+    const summaryProvider = preferredOrder.find(p => availableProviders.includes(p)) ?? null;
+    if (!summaryProvider) {
+      return res.json({ summary: '' });
+    }
+
+    const defaultLocalModel = summaryProvider === 'local'
+      ? await getDefaultLocalModel(runtimeSettings.localUrl)
+      : null;
+
+    const summaryModel = getSuggestedModel(summaryProvider as 'anthropic' | 'google' | 'openai' | 'local', '', { defaultLocalModel, preferFast: true });
+    const apiKey = summaryProvider === 'local' ? '' : await getProviderApiKey(uid, summaryProvider);
+
+    const conversationText = realMessages
+      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 500)}`)
+      .join('\n\n');
+
+    const result = await callLLM({
+      prompt: `Summarize the following conversation in 3-5 sentences, capturing the key topics, decisions, and context needed to continue:\n\n${conversationText}`,
+      provider: summaryProvider,
+      model: summaryModel,
+      apiKey,
+      systemPrompt: 'You are a concise conversation summarizer. Output only the summary, no preamble or labels.',
+      messages: [],
+      localUrl: runtimeSettings.localUrl,
+    });
+
+    return res.json({ summary: result.responseText.trim() });
+  } catch (error) {
+    console.error('Compact error:', error);
+    return res.json({ summary: '' });
   }
 });
 

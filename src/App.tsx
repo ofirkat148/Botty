@@ -6,6 +6,7 @@ import {
   Download,
   History,
   KeyRound,
+  Layers,
   LogOut,
   Maximize2,
   Menu,
@@ -1305,7 +1306,7 @@ function AppShell() {
       routingMode: isAutoRouteProvider(provider) ? provider : undefined,
       model: isAutoRouteProvider(provider) ? undefined : model,
       conversationId,
-      messages: messages.slice(-10),
+      messages: messages.slice(-30),
       attachments: pendingAttachments.map(item => ({
         name: item.name,
         content: item.content,
@@ -1375,6 +1376,18 @@ function AppShell() {
           setConversationModels(nextModels);
           void apiSend('/api/settings/user-settings', 'POST', { conversationModels: nextModels });
         }
+      }
+
+      // Auto-compact when conversation grows long (20+ messages)
+      if (messages.length + 2 >= 20) {
+        const nonCompact = messages.filter(m => !m.isCompact);
+        void apiSend<{ summary: string }>('/api/chat/compact', 'POST', { messages: nonCompact })
+          .then(data => {
+            if (data?.summary) {
+              dispatchChat({ type: 'COMPACT_HISTORY', summary: data.summary, keepLast: 8 });
+            }
+          })
+          .catch(() => { /* best-effort, silent */ });
       }
 
       setPendingAttachments([]);
@@ -2758,6 +2771,14 @@ function AppShell() {
                     ) : null}
 
                     {messages.map((message, index) => (
+                      message.isCompact && message.role === 'user' ? (
+                        <div key={`compact-${index}`} className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 ${isDarkMode ? 'border-amber-400/20 bg-amber-500/8 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                          <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-60" />
+                          <div className="text-xs leading-relaxed opacity-80">
+                            {message.content.replace('[Context from earlier in this conversation]: ', '')}
+                          </div>
+                        </div>
+                      ) : message.isCompact ? null : (
                       <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-3 py-3 sm:px-4 sm:py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[94%] sm:max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[94%] sm:max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-full sm:max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-full sm:max-w-[92%]'}`}>
                         {message.role === 'assistant' && message.routingMode ? (
                           <div className={`mb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>
@@ -2791,6 +2812,7 @@ function AppShell() {
                           </div>
                         ) : null}
                       </div>
+                      )
                     ))}
                   </div>
 
