@@ -30,6 +30,9 @@ jobs:
       DATABASE_URL: postgresql://botty_user:botty_pass@127.0.0.1:5432/botty_db
       BOTTY_TEST_BASE_URL: http://127.0.0.1:5000
       LOCAL_LLM_URL: http://127.0.0.1:11434
+      # Fixed CI-only secrets — not used in production
+      JWT_SECRET: ci-only-jwt-secret-not-used-in-production-0000
+      KEY_ENCRYPTION_SECRET: ci-only-enc-secret-not-used-in-production00
 
     steps:
       # Step 1: Clone the repository into the runner
