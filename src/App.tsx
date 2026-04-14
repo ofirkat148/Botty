@@ -3173,6 +3173,42 @@ function AppShell() {
                     <div>
                       <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
                     </div>
+                    <div className="md:col-span-2">
+                      <div className="flex flex-col gap-2">
+                        <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional) — listed in the system prompt so the LLM knows which tools are available</div>
+                        {newBotTools.map((tool, idx) => (
+                          <div key={idx} className="flex gap-2 items-start">
+                            <input
+                              value={tool.name}
+                              onChange={event => patchNewBot({ tools: newBotTools.map((t, i) => i === idx ? { ...t, name: event.target.value } : t) })}
+                              placeholder="Tool name, e.g. search_web"
+                              className={textInputClass}
+                            />
+                            <input
+                              value={tool.description}
+                              onChange={event => patchNewBot({ tools: newBotTools.map((t, i) => i === idx ? { ...t, description: event.target.value } : t) })}
+                              placeholder="What this tool does"
+                              className={textInputClass}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => patchNewBot({ tools: newBotTools.filter((_, i) => i !== idx) })}
+                              className={`shrink-0 ${secondaryButtonClass}`}
+                              aria-label="Remove tool"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => patchNewBot({ tools: [...newBotTools, { name: '', description: '' }] })}
+                          className={secondaryButtonClass}
+                        >
+                          <Plus className="w-4 h-4" /> Add tool
+                        </button>
+                      </div>
+                    </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
@@ -3355,6 +3391,42 @@ function AppShell() {
                                 </div>
                                 <div>
                                   <input type="number" min="1" max="100" value={editingBotMaxTurns} onChange={event => patchEditingBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <div className="flex flex-col gap-2">
+                                    <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional) — listed in the system prompt so the LLM knows which tools are available</div>
+                                    {editingBotTools.map((tool, idx) => (
+                                      <div key={idx} className="flex gap-2 items-start">
+                                        <input
+                                          value={tool.name}
+                                          onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, name: event.target.value } : t) })}
+                                          placeholder="Tool name, e.g. search_web"
+                                          className={textInputClass}
+                                        />
+                                        <input
+                                          value={tool.description}
+                                          onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, description: event.target.value } : t) })}
+                                          placeholder="What this tool does"
+                                          className={textInputClass}
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => patchEditingBot({ tools: editingBotTools.filter((_, i) => i !== idx) })}
+                                          className={`shrink-0 ${secondaryButtonClass}`}
+                                          aria-label="Remove tool"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => patchEditingBot({ tools: [...editingBotTools, { name: '', description: '' }] })}
+                                      className={secondaryButtonClass}
+                                    >
+                                      <Plus className="w-4 h-4" /> Add tool
+                                    </button>
+                                  </div>
                                 </div>
                                 <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                   <button type="button" onClick={() => void saveEditedCustomBot(item.id)} disabled={isSaving} className={responsivePrimaryButtonClass}>
