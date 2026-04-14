@@ -443,6 +443,7 @@ function AppShell() {
   const importMemoryInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const composerDropRef = useRef<HTMLDivElement | null>(null);
+  const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
 
@@ -976,6 +977,20 @@ function AppShell() {
         event.preventDefault();
         setHasSidebarPreference(true);
         setIsSidebarExpanded(currentValue => !currentValue);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === 'n' && !isEditableTarget) {
+        event.preventDefault();
+        startNewChat();
+        setTimeout(() => composerTextareaRef.current?.focus(), 50);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.key === '/' && !isEditableTarget) {
+        event.preventDefault();
+        setActiveTab('chat');
+        setTimeout(() => composerTextareaRef.current?.focus(), 50);
         return;
       }
 
@@ -2872,6 +2887,7 @@ function AppShell() {
                     </div>
 
                     <textarea
+                      ref={composerTextareaRef}
                       value={prompt}
                       onChange={event => setPrompt(event.target.value)}
                       onKeyDown={handlePromptKeyDown}
