@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { eq, count } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
 import { history } from '../db/schema.js';
 import {
@@ -22,7 +23,19 @@ import {
   shouldRetryWithAnotherProvider,
 } from '../utils/llm.js';
 import { resolveAgentForUser } from '../utils/agents.js';
-import type { AgentDefinition } from '../../shared/agentDefinitions.js';
+import type { AgentDefinition, ToolDefinition } from '../../shared/agentDefinitions.js';
+
+function buildToolCatalogSection(tools: ToolDefinition[]): string {
+  if (tools.length === 0) return '';
+  const lines = ['[AVAILABLE TOOLS]', 'The following tools are available to you. Describe tool usage in your response when appropriate.'];
+  tools.forEach((tool, i) => {
+    lines.push(`\n${i + 1}. ${tool.name}: ${tool.description}`);
+    if (tool.parametersSchema) {
+      lines.push(`   Parameters: ${tool.parametersSchema}`);
+    }
+  });
+  return lines.join('\n');
+}
 
 type ChatMessage = {
   role: 'user' | 'assistant';
@@ -142,6 +155,7 @@ async function runRemoteHttpAgent(params: {
         systemPrompt,
         messages,
         attachments,
+        tools: agent.tools?.length ? agent.tools : null,
         config: agent.config || null,
       }),
     });
@@ -232,11 +246,28 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
         memoryMode,
       })
     : '';
+  const toolCatalogSection = activeAgent?.tools?.length
+    ? buildToolCatalogSection(activeAgent.tools)
+    : '';
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: activeAgent?.systemPrompt || runtimeSettings.systemPrompt,
+    systemPrompt: [activeAgent?.systemPrompt || runtimeSettings.systemPrompt, toolCatalogSection].filter(Boolean).join('\n\n'),
     memoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
+
+  // maxTurns: count existing turns in this conversation and emit a completion signal if the limit is reached
+  let maxTurnsReached = false;
+  if (activeAgent?.maxTurns && incomingConversationId) {
+    const db = getDatabase();
+    const [{ value: turnCount }] = await db
+      .select({ value: count() })
+      .from(history)
+      .where(eq(history.conversationId, incomingConversationId));
+    if (turnCount >= activeAgent.maxTurns) {
+      maxTurnsReached = true;
+    }
+  }
+
   const attemptErrors: string[] = [];
   let responseText = '';
   let tokensUsed = 0;
@@ -244,7 +275,12 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   let model = '';
   let apiKey = '';
 
-  if (activeAgent?.executorType === 'remote-http') {
+  if (maxTurnsReached) {
+    responseText = `[Agent task complete — ${activeAgent!.title} has reached its ${activeAgent!.maxTurns}-turn limit for this conversation. Start a new chat to continue with this agent.]`;
+    tokensUsed = 0;
+    provider = 'system';
+    model = 'completion-signal';
+  } else if (activeAgent?.executorType === 'remote-http') {
     const remoteResult = await runRemoteHttpAgent({
       agent: activeAgent,
       prompt: promptForModel,
@@ -314,7 +350,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     }
   }
 
-  if (!responseText || !provider || !model) {
+  if (!maxTurnsReached && (!responseText || !provider || !model)) {
     throw new Error(`Auto route failed across configured providers. ${attemptErrors.join(' | ')}`);
   }
 
@@ -338,9 +374,11 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     timestamp: new Date(),
   });
 
-  await incrementDailyUsage(uid, provider, model, tokensUsed);
+  if (!maxTurnsReached) {
+    await incrementDailyUsage(uid, provider, model, tokensUsed);
+  }
 
-  if (runtimeSettings.autoMemory && memoryMode !== 'none') {
+  if (runtimeSettings.autoMemory && memoryMode !== 'none' && !maxTurnsReached) {
     try {
       await learnFactsFromConversation({
         uid,

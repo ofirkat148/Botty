@@ -1,5 +1,6 @@
 import { useReducer } from 'react';
-import type { AgentExecutorType } from '../../shared/agentDefinitions';
+import type { AgentExecutorType, ToolDefinition } from '../../shared/agentDefinitions';
+export type { ToolDefinition };
 
 // ---------------------------------------------------------------------------
 // New Skill form
@@ -57,6 +58,8 @@ export type BotFormState = {
   endpoint: string;
   systemPrompt: string;
   starterPrompt: string;
+  tools: ToolDefinition[];
+  maxTurns: string;
 };
 
 const initialBotFormState: BotFormState = {
@@ -73,6 +76,8 @@ const initialBotFormState: BotFormState = {
   endpoint: '',
   systemPrompt: '',
   starterPrompt: '',
+  tools: [],
+  maxTurns: '',
 };
 
 type BotFormAction =

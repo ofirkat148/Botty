@@ -420,9 +420,13 @@ router.post('/functions', async (req: Request, res: Response) => {
     if (kind === 'agent') {
       const executorType = isAgentExecutorType(req.body?.executorType) ? req.body.executorType : 'internal-llm';
       const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
-      const config = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
+      const rawMaxTurns = Number(req.body?.maxTurns);
+      const maxTurns = Number.isFinite(rawMaxTurns) && rawMaxTurns > 0 ? rawMaxTurns : null;
+      const tools = Array.isArray(req.body?.tools) ? req.body.tools : null;
+      const baseConfig = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
         ? req.body.config
-        : null;
+        : {};
+      const config = { ...baseConfig, ...(tools ? { tools } : {}), ...(maxTurns ? { maxTurns } : {}) };
       const createdAgent = await createCustomAgentForUser(uid, {
         id: normalized.id,
         kind: 'agent',
@@ -523,9 +527,13 @@ router.put('/functions/agents/:agentId', async (req: Request, res: Response) => 
 
     const executorType = isAgentExecutorType(req.body?.executorType) ? req.body.executorType : 'internal-llm';
     const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
-    const config = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
+    const rawMaxTurns = Number(req.body?.maxTurns);
+    const maxTurns = Number.isFinite(rawMaxTurns) && rawMaxTurns > 0 ? rawMaxTurns : null;
+    const tools = Array.isArray(req.body?.tools) ? req.body.tools : null;
+    const baseConfig = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
       ? req.body.config
-      : null;
+      : {};
+    const config = { ...baseConfig, ...(tools ? { tools } : {}), ...(maxTurns ? { maxTurns } : {}) };
 
     const updatedAgent = await createCustomAgentForUser(uid, {
       id: existingAgent.id,

@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
 import { agentDefinitions, userSettings } from '../db/schema.js';
-import { BUILT_IN_AGENT_DEFINITIONS, isAgentExecutorType, type AgentDefinition, type AgentExecutorType } from '../../shared/agentDefinitions.js';
+import { BUILT_IN_AGENT_DEFINITIONS, isAgentExecutorType, type AgentDefinition, type AgentExecutorType, type ToolDefinition } from '../../shared/agentDefinitions.js';
 import { normalizeSlashCommand } from '../../shared/functionPresets.js';
 
 type AgentCandidate = Partial<AgentDefinition> | null;
@@ -39,9 +39,13 @@ export function normalizeAgentDefinition(value: AgentCandidate): AgentDefinition
   const endpoint = typeof candidate?.endpoint === 'string' && candidate.endpoint.trim()
     ? candidate.endpoint.trim()
     : null;
-  const config = candidate?.config && typeof candidate.config === 'object' && !Array.isArray(candidate.config)
+  const rawConfig = candidate?.config && typeof candidate.config === 'object' && !Array.isArray(candidate.config)
     ? candidate.config as Record<string, unknown>
     : null;
+  const tools = extractTools(rawConfig?.tools ?? (candidate as any)?.tools);
+  const rawMaxTurns = (rawConfig?.maxTurns ?? (candidate as any)?.maxTurns);
+  const maxTurns = typeof rawMaxTurns === 'number' && rawMaxTurns > 0 ? rawMaxTurns : null;
+  const config = rawConfig ? { ...rawConfig, tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined } : (tools.length > 0 || maxTurns ? { tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined } : null);
   const enabled = candidate?.enabled !== false;
 
   if (!title || !description || !command || !systemPrompt || !starterPrompt) {
@@ -68,9 +72,23 @@ export function normalizeAgentDefinition(value: AgentCandidate): AgentDefinition
     executorType,
     endpoint,
     config,
+    tools: tools.length > 0 ? tools : null,
+    maxTurns,
     enabled,
     builtIn: candidate?.builtIn === true,
   };
+}
+
+function extractTools(value: unknown): ToolDefinition[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object')
+    .map(item => ({
+      name: String(item.name || '').trim().replace(/[^a-z0-9_]/gi, '_').replace(/^_+|_+$/g, '').toLowerCase() || 'tool',
+      description: String(item.description || '').trim(),
+      parametersSchema: typeof item.parametersSchema === 'string' && item.parametersSchema.trim() ? item.parametersSchema.trim() : null,
+    }))
+    .filter(item => item.name && item.description);
 }
 
 function normalizeLegacyAgents(value: unknown) {
@@ -93,6 +111,10 @@ function normalizeLegacyAgents(value: unknown) {
 }
 
 function rowToAgentDefinition(row: typeof agentDefinitions.$inferSelect): AgentDefinition {
+  const config = row.config as Record<string, unknown> | null;
+  const tools = extractTools(config?.tools);
+  const rawMaxTurns = config?.maxTurns;
+  const maxTurns = typeof rawMaxTurns === 'number' && rawMaxTurns > 0 ? rawMaxTurns : null;
   return {
     id: row.id,
     kind: 'agent',
@@ -108,12 +130,20 @@ function rowToAgentDefinition(row: typeof agentDefinitions.$inferSelect): AgentD
     memoryMode: row.memoryMode === 'isolated' || row.memoryMode === 'none' ? row.memoryMode : 'shared',
     executorType: isAgentExecutorType(row.executorType) ? row.executorType : 'internal-llm',
     endpoint: row.endpoint,
-    config: row.config as Record<string, unknown> | null,
+    config,
+    tools: tools.length > 0 ? tools : null,
+    maxTurns,
     enabled: row.enabled !== false,
   };
 }
 
 function agentToRow(uid: string, agent: AgentDefinition): typeof agentDefinitions.$inferInsert {
+  const baseConfig = agent.config || {};
+  const mergedConfig = {
+    ...baseConfig,
+    ...(agent.tools?.length ? { tools: agent.tools } : {}),
+    ...(agent.maxTurns != null ? { maxTurns: agent.maxTurns } : {}),
+  };
   return {
     id: agent.id,
     uid,
@@ -129,7 +159,7 @@ function agentToRow(uid: string, agent: AgentDefinition): typeof agentDefinition
     memoryMode: agent.memoryMode || 'shared',
     executorType: agent.executorType,
     endpoint: agent.endpoint || null,
-    config: agent.config || null,
+    config: Object.keys(mergedConfig).length > 0 ? mergedConfig : null,
     enabled: agent.enabled !== false,
     updatedAt: new Date(),
   };

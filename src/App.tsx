@@ -44,7 +44,7 @@ import {
 } from './config/chatConfig';
 import { type AgentDefinition, type AgentExecutorType } from '../shared/agentDefinitions';
 import { useChatReducer, type ChatMessage } from './hooks/useChatReducer';
-import { useSkillFormReducer, useNewBotFormReducer, useBotEditorReducer } from './hooks/useBotFormReducer';
+import { useSkillFormReducer, useNewBotFormReducer, useBotEditorReducer, type ToolDefinition } from './hooks/useBotFormReducer';
 import {
   formatAttachmentSize,
   isImageFile,
@@ -387,6 +387,8 @@ function AppShell() {
   const newBotEndpoint = newBot.endpoint;
   const newBotSystemPrompt = newBot.systemPrompt;
   const newBotStarterPrompt = newBot.starterPrompt;
+  const newBotTools = newBot.tools;
+  const newBotMaxTurns = newBot.maxTurns;
 
   const { state: editingBot, patch: patchEditingBot, reset: resetEditingBot, load: loadEditingBot } = useBotEditorReducer();
   const editingBotId = editingBot.id;
@@ -402,6 +404,8 @@ function AppShell() {
   const editingBotEndpoint = editingBot.endpoint;
   const editingBotSystemPrompt = editingBot.systemPrompt;
   const editingBotStarterPrompt = editingBot.starterPrompt;
+  const editingBotTools = editingBot.tools;
+  const editingBotMaxTurns = editingBot.maxTurns;
   const [savingBotId, setSavingBotId] = useState('');
   const [deletingBotId, setDeletingBotId] = useState('');
   const [confirmingDeleteBotId, setConfirmingDeleteBotId] = useState('');
@@ -1798,6 +1802,8 @@ function AppShell() {
     const endpointValue = newBotEndpoint.trim();
     const systemPromptValue = newBotSystemPrompt.trim();
     const starterPromptValue = newBotStarterPrompt.trim();
+    const parsedMaxTurns = parseInt(newBotMaxTurns, 10);
+    const maxTurnsValue = Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? parsedMaxTurns : null;
 
     if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
       setNotice('Fill in all agent fields before saving.');
@@ -1830,6 +1836,8 @@ function AppShell() {
         endpoint: newBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
+        tools: newBotTools.length > 0 ? newBotTools : null,
+        maxTurns: maxTurnsValue,
       });
       resetNewBot();
       await refreshAll();
@@ -1854,6 +1862,8 @@ function AppShell() {
       endpoint: agent.endpoint || '',
       systemPrompt: agent.systemPrompt,
       starterPrompt: agent.starterPrompt,
+      tools: agent.tools || [],
+      maxTurns: agent.maxTurns ? String(agent.maxTurns) : '',
     });
   }
 
@@ -1880,6 +1890,8 @@ function AppShell() {
     const endpointValue = editingBotEndpoint.trim();
     const systemPromptValue = editingBotSystemPrompt.trim();
     const starterPromptValue = editingBotStarterPrompt.trim();
+    const parsedMaxTurns = parseInt(editingBotMaxTurns, 10);
+    const maxTurnsValue = Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? parsedMaxTurns : null;
     const commandTaken = allPresets.some(item => item.id !== agentId && item.command === command);
 
     if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
@@ -1912,6 +1924,8 @@ function AppShell() {
         endpoint: editingBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
+        tools: editingBotTools.length > 0 ? editingBotTools : null,
+        maxTurns: maxTurnsValue,
       });
       stopEditingCustomBot();
       await refreshAll();
@@ -3156,6 +3170,9 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <textarea value={newBotStarterPrompt} onChange={event => patchNewBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
                     </div>
+                    <div>
+                      <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
+                    </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
@@ -3335,6 +3352,9 @@ function AppShell() {
                                 </div>
                                 <div className="md:col-span-2">
                                   <textarea value={editingBotStarterPrompt} onChange={event => patchEditingBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                                </div>
+                                <div>
+                                  <input type="number" min="1" max="100" value={editingBotMaxTurns} onChange={event => patchEditingBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
                                 </div>
                                 <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                   <button type="button" onClick={() => void saveEditedCustomBot(item.id)} disabled={isSaving} className={responsivePrimaryButtonClass}>
