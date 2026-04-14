@@ -441,6 +441,7 @@ function AppShell() {
   const [memoryRestorePreview, setMemoryRestorePreview] = useState<MemoryRestorePreview | null>(null);
   const [notice, setNotice] = useState('');
   const importMemoryInputRef = useRef<HTMLInputElement | null>(null);
+  const importAgentInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
   const composerDropRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1945,6 +1946,60 @@ function AppShell() {
 
   function cancelDeleteCustomBot() {
     setConfirmingDeleteBotId('');
+  }
+
+  function exportAgents() {
+    if (customAgentsPresets.length === 0) return;
+    const payload = customAgentsPresets.map(({ id: _id, builtIn: _builtIn, ...rest }) => rest);
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `botty-agents-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function importAgentsFromFile(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(await file.text());
+    } catch {
+      setNotice('Invalid JSON file.');
+      return;
+    }
+    const items = Array.isArray(parsed) ? parsed : [parsed];
+    let imported = 0;
+    let skipped = 0;
+    for (const item of items) {
+      if (!item || typeof item !== 'object' || typeof (item as Record<string, unknown>).title !== 'string') { skipped++; continue; }
+      const a = item as Record<string, unknown>;
+      try {
+        await apiSend('/api/settings/functions', 'POST', {
+          kind: 'agent',
+          title: a.title,
+          description: a.description,
+          command: a.command,
+          useWhen: a.useWhen ?? null,
+          boundaries: a.boundaries ?? null,
+          provider: a.provider ?? null,
+          model: a.model ?? null,
+          memoryMode: a.memoryMode ?? 'shared',
+          executorType: a.executorType ?? 'internal-llm',
+          endpoint: a.endpoint ?? null,
+          systemPrompt: a.systemPrompt,
+          starterPrompt: a.starterPrompt,
+          tools: a.tools ?? null,
+          maxTurns: a.maxTurns ?? null,
+        });
+        imported++;
+      } catch { skipped++; }
+    }
+    if (importAgentInputRef.current) importAgentInputRef.current.value = '';
+    await refreshAll();
+    setNotice(`Imported ${imported} agent${imported !== 1 ? 's' : ''}${skipped > 0 ? `, skipped ${skipped}` : ''}.`);
   }
 
   async function saveEditedCustomBot(agentId: string) {
@@ -3461,7 +3516,18 @@ function AppShell() {
                 <section className={sectionCardClass}>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <h3 className="font-medium">Custom agents</h3>
-                    <span className={`text-xs ${subtleTextClass}`}>{customAgentsPresets.length} created</span>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => importAgentInputRef.current?.click()} className={`text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}>
+                        Import
+                      </button>
+                      <input ref={importAgentInputRef} type="file" accept=".json,application/json" onChange={event => void importAgentsFromFile(event.target.files)} className="hidden" />
+                      {customAgentsPresets.length > 0 ? (
+                        <button type="button" onClick={exportAgents} className={`text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}>
+                          Export all
+                        </button>
+                      ) : null}
+                      <span className={`text-xs ${subtleTextClass}`}>{customAgentsPresets.length} created</span>
+                    </div>
                   </div>
                   {customAgentsPresets.length > 0 ? (
                     <div className="grid gap-3 xl:grid-cols-2">
