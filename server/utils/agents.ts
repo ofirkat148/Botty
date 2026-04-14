@@ -142,17 +142,18 @@ export async function listCustomAgentsForUser(uid: string) {
     db.select({ customBots: userSettings.customBots }).from(userSettings).where(eq(userSettings.uid, uid)).limit(1),
   ]);
 
+  // Dedup by stable id (not command — command can be renamed)
   const merged = new Map<string, AgentDefinition>();
 
   storedRows
     .map(rowToAgentDefinition)
     .forEach((agent) => {
-      merged.set(agent.command, agent);
+      merged.set(agent.id, agent);
     });
 
   normalizeLegacyAgents(legacyRows[0]?.customBots).forEach((agent) => {
-    if (!merged.has(agent.command)) {
-      merged.set(agent.command, agent);
+    if (!merged.has(agent.id)) {
+      merged.set(agent.id, agent);
     }
   });
 

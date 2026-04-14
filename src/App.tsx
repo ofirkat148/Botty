@@ -29,17 +29,17 @@ import {
 import {
   AUTO_ROUTE_MODES,
   AUTO_ROUTE_OPTIONS,
-  BOT_PRESETS,
+  BUILT_IN_AGENTS,
   DEFAULT_MODEL_CATALOG,
   DEFAULT_MODELS,
-  FUNCTION_PRESETS,
+  BUILT_IN_PRESETS,
   getFunctionPresetForPrompt,
   MODEL_LABELS,
   MODEL_TOKEN_LIMIT_RULES,
   normalizeSlashCommand,
   PROVIDERS,
   RESERVED_SLASH_COMMANDS,
-  SKILL_PRESETS,
+  BUILT_IN_SKILLS,
   type FunctionPreset,
 } from './config/chatConfig';
 import { type AgentDefinition, type AgentExecutorType } from '../shared/agentDefinitions';
@@ -206,7 +206,7 @@ type MemoryRestorePreview = {
 
 type FunctionCatalogResponse = {
   skills: FunctionPreset[];
-  bots: AgentDefinition[];
+  agents: AgentDefinition[];
 };
 
 type SlashCommand = {
@@ -228,14 +228,14 @@ type SlashMenuItem = {
   detail?: string;
   badge: string;
   keywords?: string[];
-  category: 'command' | 'skill' | 'bot';
+  category: 'command' | 'skill' | 'agent';
   preset?: FunctionPreset;
 };
 
 const TABS = [
   { value: 'chat', label: 'Chat', Icon: MessageSquare },
   { value: 'skills', label: 'Skills', Icon: Sparkles },
-  { value: 'bots', label: 'Agents', Icon: Bot },
+  { value: 'agents', label: 'Agents', Icon: Bot },
   { value: 'history', label: 'History', Icon: History },
   { value: 'memory', label: 'Memory', Icon: MemoryStick },
   { value: 'settings', label: 'Settings', Icon: Settings },
@@ -293,7 +293,7 @@ function AppShell() {
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [memoryUrls, setMemoryUrls] = useState<MemoryUrl[]>([]);
   const [customSkills, setCustomSkills] = useState<FunctionPreset[]>([]);
-  const [customBots, setCustomBots] = useState<AgentDefinition[]>([]);
+  const [customAgents, setCustomAgents] = useState<AgentDefinition[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [dailyTokens, setDailyTokens] = useState(0);
   const [dailyModelUsage, setDailyModelUsage] = useState<ModelUsageEntry[]>([]);
@@ -311,7 +311,7 @@ function AppShell() {
   const [telegramModel, setTelegramModel] = useState('');
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatusResponse | null>(null);
   const [loadingTelegramStatus, setLoadingTelegramStatus] = useState(false);
-  const [activeFunctionId, setActiveFunctionId] = useState('');
+  const [activePresetId, setActivePresetId] = useState('');
   const [applyingFunctionId, setApplyingFunctionId] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [hasSidebarPreference, setHasSidebarPreference] = useState(() => {
@@ -423,17 +423,17 @@ function AppShell() {
     Authorization: `Bearer ${token}`,
   }), [token]);
 
-  const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
-  const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
-  const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
-  const usedFunctionCommands = useMemo(() => new Set(allFunctionPresets.map(item => item.command.toLowerCase())), [allFunctionPresets]);
-  const builtInAgentPresets = useMemo(() => BOT_PRESETS, []);
-  const customAgentPresets = useMemo(() => customBots, [customBots]);
-  const activeFunctionPreset = useMemo(
-    () => allFunctionPresets.find(item => item.id === activeFunctionId) || null,
-    [activeFunctionId, allFunctionPresets],
+  const allPresets = useMemo(() => [...BUILT_IN_PRESETS, ...customSkills, ...customAgents], [customSkills, customAgents]);
+  const skillPresets = useMemo(() => [...BUILT_IN_SKILLS, ...customSkills], [customSkills]);
+  const agentPresets = useMemo(() => [...BUILT_IN_AGENTS, ...customAgents], [customAgents]);
+  const usedCommands = useMemo(() => new Set(allPresets.map(item => item.command.toLowerCase())), [allPresets]);
+  const builtInAgents = useMemo(() => BUILT_IN_AGENTS, []);
+  const customAgentsPresets = useMemo(() => customAgents, [customAgents]);
+  const activePreset = useMemo(
+    () => allPresets.find(item => item.id === activePresetId) || null,
+    [activePresetId, allPresets],
   );
-  const activePresetTitle = activeFunctionPreset?.title || '';
+  const activePresetTitle = activePreset?.title || '';
   const activeTabLabel = TABS.find(tab => tab.value === activeTab)?.label || activeTab;
   const slashCommands = useMemo<SlashCommand[]>(() => [
     {
@@ -487,7 +487,7 @@ function AppShell() {
       category: 'command' as const,
     })),
   ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
-  const activeBotPreset = useMemo(() => activeFunctionPreset?.kind === 'agent' ? activeFunctionPreset : null, [activeFunctionPreset]);
+  const activeBotPreset = useMemo(() => activePreset?.kind === 'agent' ? activePreset : null, [activePreset]);
 
   function getAgentExecutorType(agent: FunctionPreset | AgentDefinition): AgentExecutorType {
     return 'executorType' in agent && agent.executorType === 'remote-http' ? 'remote-http' : 'internal-llm';
@@ -684,7 +684,7 @@ function AppShell() {
       return isDarkMode ? 'bg-sky-500/15 text-sky-100 border border-sky-400/20' : 'bg-sky-50 text-sky-700 border border-sky-200';
     }
 
-    if (item.preset && activeFunctionId === item.preset.id) {
+    if (item.preset && activePresetId === item.preset.id) {
       return isDarkMode ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-400/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
     }
 
@@ -1117,7 +1117,7 @@ function AppShell() {
       apiGet<ApiKey[]>('/api/keys'),
       apiGet<UsageResponse>('/api/usage'),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customBots?: AgentDefinition[] }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[] }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
     ]);
 
@@ -1126,7 +1126,7 @@ function AppShell() {
     setMemoryFiles(fileRows);
     setMemoryUrls(urlRows);
     setCustomSkills(functionsData.skills || []);
-    setCustomBots(functionsData.bots || []);
+    setCustomAgents(functionsData.agents || []);
     setApiKeys(keyRows);
     setDailyTokens(usageData.tokens || 0);
     setDailyModelUsage(Array.isArray(usageData.modelUsage) ? usageData.modelUsage : []);
@@ -1140,7 +1140,7 @@ function AppShell() {
     setTelegramBotEnabled(settingsData.telegramBotEnabled !== false);
     setTelegramAllowedChatIds(settingsData.telegramAllowedChatIds || '');
     setSystemPrompt(userSettingsData.systemPrompt || '');
-    setActiveFunctionId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...FUNCTION_PRESETS, ...(functionsData.skills || []), ...(functionsData.bots || [])])?.id || '');
+    setActivePresetId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...BUILT_IN_PRESETS, ...(functionsData.skills || []), ...(functionsData.agents || [])])?.id || '');
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     const nextModelCatalog = {
@@ -1539,7 +1539,7 @@ function AppShell() {
   async function saveSystemPromptOnly(nextSystemPrompt: string) {
     await apiSend('/api/settings/user-settings', 'POST', { systemPrompt: nextSystemPrompt || null });
     setSystemPrompt(nextSystemPrompt);
-    setActiveFunctionId(getFunctionPresetForPrompt(nextSystemPrompt, allFunctionPresets)?.id || '');
+    setActivePresetId(getFunctionPresetForPrompt(nextSystemPrompt, allPresets)?.id || '');
   }
 
   async function activateFunctionPreset(preset: FunctionPreset, options?: { startNewChat?: boolean }) {
@@ -1663,7 +1663,7 @@ function AppShell() {
           title: item.title,
           description: item.description,
           detail: item.useWhen || getPresetAutonomyLabel(item),
-          badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in' : 'Custom',
+          badge: activePresetId === item.id ? 'Active' : item.builtIn ? 'Built-in' : 'Custom',
           keywords: [
             item.useWhen,
             item.boundaries,
@@ -1675,13 +1675,13 @@ function AppShell() {
           category: 'skill' as const,
           preset: item,
         })),
-      ...botPresets.map(item => ({
+      ...agentPresets.map(item => ({
         id: item.id,
         command: item.command,
         title: item.title,
         description: item.description,
         detail: item.useWhen || `${getPresetRoutingLabel(item)}. ${getPresetMemoryLabel(item)}`,
-        badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in agent' : 'Custom agent',
+        badge: activePresetId === item.id ? 'Active' : item.builtIn ? 'Built-in agent' : 'Custom agent',
         keywords: [
           item.useWhen,
           item.boundaries,
@@ -1692,7 +1692,7 @@ function AppShell() {
           'agent',
           'specialist',
         ].filter(Boolean),
-        category: 'bot' as const,
+        category: 'agent' as const,
         preset: item,
       })),
     ];
@@ -1708,7 +1708,7 @@ function AppShell() {
         || item.detail?.toLowerCase().includes(slashQuery)
         || item.keywords?.some(keyword => keyword.toLowerCase().includes(slashQuery));
     });
-  }, [activeFunctionId, botPresets, botPresets.length, prompt, skillPresets, slashCommands, slashQuery]);
+  }, [activePresetId, agentPresets, agentPresets.length, prompt, skillPresets, slashCommands, slashQuery]);
   const groupedSlashItems = useMemo(() => {
     const recentItems = !slashQuery
       ? recentSlashItemIds
@@ -1722,7 +1722,7 @@ function AppShell() {
       recent: recentItems,
       commands: nonRecentItems.filter(item => item.category === 'command'),
       skills: nonRecentItems.filter(item => item.category === 'skill'),
-      bots: nonRecentItems.filter(item => item.category === 'bot'),
+      agents: nonRecentItems.filter(item => item.category === 'agent'),
     };
   }, [recentSlashItemIds, slashMenuItems, slashQuery]);
 
@@ -1742,7 +1742,7 @@ function AppShell() {
       return;
     }
 
-    if (RESERVED_SLASH_COMMANDS.has(command) || usedFunctionCommands.has(command)) {
+    if (RESERVED_SLASH_COMMANDS.has(command) || usedCommands.has(command)) {
       setNotice('That slash command is already in use.');
       return;
     }
@@ -1792,7 +1792,7 @@ function AppShell() {
       return;
     }
 
-    if (RESERVED_SLASH_COMMANDS.has(command) || usedFunctionCommands.has(command)) {
+    if (RESERVED_SLASH_COMMANDS.has(command) || usedCommands.has(command)) {
       setNotice('That slash command is already in use.');
       return;
     }
@@ -1889,7 +1889,7 @@ function AppShell() {
     const endpointValue = editingBotEndpoint.trim();
     const systemPromptValue = editingBotSystemPrompt.trim();
     const starterPromptValue = editingBotStarterPrompt.trim();
-    const commandTaken = allFunctionPresets.some(item => item.id !== agentId && item.command === command);
+    const commandTaken = allPresets.some(item => item.id !== agentId && item.command === command);
 
     if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
       setNotice('Fill in all agent fields before saving.');
@@ -1935,8 +1935,8 @@ function AppShell() {
     try {
       await apiSend(`/api/settings/functions/agents/${agent.id}`, 'DELETE');
       setConfirmingDeleteBotId('');
-      if (activeFunctionId === agent.id) {
-        setActiveFunctionId('');
+      if (activePresetId === agent.id) {
+        setActivePresetId('');
       }
       if (editingBotId === agent.id) {
         stopEditingCustomBot();
@@ -2555,7 +2555,7 @@ function AppShell() {
                   <p className={`text-sm ${subtleTextClass}`}>
                     {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
                     {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
-                    {activeTab === 'bots' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
+                    {activeTab === 'agents' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
                     {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
                     {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
                     {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
@@ -2574,12 +2574,12 @@ function AppShell() {
             {activeTab === 'chat' ? (
               <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
                 <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh]'}`}>
-                  {activeFunctionPreset ? (
+                  {activePreset ? (
                     <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${isDarkMode ? 'border-white/8 bg-white/4 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
                       <div>
-                        <div className="font-medium">Session mode: {activeFunctionPreset.title}</div>
+                        <div className="font-medium">Session mode: {activePreset.title}</div>
                         <div className={`mt-1 text-xs ${subtleTextClass}`}>
-                          {activeFunctionPreset.kind === 'skill'
+                          {activePreset.kind === 'skill'
                             ? 'Skill active in the current chat. It inherits the current provider, memory, and session context.'
                             : 'Agent active for this chat. It can own the workflow and may use its own routing or memory behavior.'}
                         </div>
@@ -2825,11 +2825,11 @@ function AppShell() {
                                 </div>
                               ) : null}
 
-                              {groupedSlashItems.bots.length > 0 ? (
+                              {groupedSlashItems.agents.length > 0 ? (
                                 <div>
                                   <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Agents</div>
                                   <div className="space-y-1">
-                                    {groupedSlashItems.bots.map(item => {
+                                    {groupedSlashItems.agents.map(item => {
                                       const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
                                       return (
                                         <button
@@ -2864,7 +2864,7 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activePresetId ? `Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.</p>
                       <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
                         <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
                           <Upload className="w-4 h-4" />
@@ -2912,7 +2912,7 @@ function AppShell() {
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Skills are lightweight overlays: reusable, narrow capabilities that stay inside the current chat and inherit its provider, memory, and session context.</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
+                    <div className={`text-sm ${mutedTextClass}`}>{activePresetId ? `Active: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
                     <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
                       {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
                     </button>
@@ -2987,7 +2987,7 @@ function AppShell() {
                   </div>
                   <div className="grid gap-3 xl:grid-cols-2">
                     {skillPresets.map(item => {
-                      const isActive = activeFunctionId === item.id;
+                      const isActive = activePresetId === item.id;
 
                       return (
                         <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
@@ -3026,14 +3026,14 @@ function AppShell() {
               </div>
             ) : null}
 
-            {activeTab === 'bots' ? (
+            {activeTab === 'agents' ? (
               <div className="space-y-4">
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Agents</h3>
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Agents are dedicated specialists: they can own a longer workflow, optionally use their own routing, and choose how memory behaves across the session.</p>
                   </div>
-                  <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active agent: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active agent'}</div>
+                  <div className={`text-sm ${mutedTextClass}`}>{activePresetId ? `Active agent: ${allPresets.find(item => item.id === activePresetId)?.title || 'none'}` : 'No active agent'}</div>
                 </section>
 
                 <section className={sectionCardClass}>
@@ -3157,11 +3157,11 @@ function AppShell() {
                 <section className={sectionCardClass}>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <h3 className="font-medium">Built-in agents</h3>
-                    <span className={`text-xs ${subtleTextClass}`}>{builtInAgentPresets.length} available</span>
+                    <span className={`text-xs ${subtleTextClass}`}>{builtInAgents.length} available</span>
                   </div>
                   <div className="grid gap-3 xl:grid-cols-2">
-                    {builtInAgentPresets.map(item => {
-                      const isActive = activeFunctionId === item.id;
+                    {builtInAgents.map(item => {
+                      const isActive = activePresetId === item.id;
 
                       return (
                         <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
@@ -3217,12 +3217,12 @@ function AppShell() {
                 <section className={sectionCardClass}>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <h3 className="font-medium">Custom agents</h3>
-                    <span className={`text-xs ${subtleTextClass}`}>{customAgentPresets.length} created</span>
+                    <span className={`text-xs ${subtleTextClass}`}>{customAgentsPresets.length} created</span>
                   </div>
-                  {customAgentPresets.length > 0 ? (
+                  {customAgentsPresets.length > 0 ? (
                     <div className="grid gap-3 xl:grid-cols-2">
-                      {customAgentPresets.map(item => {
-                        const isActive = activeFunctionId === item.id;
+                      {customAgentsPresets.map(item => {
+                        const isActive = activePresetId === item.id;
                         const isEditing = editingBotId === item.id;
                         const isSaving = savingBotId === item.id;
                         const isDeleting = deletingBotId === item.id;

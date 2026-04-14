@@ -366,7 +366,7 @@ router.get('/functions', async (req: Request, res: Response) => {
 
     res.json({
       skills: readStoredFunctionPresets(row?.customSkills, 'skill'),
-      bots: customAgents,
+      agents: customAgents,
     });
   } catch (error) {
     console.error('Error fetching custom functions:', error);
