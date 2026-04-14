@@ -33,6 +33,8 @@ jobs:
       # Fixed CI-only secrets — not used in production
       JWT_SECRET: ci-only-jwt-secret-not-used-in-production-0000
       KEY_ENCRYPTION_SECRET: ci-only-enc-secret-not-used-in-production00
+      # Playwright browser path — set to the pre-installed Chrome on Ubuntu runners
+      BOTTY_TEST_BROWSER: /usr/bin/google-chrome-stable
 
     steps:
       # Step 1: Clone the repository into the runner
@@ -45,7 +47,14 @@ jobs:
         with:
           node-version: 20
 
-      # Step 3: Install dependencies using npm ci
+      # Step 3a: Install Google Chrome (required for Playwright UI tests)
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -q && sudo apt-get install -y google-chrome-stable
+
+      # Step 3b: Install dependencies using npm ci
       # npm ci is faster and ensures reproducible builds based on package-lock.json
       - name: Install dependencies
         run: npm ci

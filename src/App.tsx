@@ -684,6 +684,14 @@ function AppShell() {
       return isDarkMode ? 'bg-sky-500/15 text-sky-100 border border-sky-400/20' : 'bg-sky-50 text-sky-700 border border-sky-200';
     }
 
+    if (item.category === 'agent') {
+      if (item.preset && activePresetId === item.preset.id) {
+        return isDarkMode ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-400/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+      }
+      return isDarkMode ? 'bg-violet-500/15 text-violet-100 border border-violet-400/20' : 'bg-violet-50 text-violet-700 border border-violet-200';
+    }
+
+    // skill
     if (item.preset && activePresetId === item.preset.id) {
       return isDarkMode ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-400/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
     }
@@ -1680,7 +1688,11 @@ function AppShell() {
         command: item.command,
         title: item.title,
         description: item.description,
-        detail: item.useWhen || `${getPresetRoutingLabel(item)}. ${getPresetMemoryLabel(item)}`,
+        detail: [
+          item.provider ? `Provider: ${item.provider}` : 'Provider: auto',
+          `Memory: ${item.memoryMode || 'shared'}`,
+          'executorType' in item && item.executorType === 'remote-http' ? 'Executor: remote' : null,
+        ].filter(Boolean).join(' · '),
         badge: activePresetId === item.id ? 'Active' : item.builtIn ? 'Built-in agent' : 'Custom agent',
         keywords: [
           item.useWhen,
@@ -2575,13 +2587,22 @@ function AppShell() {
               <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
                 <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh]'}`}>
                   {activePreset ? (
-                    <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${isDarkMode ? 'border-white/8 bg-white/4 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
-                      <div>
-                        <div className="font-medium">Session mode: {activePreset.title}</div>
-                        <div className={`mt-1 text-xs ${subtleTextClass}`}>
-                          {activePreset.kind === 'skill'
-                            ? 'Skill active in the current chat. It inherits the current provider, memory, and session context.'
-                            : 'Agent active for this chat. It can own the workflow and may use its own routing or memory behavior.'}
+                    <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
+                      activePreset.kind === 'skill'
+                        ? (isDarkMode ? 'border-amber-400/20 bg-amber-500/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900')
+                        : (isDarkMode ? 'border-violet-400/20 bg-violet-500/10 text-violet-100' : 'border-violet-200 bg-violet-50 text-violet-900')
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        {activePreset.kind === 'skill'
+                          ? <Sparkles className="mt-0.5 w-4 h-4 shrink-0" />
+                          : <Bot className="mt-0.5 w-4 h-4 shrink-0" />}
+                        <div>
+                          <div className="font-medium">{activePreset.kind === 'skill' ? 'Skill overlay' : 'Agent session'}: {activePreset.title}</div>
+                          <div className={`mt-1 text-xs opacity-80`}>
+                            {activePreset.kind === 'skill'
+                              ? 'Inherits the current provider, memory, and session — does not take over the workflow.'
+                              : 'Owns the session. May apply its own routing, model, and memory policy.'}
+                          </div>
                         </div>
                       </div>
                       <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
@@ -2765,7 +2786,7 @@ function AppShell() {
 
                               {groupedSlashItems.commands.length > 0 ? (
                                 <div>
-                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Commands</div>
+                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Navigation</div>
                                   <div className="space-y-1">
                                     {groupedSlashItems.commands.map(item => {
                                       const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
@@ -2776,16 +2797,15 @@ function AppShell() {
                                           onClick={() => void activateSlashItem(item)}
                                           className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
                                         >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                              <div className="text-sm font-medium">/{item.command}</div>
-                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
-                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <span className={`text-xs ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>→</span>
+                                              <div>
+                                                <span className="text-sm font-medium">/{item.command}</span>
+                                                <span className={`ml-2 text-xs ${subtleTextClass}`}>{item.description}</span>
+                                              </div>
                                             </div>
-                                            <div className="flex flex-col items-end gap-2">
-                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
-                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
-                                            </div>
+                                            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
                                           </div>
                                         </button>
                                       );
@@ -2912,7 +2932,7 @@ function AppShell() {
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Skills are lightweight overlays: reusable, narrow capabilities that stay inside the current chat and inherit its provider, memory, and session context.</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className={`text-sm ${mutedTextClass}`}>{activePresetId ? `Active: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
+                    <div className={`text-sm ${mutedTextClass}`}>{activePresetId ? `Active skill: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'}` : 'No active skill'}</div>
                     <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
                       {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
                     </button>
@@ -3033,7 +3053,21 @@ function AppShell() {
                     <h3 className="font-medium">Agents</h3>
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Agents are dedicated specialists: they can own a longer workflow, optionally use their own routing, and choose how memory behaves across the session.</p>
                   </div>
-                  <div className={`text-sm ${mutedTextClass}`}>{activePresetId ? `Active agent: ${allPresets.find(item => item.id === activePresetId)?.title || 'none'}` : 'No active agent'}</div>
+                  <div className={`flex items-center gap-1.5 text-sm`}>
+                    {activePresetId && allPresets.find(item => item.id === activePresetId)?.kind === 'agent' ? (
+                      <>
+                        <Bot className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                        <span className="text-violet-600 dark:text-violet-400 font-medium">Active: {allPresets.find(item => item.id === activePresetId)?.title}</span>
+                      </>
+                    ) : activePresetId ? (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">Active: {allPresets.find(item => item.id === activePresetId)?.title}</span>
+                      </>
+                    ) : (
+                      <span className={mutedTextClass}>No active agent</span>
+                    )}
+                  </div>
                 </section>
 
                 <section className={sectionCardClass}>
