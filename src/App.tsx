@@ -1975,6 +1975,14 @@ function AppShell() {
       return;
     }
 
+    // Prune orphaned label before the backend delete so refreshAll sees it gone
+    if (conversationLabels[selectedConversationId]) {
+      const next = { ...conversationLabels };
+      delete next[selectedConversationId];
+      setConversationLabels(next);
+      void apiSend('/api/settings/user-settings', 'POST', { conversationLabels: next });
+    }
+
     await apiSend(`/api/history/group/${selectedConversationId}`, 'DELETE');
     if (conversationId === selectedConversationId) {
       startNewChat();

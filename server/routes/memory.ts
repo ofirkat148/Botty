@@ -185,11 +185,18 @@ router.post('/import', async (req: Request, res: Response) => {
       }
 
       if (incomingUserSettings) {
+        const incomingLabels = incomingUserSettings.conversationLabels &&
+          typeof incomingUserSettings.conversationLabels === 'object' &&
+          !Array.isArray(incomingUserSettings.conversationLabels)
+          ? incomingUserSettings.conversationLabels
+          : null;
+
         await tx.insert(userSettings).values({
           uid,
           systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
           customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
           customBots: [],
+          conversationLabels: incomingLabels,
           updatedAt: new Date(),
         }).onConflictDoUpdate({
           target: userSettings.uid,
@@ -197,6 +204,7 @@ router.post('/import', async (req: Request, res: Response) => {
             systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
             customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
             customBots: [],
+            conversationLabels: incomingLabels,
             updatedAt: new Date(),
           },
         });
