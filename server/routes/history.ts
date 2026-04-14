@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { history } from '../db/schema.js';
-import { and, eq, desc, like, or } from 'drizzle-orm';
+import { and, eq, desc, like, or, ne } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { incrementDailyUsage } from '../utils/llm.js';
 
@@ -12,7 +12,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // GET /api/history - Get chat history for the current user
-// Query params: ?q=search+term&limit=50
+// Query params: ?q=search+term&limit=50&archived=true
 router.get('/', async (req: Request, res: Response) => {
   try {
     const db = getDatabase();
@@ -20,8 +20,12 @@ router.get('/', async (req: Request, res: Response) => {
     const rawLimit = Number(req.query.limit) || 50;
     const limit = Math.min(Math.max(1, rawLimit), 200);
     const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const showArchived = req.query.archived === 'true';
 
-    const baseCondition = eq(history.uid, uid);
+    const baseCondition = showArchived
+      ? and(eq(history.uid, uid), eq(history.isArchived, true))
+      : and(eq(history.uid, uid), ne(history.isArchived, true));
+
     const whereCondition = q
       ? and(baseCondition, or(like(history.prompt, `%${q}%`), like(history.response, `%${q}%`)))
       : baseCondition;
@@ -72,6 +76,44 @@ router.post('/', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error creating history entry:', error);
     res.status(500).json({ error: 'Failed to create history entry' });
+  }
+});
+
+// PATCH /api/history/group/:conversationId/archive - Archive a conversation
+router.patch('/group/:conversationId/archive', async (req: Request, res: Response) => {
+  try {
+    const { conversationId } = req.params;
+    const db = getDatabase();
+    const uid = req.userId!;
+
+    await db
+      .update(history)
+      .set({ isArchived: true })
+      .where(and(eq(history.conversationId, conversationId), eq(history.uid, uid)));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error archiving conversation:', error);
+    res.status(500).json({ error: 'Failed to archive conversation' });
+  }
+});
+
+// PATCH /api/history/group/:conversationId/unarchive - Unarchive a conversation
+router.patch('/group/:conversationId/unarchive', async (req: Request, res: Response) => {
+  try {
+    const { conversationId } = req.params;
+    const db = getDatabase();
+    const uid = req.userId!;
+
+    await db
+      .update(history)
+      .set({ isArchived: false })
+      .where(and(eq(history.conversationId, conversationId), eq(history.uid, uid)));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error unarchiving conversation:', error);
+    res.status(500).json({ error: 'Failed to unarchive conversation' });
   }
 });
 

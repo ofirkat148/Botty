@@ -112,6 +112,12 @@ jobs:
       - name: Run security tests
         run: npm run test:security
 
+      - name: Run history archive tests
+        run: npm run test:history-archive
+
+      - name: Run memory backup round-trip tests
+        run: npm run test:memory-backup
+
       - name: Show logs on failure
         if: failure()
         run: |

@@ -32,6 +32,7 @@ export const history = pgTable('history', {
   tokensUsed: integer('tokens_used'),
   status: varchar('status', { length: 50 }).default('completed'),
   conversationId: text('conversation_id'),
+  isArchived: boolean('is_archived').default(false),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
 });
 

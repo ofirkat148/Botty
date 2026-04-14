@@ -169,6 +169,11 @@ async function bootstrapSchema(pool: Pool) {
   `);
 
   await pool.query(`
+    ALTER TABLE history
+    ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_definitions (
       id TEXT PRIMARY KEY,
       uid VARCHAR(255) NOT NULL,

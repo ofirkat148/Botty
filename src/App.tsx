@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useReducer, useState } from 'react';
 import {
+  Archive,
+  ArchiveRestore,
   Bot,
   Download,
   History,
@@ -92,6 +94,7 @@ type HistoryEntry = {
   model: string;
   tokensUsed?: number | null;
   conversationId?: string | null;
+  isArchived?: boolean | null;
   timestamp: string;
 };
 
@@ -273,7 +276,7 @@ function AppShell() {
   const [activeTab, setActiveTab] = useState<TabValue>('chat');
   const [provider, setProvider] = useState('auto');
   const [model, setModel] = useState('');
-  const [prompt, setPrompt] = useState('');
+  const [prompt, setPrompt] = useState(() => localStorage.getItem('botty.draftPrompt') || '');
   const [chatState, dispatchChat] = useChatReducer();
   const { messages, conversationId, isSending, chatError } = chatState;
   const setConversationId = (id: string | null) => dispatchChat({ type: 'LOAD_HISTORY', messages, conversationId: id ?? '' });
@@ -293,6 +296,7 @@ function AppShell() {
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
+  const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [factsSearch, setFactsSearch] = useState('');
   const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
   const [editingLabelId, setEditingLabelId] = useState('');
@@ -893,6 +897,14 @@ function AppShell() {
   }, [isSidebarExpanded]);
 
   useEffect(() => {
+    if (prompt) {
+      window.localStorage.setItem('botty.draftPrompt', prompt);
+    } else {
+      window.localStorage.removeItem('botty.draftPrompt');
+    }
+  }, [prompt]);
+
+  useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 1023px)');
 
     function handleViewportChange(event: MediaQueryListEvent | MediaQueryList) {
@@ -1108,7 +1120,7 @@ function AppShell() {
     return response.json() as Promise<T>;
   }
 
-  async function apiSend<T>(path: string, method: 'POST' | 'PUT' | 'DELETE', body?: unknown, options?: { signal?: AbortSignal }) {
+  async function apiSend<T>(path: string, method: 'POST' | 'PUT' | 'DELETE' | 'PATCH', body?: unknown, options?: { signal?: AbortSignal }) {
     const response = await fetch(path, {
       method,
       headers: authHeaders,
@@ -1137,7 +1149,7 @@ function AppShell() {
 
   async function refreshAll() {
     const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData, agentCountsData] = await Promise.all([
-      apiGet<HistoryEntry[]>('/api/history'),
+      apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history'),
       apiGet<Fact[]>('/api/memory/facts'),
       apiGet<MemoryFile[]>('/api/memory/files'),
       apiGet<MemoryUrl[]>('/api/memory/urls'),
@@ -1990,6 +2002,19 @@ function AppShell() {
     await refreshAll();
   }
 
+  async function archiveConversation(selectedConversationId: string) {
+    await apiSend(`/api/history/group/${selectedConversationId}/archive`, 'PATCH');
+    if (conversationId === selectedConversationId) {
+      startNewChat();
+    }
+    await refreshAll();
+  }
+
+  async function unarchiveConversation(selectedConversationId: string) {
+    await apiSend(`/api/history/group/${selectedConversationId}/unarchive`, 'PATCH');
+    await refreshAll();
+  }
+
   async function saveConversationLabel(id: string, label: string) {
     const next = { ...conversationLabels };
     if (label.trim()) {
@@ -2726,6 +2751,23 @@ function AppShell() {
                         <div className="whitespace-pre-wrap text-[15px] leading-6 sm:leading-7">{message.content}</div>
                         {message.role === 'assistant' && formatTokenUsage(message.tokensUsed, message.provider, message.model) ? (
                           <div className={`mt-3 text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model)}</div>
+                        ) : null}
+                        {message.role === 'assistant' && message.model && index === messages.length - 1 && !isSending ? (
+                          <div className="mt-2 flex justify-end">
+                            <button
+                              type="button"
+                              title="Retry — resend the last message"
+                              onClick={() => {
+                                const lastUser = [...messages].reverse().find(m => m.role === 'user');
+                                if (!lastUser) return;
+                                dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
+                                setPrompt(lastUser.content);
+                              }}
+                              className={`flex items-center gap-1 text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}
+                            >
+                              <RefreshCw className="w-3 h-3" /> Retry
+                            </button>
+                          </div>
                         ) : null}
                       </div>
                     ))}
@@ -3687,12 +3729,23 @@ function AppShell() {
                   </div>
                 </section>
 
-                <input
-                  value={historySearch}
-                  onChange={event => setHistorySearch(event.target.value)}
-                  placeholder="Search conversations..."
-                  className={textInputClass}
-                />
+                <div className="flex gap-2">
+                  <input
+                    value={historySearch}
+                    onChange={event => setHistorySearch(event.target.value)}
+                    placeholder="Search conversations..."
+                    className={`flex-1 ${textInputClass}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setShowArchivedHistory(v => !v); void refreshAll(); }}
+                    className={responsiveSecondaryButtonClass}
+                    title={showArchivedHistory ? 'Show active conversations' : 'Show archived conversations'}
+                  >
+                    {showArchivedHistory ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                    <span className="hidden sm:inline">{showArchivedHistory ? 'Active' : 'Archived'}</span>
+                  </button>
+                </div>
 
                 {conversations.filter(item =>
                   !historySearch.trim() || item.items.some(entry =>
@@ -3729,11 +3782,20 @@ function AppShell() {
                       </div>
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
-                      <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Label conversation"><Pencil className="w-4 h-4" /></button>
-                      <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
+                      {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Label conversation"><Pencil className="w-4 h-4" /></button> : null}
+                      {!showArchivedHistory ? <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button> : null}
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
                         <Download className="w-4 h-4" />
                       </button>
+                      {showArchivedHistory ? (
+                        <button onClick={() => void unarchiveConversation(item.id)} className={responsiveSecondaryButtonClass} title="Restore conversation">
+                          <ArchiveRestore className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button onClick={() => void archiveConversation(item.id)} className={responsiveSecondaryButtonClass} title="Archive conversation">
+                          <Archive className="w-4 h-4" />
+                        </button>
+                      )}
                       <button onClick={() => void deleteConversation(item.id)} className={responsiveDestructiveButtonClass}>
                         <Trash2 className="w-4 h-4" />
                       </button>
