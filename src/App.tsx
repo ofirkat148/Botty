@@ -2178,6 +2178,24 @@ function AppShell() {
     URL.revokeObjectURL(url);
   }
 
+  function exportConversationCSV(conv: { id: string; items: HistoryEntry[] }) {
+    const sorted = [...conv.items].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
+    const escapeCSV = (value: string) => `"${value.replace(/"/g, '""')}"`;
+    const header = ['timestamp', 'role', 'content', 'model', 'tokens_used'].join(',');
+    const rows: string[] = [header];
+    for (const entry of sorted) {
+      rows.push([escapeCSV(entry.timestamp), 'user', escapeCSV(entry.prompt), escapeCSV(entry.model || ''), ''].join(','));
+      rows.push([escapeCSV(entry.timestamp), 'assistant', escapeCSV(entry.response), escapeCSV(entry.model || ''), String(entry.tokensUsed ?? '')].join(','));
+    }
+    const blob = new Blob([rows.join('\n')], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `conversation-${conv.id.slice(0, 8)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function addFact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!newFact.trim()) {
@@ -3960,8 +3978,11 @@ function AppShell() {
                       {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
                       {!showArchivedHistory ? <button onClick={() => void togglePinConversation(item.id)} className={`${responsiveSecondaryButtonClass} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`} title={pinnedConversations.has(item.id) ? 'Unpin conversation' : 'Pin conversation'}><Pin className="w-4 h-4" /></button> : null}
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
-                      <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
+                      <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass} title="Export as Markdown">
                         <Download className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => exportConversationCSV(item)} className={responsiveSecondaryButtonClass} title="Export as CSV">
+                        <span className="text-xs font-medium">CSV</span>
                       </button>
                       {showArchivedHistory ? (
                         <button onClick={() => void unarchiveConversation(item.id)} className={responsiveSecondaryButtonClass} title="Restore conversation">
