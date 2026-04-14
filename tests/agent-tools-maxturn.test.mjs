@@ -186,3 +186,29 @@ test('updating agent maxTurns persists correctly', async () => {
   assert.equal(updateRes.response.status, 200, 'expected agent update to succeed');
   assert.equal(updateRes.body.item?.maxTurns, 10, 'expected updated maxTurns=10');
 });
+
+// ---------------------------------------------------------------------------
+// GET /api/memory/facts?botId= scopes to agent facts
+// ---------------------------------------------------------------------------
+test('GET /api/memory/facts?botId= returns only agent-scoped facts', async () => {
+  const { token } = await loginLocalUser('agent-memory-scope');
+  const headers = buildAuthHeaders(token, { 'Content-Type': 'application/json' });
+
+  // Shared facts should be empty for this fresh user
+  const shared = await fetchJson('/api/memory/facts', { headers });
+  assert.equal(shared.response.status, 200, 'expected shared facts to succeed');
+  assert.equal(Array.isArray(shared.body), true, 'expected array');
+
+  // Agent-scoped facts with a fake agent id should return empty array
+  const agentId = 'test-isolated-agent-999';
+  const scoped = await fetchJson(`/api/memory/facts?botId=${encodeURIComponent(agentId)}`, { headers });
+  assert.equal(scoped.response.status, 200, 'expected scoped facts to succeed');
+  assert.equal(Array.isArray(scoped.body), true, 'expected array for agent-scoped facts');
+  assert.equal(scoped.body.length, 0, 'expected no facts for unknown agent');
+
+  // agent-counts endpoint returns totals
+  const counts = await fetchJson('/api/memory/facts/agent-counts', { headers });
+  assert.equal(counts.response.status, 200, 'expected agent-counts to succeed');
+  assert.equal(typeof counts.body.total, 'number', 'expected total to be a number');
+  assert.ok(typeof counts.body.counts === 'object', 'expected counts to be an object');
+});

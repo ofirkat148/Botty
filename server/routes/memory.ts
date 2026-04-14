@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { facts, history, memoryFiles, memoryUrls, settings, userSettings } from '../db/schema.js';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { consolidateFactRows, reconcileFactsForUser, reconcileFactsForUserScoped, saveFactsWithConsolidation } from '../utils/llm.js';
 import { listCustomAgentsForUser, replaceCustomAgentsForUser } from '../utils/agents.js';
@@ -263,6 +263,56 @@ router.post('/facts', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error creating fact:', error);
     res.status(500).json({ error: 'Failed to create fact' });
+  }
+});
+
+// DELETE /api/memory/facts/agent/:botId — clear all isolated facts for a specific agent (must come before /facts/:id)
+router.delete('/facts/agent/:botId', async (req: Request, res: Response) => {
+  try {
+    const { botId } = req.params;
+    const db = getDatabase();
+    const uid = req.userId!;
+
+    if (!botId || !botId.trim()) {
+      return res.status(400).json({ error: 'botId is required' });
+    }
+
+    await db
+      .delete(facts)
+      .where(and(eq(facts.uid, uid), eq(facts.botId, botId.trim())));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error clearing agent facts:', error);
+    res.status(500).json({ error: 'Failed to clear agent facts' });
+  }
+});
+
+// GET /api/memory/facts/agent-counts — total isolated (agent-scoped) fact count for the user (must come before /facts/:id)
+router.get('/facts/agent-counts', async (req: Request, res: Response) => {
+  try {
+    const uid = req.userId!;
+    const db = getDatabase();
+
+    const rows = await db
+      .select({ botId: facts.botId, total: sql<number>`cast(count(*) as int)` })
+      .from(facts)
+      .where(and(eq(facts.uid, uid), isNotNull(facts.botId)))
+      .groupBy(facts.botId);
+
+    const counts: Record<string, number> = {};
+    let total = 0;
+    for (const row of rows) {
+      if (row.botId) {
+        counts[row.botId] = row.total;
+        total += row.total;
+      }
+    }
+
+    res.json({ total, counts });
+  } catch (error) {
+    console.error('Error fetching agent fact counts:', error);
+    res.status(500).json({ error: 'Failed to fetch agent fact counts' });
   }
 });
 

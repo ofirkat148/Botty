@@ -290,9 +290,11 @@ function AppShell() {
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historySearch, setHistorySearch] = useState('');
   const [facts, setFacts] = useState<Fact[]>([]);
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [memoryUrls, setMemoryUrls] = useState<MemoryUrl[]>([]);
+  const [agentFactCounts, setAgentFactCounts] = useState<{ total: number; counts: Record<string, number> }>({ total: 0, counts: {} });
   const [customSkills, setCustomSkills] = useState<FunctionPreset[]>([]);
   const [customAgents, setCustomAgents] = useState<AgentDefinition[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -1128,7 +1130,7 @@ function AppShell() {
   }
 
   async function refreshAll() {
-    const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData] = await Promise.all([
+    const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData, agentCountsData] = await Promise.all([
       apiGet<HistoryEntry[]>('/api/history'),
       apiGet<Fact[]>('/api/memory/facts'),
       apiGet<MemoryFile[]>('/api/memory/files'),
@@ -1139,12 +1141,14 @@ function AppShell() {
       apiGet<SettingsResponse>('/api/settings'),
       apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[] }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
+      apiGet<{ total: number; counts: Record<string, number> }>('/api/memory/facts/agent-counts'),
     ]);
 
     setHistory(historyRows);
     setFacts(factRows);
     setMemoryFiles(fileRows);
     setMemoryUrls(urlRows);
+    setAgentFactCounts(agentCountsData || { total: 0, counts: {} });
     setCustomSkills(functionsData.skills || []);
     setCustomAgents(functionsData.agents || []);
     setApiKeys(keyRows);
@@ -2011,6 +2015,12 @@ function AppShell() {
   async function deleteAgentFact(agentId: string, factId: string) {
     await apiSend(`/api/memory/facts/${factId}`, 'DELETE');
     await loadAgentFacts(agentId);
+  }
+
+  async function clearAgentFacts(agentId: string) {
+    await apiSend(`/api/memory/facts/agent/${agentId}`, 'DELETE');
+    setAgentFacts(prev => ({ ...prev, [agentId]: [] }));
+    await refreshAll();
   }
 
   function toggleAgentMemory(agentId: string) {
@@ -3567,6 +3577,10 @@ function AppShell() {
                         <div className="mt-2 text-2xl font-semibold">{dailyTokens.toLocaleString()}</div>
                       </div>
                       <div className={elevatedCardClass}>
+                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Agent memory facts</div>
+                        <div className="mt-2 text-2xl font-semibold">{agentFactCounts.total}</div>
+                      </div>
+                      <div className={elevatedCardClass}>
                         <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Active providers</div>
                         <div className="mt-2 text-2xl font-semibold">{dailyProviderUsage.length}</div>
                       </div>
@@ -3639,7 +3653,19 @@ function AppShell() {
                   </div>
                 </section>
 
-                {conversations.map(item => (
+                <input
+                  value={historySearch}
+                  onChange={event => setHistorySearch(event.target.value)}
+                  placeholder="Search conversations..."
+                  className={textInputClass}
+                />
+
+                {conversations.filter(item =>
+                  !historySearch.trim() || item.items.some(entry =>
+                    entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
+                    entry.response.toLowerCase().includes(historySearch.toLowerCase())
+                  )
+                ).map(item => (
                   <div key={item.id} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between`}>
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
@@ -3661,6 +3687,7 @@ function AppShell() {
                   </div>
                 ))}
                 {conversations.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
+                {conversations.length > 0 && historySearch.trim() && conversations.filter(item => item.items.some(entry => entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) || entry.response.toLowerCase().includes(historySearch.toLowerCase()))).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
               </div>
             ) : null}
 
@@ -3783,6 +3810,15 @@ function AppShell() {
                             </div>
                           ))}
                           {(agentFacts[agent.id] || []).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No isolated facts yet for this agent.</div> : null}
+                          {(agentFacts[agent.id] || []).length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => void clearAgentFacts(agent.id)}
+                              className={responsiveDestructiveButtonClass}
+                            >
+                              <Trash2 className="w-4 h-4" /> Clear all agent facts
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
                     </section>
