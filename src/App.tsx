@@ -2802,7 +2802,7 @@ function AppShell() {
           </aside>
 
           <main className={`${shellPanelClass} flex min-h-[calc(100dvh-1.5rem)] flex-col ${isFullscreen ? 'h-dvh min-h-0 overflow-hidden lg:h-[calc(100dvh-2rem)]' : activeTab === 'chat' ? 'overflow-hidden' : ''}`}>
-            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div className={`mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${isFullscreen ? 'shrink-0' : ''}`}>
               <div className="flex min-w-0 items-start gap-3">
                 <button
                   type="button"
@@ -2836,7 +2836,7 @@ function AppShell() {
             {notice ? <div className={noticeClass}>{notice}</div> : null}
 
             {activeTab === 'chat' ? (
-              <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
+              <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1 overflow-hidden' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
                 <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh]'}`}>
                   {activePreset ? (
                     <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
