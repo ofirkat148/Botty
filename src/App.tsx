@@ -313,6 +313,8 @@ function AppShell() {
   const [dailyModelUsage, setDailyModelUsage] = useState<ModelUsageEntry[]>([]);
   const [dailyProviderUsage, setDailyProviderUsage] = useState<Array<{ provider: string; tokens: number }>>([]);
   const [usageTrend, setUsageTrend] = useState<Array<{ date: string; tokens: number }>>([]);
+  const [usagePeriod, setUsagePeriod] = useState<7 | 30>(7);
+  const usagePeriodRef = useRef<7 | 30>(7);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [localUrl, setLocalUrl] = useState('http://127.0.0.1:11435');
   const [useMemory, setUseMemory] = useState(true);
@@ -1156,7 +1158,7 @@ function AppShell() {
       apiGet<MemoryUrl[]>('/api/memory/urls'),
       apiGet<FunctionCatalogResponse>('/api/settings/functions'),
       apiGet<ApiKey[]>('/api/keys'),
-      apiGet<UsageResponse>('/api/usage'),
+      apiGet<UsageResponse>(`/api/usage?days=${usagePeriodRef.current}`),
       apiGet<SettingsResponse>('/api/settings'),
       apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
@@ -1383,6 +1385,7 @@ function AppShell() {
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         dispatchChat({ type: 'SET_ERROR', message: 'Response stopped.' });
+        setPrompt(text);
         return;
       }
 
@@ -3687,17 +3690,21 @@ function AppShell() {
                     <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
                       <div className={elevatedCardClass}>
                         <div className="flex items-center justify-between gap-3">
-                          <h4 className="text-sm font-medium">7-day trend</h4>
-                          <span className={`text-xs ${subtleTextClass}`}>{usageTrend.length} day{usageTrend.length === 1 ? '' : 's'}</span>
+                          <h4 className="text-sm font-medium">{usagePeriod}-day trend</h4>
+                          <div className="flex gap-1">
+                            {([7, 30] as const).map(p => (
+                              <button key={p} type="button" onClick={() => { usagePeriodRef.current = p; setUsagePeriod(p); void apiGet<UsageResponse>(`/api/usage?days=${p}`).then(d => setUsageTrend(Array.isArray(d.trend) ? d.trend : [])); }} className={`rounded px-2 py-0.5 text-xs transition-colors ${usagePeriod === p ? (isDarkMode ? 'bg-white/15 text-white' : 'bg-stone-900 text-white') : (isDarkMode ? 'text-stone-400 hover:text-stone-200' : 'text-stone-500 hover:text-stone-700')}`}>{p}d</button>
+                            ))}
+                          </div>
                         </div>
                         <div className="mt-4 flex h-44 items-end gap-2">
-                          {usageTrend.length > 0 ? usageTrend.map(entry => {
+                          {usageTrend.length > 0 ? usageTrend.map((entry, index) => {
                             const height = Math.max((entry.tokens / trendPeak) * 100, entry.tokens > 0 ? 10 : 4);
                             return (
                               <div key={entry.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                                <div className="text-[11px] leading-none opacity-70">{entry.tokens.toLocaleString()}</div>
+                                {usagePeriod === 7 ? <div className="text-[11px] leading-none opacity-70">{entry.tokens.toLocaleString()}</div> : null}
                                 <div className={`w-full rounded-t-2xl ${isDarkMode ? 'bg-amber-300/70' : 'bg-stone-900/75'}`} style={{ height: `${height}%` }} />
-                                <div className={`text-[11px] ${subtleTextClass}`}>{entry.date.slice(5)}</div>
+                                <div className={`text-[11px] ${subtleTextClass}`}>{usagePeriod === 30 && index % 5 !== 0 && index !== usageTrend.length - 1 ? '' : entry.date.slice(5)}</div>
                               </div>
                             );
                           }) : <div className={`text-sm ${subtleTextClass}`}>No usage yet.</div>}
@@ -3779,28 +3786,30 @@ function AppShell() {
                             autoFocus
                             value={labelDraft}
                             onChange={event => setLabelDraft(event.target.value)}
-                            placeholder="Label this conversation…"
+                            placeholder="Rename this conversation…"
                             className={`flex-1 text-sm ${inputClass}`}
                           />
                           <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
                           <button type="button" onClick={() => setEditingLabelId('')} className={responsiveSecondaryButtonClass}>Cancel</button>
                         </form>
                       ) : (
-                        <>
+                        <button type="button" onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className="w-full text-left">
+                          <div className="text-sm font-medium line-clamp-2">
+                            {conversationLabels[item.id] || item.items[0].prompt}
+                          </div>
                           {conversationLabels[item.id] ? (
-                            <div className="mb-0.5 text-xs font-semibold text-violet-600 dark:text-violet-400">{conversationLabels[item.id]}</div>
+                            <div className={`mt-0.5 text-xs line-clamp-1 ${subtleTextClass}`}>{item.items[0].prompt}</div>
                           ) : null}
-                          <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
-                        </>
+                        </button>
                       )}
                       <div className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs ${subtleTextClass}`}>
-                        <span>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</span>
+                        <span>{(() => { const t = item.items.reduce((s, e) => s + (e.tokensUsed || 0), 0); return t > 0 ? `${t.toLocaleString()} tokens total` : 'Tokens: unknown'; })()}</span>
                         <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
                         <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
                       </div>
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
-                      {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Label conversation"><Pencil className="w-4 h-4" /></button> : null}
+                      {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
                       {!showArchivedHistory ? <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button> : null}
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
                         <Download className="w-4 h-4" />
