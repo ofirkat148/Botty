@@ -30,6 +30,11 @@ jobs:
       DATABASE_URL: postgresql://botty_user:botty_pass@127.0.0.1:5432/botty_db
       BOTTY_TEST_BASE_URL: http://127.0.0.1:5000
       LOCAL_LLM_URL: http://127.0.0.1:11434
+      # Fixed CI-only secrets — not used in production
+      JWT_SECRET: ci-only-jwt-secret-not-used-in-production-0000
+      KEY_ENCRYPTION_SECRET: ci-only-enc-secret-not-used-in-production00
+      # Playwright browser path — set to the pre-installed Chrome on Ubuntu runners
+      BOTTY_TEST_BROWSER: /usr/bin/google-chrome-stable
 
     steps:
       # Step 1: Clone the repository into the runner
@@ -42,7 +47,14 @@ jobs:
         with:
           node-version: 20
 
-      # Step 3: Install dependencies using npm ci
+      # Step 3a: Install Google Chrome (required for Playwright UI tests)
+      - name: Install Google Chrome
+        run: |
+          wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | sudo gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg
+          echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] https://dl.google.com/linux/chrome/deb/ stable main" | sudo tee /etc/apt/sources.list.d/google-chrome.list
+          sudo apt-get update -q && sudo apt-get install -y google-chrome-stable
+
+      # Step 3b: Install dependencies using npm ci
       # npm ci is faster and ensures reproducible builds based on package-lock.json
       - name: Install dependencies
         run: npm ci
@@ -70,6 +82,9 @@ jobs:
           timeout 90 bash -c 'until curl -fsS http://127.0.0.1:5000/api/health; do sleep 2; done'
 
       # Step 9: Run tests against the live app
+      - name: Run agent resolution tests
+        run: npm run test:agent-resolution
+
       - name: Run chat regression tests
         run: npm run test:chat-regression
 
@@ -78,6 +93,30 @@ jobs:
 
       - name: Run UI agents tests
         run: npm run test:ui-agents
+
+      - name: Run memory consolidation tests
+        run: npm run test:memory
+
+      - name: Run provider routing/fallback tests
+        run: npm run test:provider-fallback
+
+      - name: Run agent tools and maxTurns tests
+        run: npm run test:agent-tools-maxturn
+
+      - name: Run Telegram status tests
+        run: npm run test:telegram
+
+      - name: Run function preset tests
+        run: npm run test:function-presets
+
+      - name: Run security tests
+        run: npm run test:security
+
+      - name: Run history archive tests
+        run: npm run test:history-archive
+
+      - name: Run memory backup round-trip tests
+        run: npm run test:memory-backup
 
       - name: Show logs on failure
         if: failure()

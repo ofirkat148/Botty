@@ -34,3 +34,40 @@ test('signed-in dashboard endpoints load successfully', async () => {
   const settings = await fetchJson('/api/settings', { headers });
   assert.equal(typeof settings.body.useMemory, 'boolean', 'expected settings payload');
 });
+
+test('user-settings partial update preserves unrelated fields', async () => {
+  const { token } = await loginLocalUser('user-settings-partial');
+  const headers = buildAuthHeaders(token, { 'Content-Type': 'application/json' });
+
+  // Set a systemPrompt first
+  const setPrompt = await fetchJson('/api/settings/user-settings', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ systemPrompt: 'Test system prompt' }),
+  });
+  assert.equal(setPrompt.response.status, 200, 'expected systemPrompt save to succeed');
+
+  // Update only conversationLabels — systemPrompt must survive
+  const setLabels = await fetchJson('/api/settings/user-settings', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ conversationLabels: { 'conv-abc': 'My label' } }),
+  });
+  assert.equal(setLabels.response.status, 200, 'expected conversationLabels save to succeed');
+
+  const result = await fetchJson('/api/settings/user-settings', { headers });
+  assert.equal(result.response.status, 200, 'expected user-settings GET to succeed');
+  assert.equal(result.body.systemPrompt, 'Test system prompt', 'systemPrompt must not be clobbered by label update');
+  assert.equal(result.body.conversationLabels?.['conv-abc'], 'My label', 'conversationLabels must be persisted');
+
+  // Update only systemPrompt — label must survive
+  await fetchJson('/api/settings/user-settings', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ systemPrompt: 'Updated prompt' }),
+  });
+
+  const result2 = await fetchJson('/api/settings/user-settings', { headers });
+  assert.equal(result2.body.systemPrompt, 'Updated prompt', 'systemPrompt must be updated');
+  assert.equal(result2.body.conversationLabels?.['conv-abc'], 'My label', 'conversationLabels must survive systemPrompt update');
+});

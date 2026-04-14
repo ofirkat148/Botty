@@ -1,10 +1,12 @@
 import express from 'express';
 import cors from 'cors';
+import { rateLimit } from 'express-rate-limit';
+import pinoHttp from 'pino-http';
 import dotenv from 'dotenv';
 import path from 'path';
 import { existsSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { initializeDatabase } from './db/index.js';
+import { initializeDatabase, getDatabase } from './db/index.js';
 import authRoutes from './routes/auth.js';
 import historyRoutes from './routes/history.js';
 import memoryRoutes from './routes/memory.js';
@@ -12,8 +14,12 @@ import settingsRoutes from './routes/settings.js';
 import keysRoutes from './routes/keys.js';
 import usageRoutes from './routes/usage.js';
 import chatRoutes from './routes/chat.js';
+import metricsRoutes from './routes/metrics.js';
 import { getTelegramBotStatus, startTelegramBot } from './services/telegram.js';
 import { getLocalProviderStatus, reconcileAllFacts } from './utils/llm.js';
+import { logger } from './utils/logger.js';
+import { lt } from 'drizzle-orm';
+import { history } from './db/schema.js';
 
 // Load environment variables
 dotenv.config();
@@ -49,7 +55,14 @@ function getCorsOrigins() {
 
 function isAllowedOrigin(origin: string) {
   const allowedOrigins = getCorsOrigins();
-  if (allowedOrigins.includes(origin) || process.env.CORS_ORIGINS === '*') {
+  if (process.env.CORS_ORIGINS === '*') {
+    const publicBaseUrl = process.env.PUBLIC_BASE_URL?.trim();
+    if (publicBaseUrl && !publicBaseUrl.startsWith('http://localhost') && !publicBaseUrl.startsWith('http://127.0.0.1')) {
+      console.warn('[security] CORS_ORIGINS=* is set with a non-localhost PUBLIC_BASE_URL. This allows any origin. Restrict CORS_ORIGINS in production.');
+    }
+    return true;
+  }
+  if (allowedOrigins.includes(origin)) {
     return true;
   }
 
@@ -65,6 +78,13 @@ function isAllowedOrigin(origin: string) {
 }
 
 // Middleware
+app.use(pinoHttp({
+  logger,
+  // Skip logging health checks to reduce noise
+  autoLogging: {
+    ignore: (req) => req.url === '/api/health',
+  },
+}));
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || isAllowedOrigin(origin)) {
@@ -119,8 +139,30 @@ async function startServer() {
     await initializeDatabase();
     dbInitialized = true;
     console.log('✅ Database initialized successfully');
-    await reconcileAllFacts();
+    const RECONCILE_TIMEOUT_MS = 30_000;
+    await Promise.race([
+      reconcileAllFacts(),
+      new Promise<void>((_, reject) =>
+        setTimeout(() => reject(new Error('reconcileAllFacts timed out after 30s')), RECONCILE_TIMEOUT_MS)
+      ),
+    ]);
     console.log('✅ Facts reconciled successfully');
+
+    // Prune old history entries if HISTORY_RETENTION_DAYS is configured
+    const retentionDays = Number(process.env.HISTORY_RETENTION_DAYS);
+    if (Number.isFinite(retentionDays) && retentionDays > 0) {
+      try {
+        const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+        const db = getDatabase();
+        const result = await db.delete(history).where(lt(history.timestamp, cutoff));
+        const deleted = (result as unknown as { rowCount?: number })?.rowCount ?? 0;
+        if (deleted > 0) {
+          console.log(`✅ Pruned ${deleted} history entries older than ${retentionDays} days`);
+        }
+      } catch (pruneErr) {
+        console.error('⚠️  History prune failed (non-fatal):', pruneErr);
+      }
+    }
   } catch (error) {
     console.error('❌ Failed to initialize database:', error);
     throw error;
@@ -131,8 +173,18 @@ async function startServer() {
     res.json({ status: 'ok', database: dbInitialized ? 'connected' : 'disconnected' });
   });
 
+  // Rate limit auth endpoints — 20 requests per 15 minutes per IP
+  // In CI (GitHub Actions sets CI=true), use a high limit so all test suites can run sequentially
+  const authLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: process.env.CI === 'true' ? 10000 : 20,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Too many authentication requests, please try again later.' },
+  });
+
   // Authentication routes
-  app.use('/api/auth', authRoutes);
+  app.use('/api/auth', authLimiter, authRoutes);
 
   // Application routes
   app.use('/api/chat', chatRoutes);
@@ -141,6 +193,7 @@ async function startServer() {
   app.use('/api/settings', settingsRoutes);
   app.use('/api/keys', keysRoutes);
   app.use('/api/usage', usageRoutes);
+  app.use('/api/metrics', metricsRoutes);
 
   // Fallback to Vite for client-side routing
   app.get('*', (req, res) => {
@@ -152,13 +205,26 @@ async function startServer() {
   });
 
   // Start server
-  app.listen(Number(PORT), HOST, () => {
+  const server = app.listen(Number(PORT), HOST, () => {
     console.log(`
 🚀 Server is running at http://${HOST}:${PORT}
 📊 Database: PostgreSQL
 🔐 Auth: Local JWT
     `);
   });
+
+  // Graceful shutdown: stop accepting new connections and close cleanly
+  const shutdown = () => {
+    console.log('Received shutdown signal, closing server...');
+    server.close(() => {
+      console.log('Server closed.');
+      process.exit(0);
+    });
+    // Force-exit if connections don't drain within 10 seconds
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
   try {
     await startTelegramBot();

@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, createDecipheriv } from 'crypto';
 import { and, eq, sql } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
 import { apiKeys, dailyUsage, facts, memoryFiles, memoryUrls, settings, userSettings } from '../db/schema.js';
@@ -7,10 +7,6 @@ const PROVIDER_ENV_KEYS: Record<string, string[]> = {
   anthropic: ['ANTHROPIC_API_KEY'],
   google: ['GEMINI_API_KEY', 'API_KEY', 'GOOGLE_API_KEY'],
   openai: ['OPENAI_API_KEY'],
-  groq: ['GROQ_API_KEY'],
-  deepseek: ['DEEPSEEK_API_KEY'],
-  mistral: ['MISTRAL_API_KEY'],
-  xai: ['XAI_API_KEY'],
 };
 
 const DEFAULT_MODELS = {
@@ -119,8 +115,29 @@ function isConfiguredSecret(value?: string | null) {
   return true;
 }
 
+const _KEY_ALGORITHM = 'aes-256-gcm';
+const _KEY_IV_LEN = 12;
+const _KEY_TAG_LEN = 16;
+const _KEY_VERSION_PREFIX = 'v1:';
+
 function decodeKey(encryptedKey: string): string {
-  return Buffer.from(encryptedKey, 'base64').toString();
+  if (!encryptedKey.startsWith(_KEY_VERSION_PREFIX)) {
+    // Legacy base64 migration path - keys stored before AES encryption was added
+    return Buffer.from(encryptedKey, 'base64').toString('utf8');
+  }
+
+  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error('KEY_ENCRYPTION_SECRET env var must be set to decrypt stored API keys');
+  }
+  const key = createHash('sha256').update(secret).digest();
+  const raw = Buffer.from(encryptedKey.slice(_KEY_VERSION_PREFIX.length), 'base64');
+  const iv = raw.subarray(0, _KEY_IV_LEN);
+  const tag = raw.subarray(_KEY_IV_LEN, _KEY_IV_LEN + _KEY_TAG_LEN);
+  const ciphertext = raw.subarray(_KEY_IV_LEN + _KEY_TAG_LEN);
+  const decipher = createDecipheriv(_KEY_ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ciphertext) + decipher.final('utf8');
 }
 
 function normalizeLocalLlmUrl(value?: string | null) {
@@ -191,23 +208,40 @@ function classifyPrompt(prompt: string) {
   const isCodeHeavy = /code|debug|refactor|typescript|javascript|react|sql|query|stack trace|traceback|bug|architecture|implement|fix/.test(lower);
   const isAnalysisHeavy = /analyze|analysis|compare|reason|tradeoff|explain|design|plan/.test(lower);
   const isLightweight = wordCount > 0 && wordCount <= 18 && /summarize|rewrite|translate|title|tagline|grammar|short|brief/.test(lower);
+  const isShortConversational = wordCount > 0 && wordCount <= 10 && !isCodeHeavy && !isAnalysisHeavy;
 
   return {
     wordCount,
     prefersReasoning: isCodeHeavy || isAnalysisHeavy || wordCount > 120,
     isLightweight,
+    isShortConversational,
   };
 }
 
-export function getSuggestedModel(provider: string, prompt: string, options?: { defaultLocalModel?: string | null }) {
+export function getSuggestedModel(provider: string, prompt: string, options?: { defaultLocalModel?: string | null; preferQuality?: boolean; preferFast?: boolean }) {
   if (provider === 'local') {
     return options?.defaultLocalModel?.trim() || getDefaultModel('local');
   }
 
   if (provider === 'anthropic') {
+    if (options?.preferFast) return 'claude-3-5-haiku-latest';
     return classifyPrompt(prompt).prefersReasoning
       ? 'claude-3-7-sonnet-latest'
       : 'claude-3-5-haiku-latest';
+  }
+
+  if (provider === 'google') {
+    if (options?.preferFast) return 'gemini-2.5-flash';
+    return options?.preferQuality && classifyPrompt(prompt).prefersReasoning
+      ? 'gemini-2.5-pro'
+      : 'gemini-2.5-flash';
+  }
+
+  if (provider === 'openai') {
+    if (options?.preferFast) return getDefaultModel('openai');
+    return options?.preferQuality && classifyPrompt(prompt).prefersReasoning
+      ? 'gpt-4o'
+      : getDefaultModel('openai');
   }
 
   return getDefaultModel(provider);
@@ -579,10 +613,16 @@ function combineFactContents(left: string, right: string) {
   return `${leftParsed.prefix} ${joinFactClauses(mergedClauses)}`;
 }
 
+const MAX_FACTS_PER_SCOPE = 100;
+
 export function consolidateFactRows(rows: FactRow[]) {
+  // Guard against O(n²) blowup on very large fact sets
+  const capped = rows.length > MAX_FACTS_PER_SCOPE
+    ? rows.slice(rows.length - MAX_FACTS_PER_SCOPE)
+    : rows;
   const consolidated: FactRow[] = [];
 
-  for (const row of rows) {
+  for (const row of capped) {
     const cleanedContent = cleanFactContent(row.content);
     const standardizedContent = standardizeFactContent(cleanedContent);
     if (!standardizedContent) {
@@ -852,7 +892,7 @@ export async function learnFactsFromConversation(params: {
 
   let candidateFacts = heuristicFacts;
 
-  if (candidateFacts.length === 0) {
+  if (candidateFacts.length === 0 && isSupportedChatProvider(provider)) {
     const extractionPrompt = [
       'Extract only durable user facts from this conversation.',
       'Return a JSON array of short strings.',
@@ -938,6 +978,7 @@ export async function getMemoryContext(uid: string, options?: { sandboxMode?: bo
       : db.select().from(memoryUrls).where(eq(memoryUrls.uid, uid)).limit(5),
   ]);
 
+  const MAX_MEMORY_CHARS = 8_000;
   const sections: string[] = [];
 
   if (userFacts.length > 0) {
@@ -952,7 +993,8 @@ export async function getMemoryContext(uid: string, options?: { sandboxMode?: bo
     sections.push(`[${sandboxMode ? 'KNOWN SITES' : 'URLS'}]\n${userUrls.map(item => `- ${item.title || item.url}\n${item.url}`).join('\n\n')}`);
   }
 
-  return sections.join('\n\n');
+  const joined = sections.join('\n\n');
+  return joined.length > MAX_MEMORY_CHARS ? joined.slice(0, MAX_MEMORY_CHARS) : joined;
 }
 
 export function buildChatSystemPrompt(params: {
@@ -984,25 +1026,23 @@ export function buildChatSystemPrompt(params: {
 }
 
 function getSmartRoute(prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }): ProviderRoute {
-  const { prefersReasoning, isLightweight } = classifyPrompt(prompt);
+  const { prefersReasoning } = classifyPrompt(prompt);
   const hasAnthropic = availableProviders.includes('anthropic');
   const hasGoogle = availableProviders.includes('google');
   const hasOpenai = availableProviders.includes('openai');
   const hasLocal = availableProviders.includes('local');
 
-  if (hasLocal && isLightweight && !prefersReasoning) {
-    return { provider: 'local', model: getSuggestedModel('local', prompt, options) };
-  }
-
+  // Reasoning: Anthropic is best, then OpenAI, then Google
   if (hasAnthropic && prefersReasoning) {
     return { provider: 'anthropic', model: getSuggestedModel('anthropic', prompt, options) };
   }
 
-  if (hasGoogle && !prefersReasoning) {
+  // Non-reasoning: Google Flash is fast and cheap, prefer it
+  if (hasGoogle) {
     return { provider: 'google', model: getSuggestedModel('google', prompt, options) };
   }
 
-  if (hasOpenai && !prefersReasoning) {
+  if (hasOpenai) {
     return { provider: 'openai', model: getSuggestedModel('openai', prompt, options) };
   }
 
@@ -1014,14 +1054,6 @@ function getSmartRoute(prompt: string, availableProviders: string[], options?: {
     return { provider: 'local', model: getSuggestedModel('local', prompt, options) };
   }
 
-  if (hasGoogle) {
-    return { provider: 'google', model: getSuggestedModel('google', prompt, options) };
-  }
-
-  if (hasOpenai) {
-    return { provider: 'openai', model: getSuggestedModel('openai', prompt, options) };
-  }
-
   throw new Error('No configured providers found. Add an API key in Settings or set ANTHROPIC_API_KEY in your environment.');
 }
 
@@ -1030,17 +1062,26 @@ export function getAutoRouteCandidates(prompt: string, availableProviders: strin
 }
 
 function orderProvidersForMode(mode: RoutingMode, prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }) {
+  const { prefersReasoning } = classifyPrompt(prompt);
   const smartPrimary = getSmartRoute(prompt, availableProviders, options).provider;
   const uniqueProviders = Array.from(new Set(availableProviders));
+
+  // For auto mode, make the fallback chain reasoning-aware:
+  // reasoning queries: smart → anthropic → openai → google → local
+  // non-reasoning queries: smart → google → openai → anthropic → local
+  const autoFallback = prefersReasoning
+    ? [smartPrimary, 'anthropic', 'openai', 'google', 'local']
+    : [smartPrimary, 'google', 'openai', 'anthropic', 'local'];
+
   const preferredOrder: Record<RoutingMode, string[]> = {
-    auto: [smartPrimary, 'local', 'google', 'openai', 'anthropic'],
-    fastest: ['local', 'google', 'openai', 'anthropic'],
+    auto: autoFallback,
+    fastest: ['google', 'openai', 'anthropic', 'local'],
     cheapest: ['local', 'google', 'openai', 'anthropic'],
     'best-quality': ['anthropic', 'openai', 'google', 'local'],
     'local-first': ['local', smartPrimary, 'google', 'openai', 'anthropic'],
   };
 
-  const ranked = preferredOrder[mode].filter(provider => uniqueProviders.includes(provider));
+  const ranked = Array.from(new Set(preferredOrder[mode].filter(provider => uniqueProviders.includes(provider))));
   const remainder = uniqueProviders.filter(provider => !ranked.includes(provider));
 
   return [...ranked, ...remainder];
@@ -1052,9 +1093,14 @@ export function getRouteCandidatesForMode(
   availableProviders: string[],
   options?: { defaultLocalModel?: string | null },
 ): ProviderRoute[] {
+  const extendedOptions = {
+    ...options,
+    preferQuality: mode === 'best-quality',
+    preferFast: mode === 'fastest' || mode === 'cheapest',
+  };
   return orderProvidersForMode(mode, prompt, availableProviders, options).map(provider => ({
     provider,
-    model: getSuggestedModel(provider, prompt, options),
+    model: getSuggestedModel(provider, prompt, extendedOptions),
   }));
 }
 
@@ -1413,4 +1459,246 @@ export async function callLLM(params: {
   }
 
   return { responseText, tokensUsed };
+}
+
+/**
+ * Streaming variant of callLLM. Calls `onChunk` for each text delta and
+ * resolves with final token usage. Supports Anthropic, OpenAI, and local
+ * (OpenAI-compatible) providers. Falls back to Google non-streaming.
+ */
+export async function streamCallLLM(params: {
+  prompt: string;
+  provider: string;
+  model: string;
+  apiKey: string;
+  systemPrompt: string;
+  messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  localUrl?: string;
+  signal?: AbortSignal;
+  onChunk: (delta: string) => void;
+}): Promise<{ tokensUsed: number }> {
+  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl, signal, onChunk } = params;
+  throwIfAborted(signal);
+
+  // Helper: consume an OpenAI-compatible SSE stream
+  async function consumeOpenAIStream(response: Response): Promise<{ text: string; tokensUsed: number }> {
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    let tokensUsed = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed || trimmed === 'data: [DONE]') continue;
+        if (!trimmed.startsWith('data:')) continue;
+        try {
+          const json = JSON.parse(trimmed.slice(5).trim()) as any;
+          const delta = json.choices?.[0]?.delta?.content;
+          if (typeof delta === 'string' && delta) {
+            fullText += delta;
+            onChunk(delta);
+          }
+          if (json.usage?.total_tokens) tokensUsed = json.usage.total_tokens;
+        } catch { /* skip malformed SSE lines */ }
+      }
+    }
+
+    return { text: fullText, tokensUsed };
+  }
+
+  if (provider === 'anthropic') {
+    const payloadMessages = [
+      ...messages.map(m => ({ role: m.role, content: m.content })),
+      { role: 'user' as const, content: prompt },
+    ];
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        max_tokens: 2048,
+        stream: true,
+        system: systemPrompt || 'You are a helpful assistant.',
+        messages: payloadMessages,
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new LLMProviderError(provider, summarizeProviderErrorBody(body, `Anthropic request failed with ${response.status}`), { statusCode: response.status, retryable: isRetryableStatus(response.status) });
+    }
+
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let fullText = '';
+    let inputTokens = 0;
+    let outputTokens = 0;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        try {
+          const json = JSON.parse(trimmed.slice(5).trim()) as any;
+          if (json.type === 'content_block_delta') {
+            const delta = json.delta?.text;
+            if (typeof delta === 'string' && delta) {
+              fullText += delta;
+              onChunk(delta);
+            }
+          }
+          if (json.type === 'message_delta' && json.usage) {
+            outputTokens = json.usage.output_tokens || 0;
+          }
+          if (json.type === 'message_start' && json.message?.usage) {
+            inputTokens = json.message.usage.input_tokens || 0;
+          }
+        } catch { /* skip malformed SSE lines */ }
+      }
+    }
+
+    const tokensUsed = inputTokens + outputTokens || Math.ceil((systemPrompt.length + prompt.length + fullText.length) / 4);
+    return { tokensUsed };
+
+  } else if (provider === 'openai') {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        stream: true,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+          ...messages,
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new LLMProviderError(provider, summarizeProviderErrorBody(body, `OpenAI request failed with ${response.status}`), { statusCode: response.status, retryable: isRetryableStatus(response.status) });
+    }
+
+    const { text: fullText, tokensUsed } = await consumeOpenAIStream(response);
+    return { tokensUsed: tokensUsed || Math.ceil((systemPrompt.length + prompt.length + fullText.length) / 4) };
+
+  } else if (provider === 'local') {
+    const candidateUrls = getCandidateLocalLlmUrls(localUrl);
+    let lastError: unknown = null;
+    let succeeded = false;
+    let totalTokens = 0;
+    let totalText = '';
+
+    for (const candidateUrl of candidateUrls) {
+      throwIfAborted(signal);
+      const endpoint = `${candidateUrl.replace(/\/$/, '')}/v1/chat/completions`;
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          signal,
+          body: JSON.stringify({
+            model,
+            stream: true,
+            messages: [
+              { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+              ...messages,
+              { role: 'user', content: prompt },
+            ],
+          }),
+        });
+
+        if (!response.ok) {
+          const body = await response.text();
+          throw new LLMProviderError(provider, summarizeProviderErrorBody(body, `Local LLM request failed with ${response.status}`), { statusCode: response.status, retryable: isRetryableStatus(response.status) });
+        }
+
+        const result = await consumeOpenAIStream(response);
+        totalText = result.text;
+        totalTokens = result.tokensUsed || Math.ceil((systemPrompt.length + prompt.length + totalText.length) / 4);
+        succeeded = true;
+        break;
+      } catch (error) {
+        lastError = error;
+        const normalizedError = normalizeProviderError(provider, error, 'Local LLM request failed');
+        if (!normalizedError.retryable) throw normalizedError;
+      }
+    }
+
+    if (!succeeded) {
+      throw normalizeProviderError(provider, lastError, 'Local LLM streaming request failed');
+    }
+
+    return { tokensUsed: totalTokens };
+
+  } else if (provider === 'google') {
+    try {
+      throwIfAborted(signal);
+      const { GoogleGenAI } = await import('@google/genai');
+      const client = new GoogleGenAI({ apiKey });
+      const contents = messages.map(message => ({
+        role: message.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: message.content }],
+      }));
+      contents.push({ role: 'user', parts: [{ text: prompt }] });
+
+      const stream = await client.models.generateContentStream({
+        model,
+        contents,
+        config: {
+          systemInstruction: systemPrompt || 'You are a helpful assistant.',
+        },
+      });
+
+      let fullText = '';
+      let tokensUsed = 0;
+
+      for await (const chunk of stream) {
+        throwIfAborted(signal);
+        const delta = chunk.text;
+        if (typeof delta === 'string' && delta) {
+          fullText += delta;
+          onChunk(delta);
+        }
+        if (chunk.usageMetadata?.totalTokenCount) {
+          tokensUsed = chunk.usageMetadata.totalTokenCount;
+        }
+      }
+
+      return { tokensUsed: tokensUsed || Math.ceil((systemPrompt.length + prompt.length + fullText.length) / 4) };
+    } catch (error) {
+      throw normalizeProviderError(provider, error, 'Google streaming request failed');
+    }
+
+  } else {
+    throw new Error(`Unsupported provider: ${provider}`);
+  }
 }

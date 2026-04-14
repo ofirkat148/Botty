@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { getDatabase } from '../db/index.js';
-import { appSettings, settings, userSettings } from '../db/schema.js';
-import { eq } from 'drizzle-orm';
+import { appSettings, facts, settings, userSettings } from '../db/schema.js';
+import { and, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.js';
 import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
@@ -13,12 +13,41 @@ const router = Router();
 router.use(authMiddleware);
 const APP_SETTINGS_ID = 'global';
 
+const _TOK_ALGORITHM = 'aes-256-gcm';
+const _TOK_IV_LEN = 12;
+const _TOK_TAG_LEN = 16;
+const _TOK_VERSION_PREFIX = 'v1:';
+
+function getTokenEncryptionKey(): Buffer {
+  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error('KEY_ENCRYPTION_SECRET env var must be set to store the Telegram bot token');
+  }
+  return createHash('sha256').update(secret).digest();
+}
+
 function encryptValue(value: string): string {
-  return Buffer.from(value).toString('base64');
+  const key = getTokenEncryptionKey();
+  const iv = randomBytes(_TOK_IV_LEN);
+  const cipher = createCipheriv(_TOK_ALGORITHM, key, iv);
+  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return _TOK_VERSION_PREFIX + Buffer.concat([iv, tag, encrypted]).toString('base64');
 }
 
 function decryptValue(value: string): string {
-  return Buffer.from(value, 'base64').toString();
+  if (!value.startsWith(_TOK_VERSION_PREFIX)) {
+    // Legacy base64 migration path
+    return Buffer.from(value, 'base64').toString('utf8');
+  }
+  const key = getTokenEncryptionKey();
+  const raw = Buffer.from(value.slice(_TOK_VERSION_PREFIX.length), 'base64');
+  const iv = raw.subarray(0, _TOK_IV_LEN);
+  const tag = raw.subarray(_TOK_IV_LEN, _TOK_IV_LEN + _TOK_TAG_LEN);
+  const ciphertext = raw.subarray(_TOK_IV_LEN + _TOK_TAG_LEN);
+  const decipher = createDecipheriv(_TOK_ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ciphertext) + decipher.final('utf8');
 }
 
 type StoredFunctionPreset = {
@@ -298,24 +327,36 @@ router.get('/user-settings', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/user-settings - Update system prompt
+// POST /api/user-settings - Update user settings (partial updates supported)
 router.post('/user-settings', async (req: Request, res: Response) => {
   try {
-    const { systemPrompt } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
+
+    // Fetch existing row to safely merge partial updates
+    const existing = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+    const current = existing[0];
+
+    const { systemPrompt, conversationLabels, conversationModels } = req.body;
+    const nextSystemPrompt = 'systemPrompt' in req.body ? (systemPrompt || null) : (current?.systemPrompt ?? null);
+    const nextLabels = 'conversationLabels' in req.body ? (conversationLabels || null) : (current?.conversationLabels ?? null);
+    const nextModels = 'conversationModels' in req.body ? (conversationModels || null) : (current?.conversationModels ?? null);
 
     await db
       .insert(userSettings)
       .values({
         uid,
-        systemPrompt: systemPrompt || null,
+        systemPrompt: nextSystemPrompt,
+        conversationLabels: nextLabels,
+        conversationModels: nextModels,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: userSettings.uid,
         set: {
-          systemPrompt: systemPrompt || null,
+          systemPrompt: nextSystemPrompt,
+          conversationLabels: nextLabels,
+          conversationModels: nextModels,
           updatedAt: new Date(),
         },
       });
@@ -337,7 +378,7 @@ router.get('/functions', async (req: Request, res: Response) => {
 
     res.json({
       skills: readStoredFunctionPresets(row?.customSkills, 'skill'),
-      bots: customAgents,
+      agents: customAgents,
     });
   } catch (error) {
     console.error('Error fetching custom functions:', error);
@@ -391,9 +432,13 @@ router.post('/functions', async (req: Request, res: Response) => {
     if (kind === 'agent') {
       const executorType = isAgentExecutorType(req.body?.executorType) ? req.body.executorType : 'internal-llm';
       const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
-      const config = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
+      const rawMaxTurns = Number(req.body?.maxTurns);
+      const maxTurns = Number.isFinite(rawMaxTurns) && rawMaxTurns > 0 ? rawMaxTurns : null;
+      const tools = Array.isArray(req.body?.tools) ? req.body.tools : null;
+      const baseConfig = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
         ? req.body.config
-        : null;
+        : {};
+      const config = { ...baseConfig, ...(tools ? { tools } : {}), ...(maxTurns ? { maxTurns } : {}) };
       const createdAgent = await createCustomAgentForUser(uid, {
         id: normalized.id,
         kind: 'agent',
@@ -494,9 +539,13 @@ router.put('/functions/agents/:agentId', async (req: Request, res: Response) => 
 
     const executorType = isAgentExecutorType(req.body?.executorType) ? req.body.executorType : 'internal-llm';
     const endpoint = typeof req.body?.endpoint === 'string' ? req.body.endpoint.trim() : '';
-    const config = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
+    const rawMaxTurns = Number(req.body?.maxTurns);
+    const maxTurns = Number.isFinite(rawMaxTurns) && rawMaxTurns > 0 ? rawMaxTurns : null;
+    const tools = Array.isArray(req.body?.tools) ? req.body.tools : null;
+    const baseConfig = req.body?.config && typeof req.body.config === 'object' && !Array.isArray(req.body.config)
       ? req.body.config
-      : null;
+      : {};
+    const config = { ...baseConfig, ...(tools ? { tools } : {}), ...(maxTurns ? { maxTurns } : {}) };
 
     const updatedAgent = await createCustomAgentForUser(uid, {
       id: existingAgent.id,
@@ -560,6 +609,10 @@ router.delete('/functions/agents/:agentId', async (req: Request, res: Response) 
     const deletedAgent = await deleteCustomAgentForUser(uid, agentId);
     if (!deletedAgent) {
       return res.status(404).json({ error: 'Custom agent not found.' });
+    }
+
+    if (deletedAgent.memoryMode === 'isolated') {
+      await db.delete(facts).where(and(eq(facts.uid, uid), eq(facts.botId, agentId)));
     }
 
     const rows = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);

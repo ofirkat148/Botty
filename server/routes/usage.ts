@@ -14,9 +14,10 @@ router.get('/', async (req: Request, res: Response) => {
     const db = getDatabase();
     const uid = req.userId!;
 
-    const sevenDaysAgo = new Date();
-    sevenDaysAgo.setHours(0, 0, 0, 0);
-    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+    const days = Math.min(Math.max(parseInt(String(req.query.days ?? '7'), 10) || 7, 7), 30);
+    const startDate = new Date();
+    startDate.setHours(0, 0, 0, 0);
+    startDate.setDate(startDate.getDate() - (days - 1));
 
     const [usage, recentUsage] = await Promise.all([
       db
@@ -27,14 +28,14 @@ router.get('/', async (req: Request, res: Response) => {
       db
         .select()
         .from(dailyUsage)
-        .where(and(eq(dailyUsage.uid, uid), gte(dailyUsage.date, sevenDaysAgo)))
+        .where(and(eq(dailyUsage.uid, uid), gte(dailyUsage.date, startDate)))
         .orderBy(desc(dailyUsage.date)),
     ]);
 
     const trendMap = new Map<string, number>();
-    for (let index = 0; index < 7; index += 1) {
-      const day = new Date(sevenDaysAgo);
-      day.setDate(sevenDaysAgo.getDate() + index);
+    for (let index = 0; index < days; index += 1) {
+      const day = new Date(startDate);
+      day.setDate(startDate.getDate() + index);
       trendMap.set(day.toISOString().split('T')[0], 0);
     }
 

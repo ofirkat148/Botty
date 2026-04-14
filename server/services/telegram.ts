@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash, createDecipheriv } from 'crypto';
 import { eq } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
 import { appSettings, users } from '../db/schema.js';
@@ -56,8 +56,29 @@ type TelegramBotStatus = {
   error: string | null;
 };
 
+
+const _TOK_ALGORITHM = 'aes-256-gcm';
+const _TOK_IV_LEN = 12;
+const _TOK_TAG_LEN = 16;
+const _TOK_VERSION_PREFIX = 'v1:';
+
 function decryptValue(value: string): string {
-  return Buffer.from(value, 'base64').toString();
+  if (!value.startsWith(_TOK_VERSION_PREFIX)) {
+    // Legacy base64 migration path
+    return Buffer.from(value, 'base64').toString('utf8');
+  }
+  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  if (!secret || secret.length < 16) {
+    throw new Error('KEY_ENCRYPTION_SECRET env var must be set to decrypt the Telegram bot token');
+  }
+  const key = createHash('sha256').update(secret).digest();
+  const raw = Buffer.from(value.slice(_TOK_VERSION_PREFIX.length), 'base64');
+  const iv = raw.subarray(0, _TOK_IV_LEN);
+  const tag = raw.subarray(_TOK_IV_LEN, _TOK_IV_LEN + _TOK_TAG_LEN);
+  const ciphertext = raw.subarray(_TOK_IV_LEN + _TOK_TAG_LEN);
+  const decipher = createDecipheriv(_TOK_ALGORITHM, key, iv);
+  decipher.setAuthTag(tag);
+  return decipher.update(ciphertext) + decipher.final('utf8');
 }
 
 function getTelegramApiUrl(token: string, method: string) {
@@ -400,6 +421,18 @@ export async function refreshTelegramBot() {
     reconnectAttemptCount = 0;
     lastReconnectLogSignature = null;
     console.log(`Telegram bot enabled${me.username ? ` as @${me.username}` : ''}`);
+
+    // Register bot commands so Telegram clients show autocomplete suggestions
+    await telegramRequest(nextConfig.token, 'setMyCommands', {
+      commands: [
+        { command: 'start', description: 'Start chatting with Botty' },
+        { command: 'help', description: 'Show available commands' },
+        { command: 'reset', description: 'Start a new conversation' },
+      ],
+    }).catch((error: unknown) => {
+      // Non-fatal: autocomplete registration failure should not prevent the bot from running
+      console.warn('Failed to register Telegram bot commands:', error instanceof Error ? error.message : error);
+    });
     pollingPromise = pollTelegramUpdates(nextConfig.token, sessionId)
       .catch(error => {
         lastTelegramError = getTelegramErrorMessage(error);

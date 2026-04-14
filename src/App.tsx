@@ -1,5 +1,7 @@
-import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useState } from 'react';
+import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useReducer, useState } from 'react';
 import {
+  Archive,
+  ArchiveRestore,
   Bot,
   Download,
   History,
@@ -14,9 +16,11 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
+  Search,
   Send,
   Settings,
   Sparkles,
@@ -29,20 +33,22 @@ import {
 import {
   AUTO_ROUTE_MODES,
   AUTO_ROUTE_OPTIONS,
-  BOT_PRESETS,
+  BUILT_IN_AGENTS,
   DEFAULT_MODEL_CATALOG,
   DEFAULT_MODELS,
-  FUNCTION_PRESETS,
+  BUILT_IN_PRESETS,
   getFunctionPresetForPrompt,
   MODEL_LABELS,
   MODEL_TOKEN_LIMIT_RULES,
   normalizeSlashCommand,
   PROVIDERS,
   RESERVED_SLASH_COMMANDS,
-  SKILL_PRESETS,
+  BUILT_IN_SKILLS,
   type FunctionPreset,
 } from './config/chatConfig';
 import { type AgentDefinition, type AgentExecutorType } from '../shared/agentDefinitions';
+import { useChatReducer, type ChatMessage } from './hooks/useChatReducer';
+import { useSkillFormReducer, useNewBotFormReducer, useBotEditorReducer, type ToolDefinition } from './hooks/useBotFormReducer';
 import {
   formatAttachmentSize,
   isImageFile,
@@ -51,6 +57,7 @@ import {
   MAX_CHAT_ATTACHMENT_BYTES,
   MAX_CHAT_ATTACHMENT_CHARS,
   parseAttachmentFile,
+  terminateOcrWorker,
 } from './utils/chatAttachments';
 const MAX_RECENT_SLASH_ITEMS = 4;
 
@@ -87,6 +94,7 @@ type HistoryEntry = {
   model: string;
   tokensUsed?: number | null;
   conversationId?: string | null;
+  isArchived?: boolean | null;
   timestamp: string;
 };
 
@@ -204,7 +212,7 @@ type MemoryRestorePreview = {
 
 type FunctionCatalogResponse = {
   skills: FunctionPreset[];
-  bots: AgentDefinition[];
+  agents: AgentDefinition[];
 };
 
 type SlashCommand = {
@@ -226,14 +234,14 @@ type SlashMenuItem = {
   detail?: string;
   badge: string;
   keywords?: string[];
-  category: 'command' | 'skill' | 'bot';
+  category: 'command' | 'skill' | 'agent';
   preset?: FunctionPreset;
 };
 
 const TABS = [
   { value: 'chat', label: 'Chat', Icon: MessageSquare },
   { value: 'skills', label: 'Skills', Icon: Sparkles },
-  { value: 'bots', label: 'Agents', Icon: Bot },
+  { value: 'agents', label: 'Agents', Icon: Bot },
   { value: 'history', label: 'History', Icon: History },
   { value: 'memory', label: 'Memory', Icon: MemoryStick },
   { value: 'settings', label: 'Settings', Icon: Settings },
@@ -268,28 +276,45 @@ function AppShell() {
   const [activeTab, setActiveTab] = useState<TabValue>('chat');
   const [provider, setProvider] = useState('auto');
   const [model, setModel] = useState('');
-  const [prompt, setPrompt] = useState('');
-  const [conversationId, setConversationId] = useState<string | null>(null);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isSending, setIsSending] = useState(false);
+  const [prompt, setPrompt] = useState(() => localStorage.getItem('botty.draftPrompt') || '');
+  const [chatState, dispatchChat] = useChatReducer();
+  const { messages, conversationId, isSending, chatError } = chatState;
+  const setConversationId = (id: string | null) => dispatchChat({ type: 'LOAD_HISTORY', messages, conversationId: id ?? '' });
+  const setMessages = (updater: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+    // Compatibility shim: allow callers to pass an array or an updater function.
+    // Full callers have been migrated to dispatch actions; this covers any remaining
+    // external setMessages usages that were not yet updated.
+    dispatchChat({ type: 'LOAD_HISTORY', messages: typeof updater === 'function' ? updater(messages) : updater, conversationId: conversationId ?? '' });
+  };
+  const setIsSending = (value: boolean) => dispatchChat({ type: 'SET_SENDING', value });
+  const setChatError = (msg: string) => msg ? dispatchChat({ type: 'SET_ERROR', message: msg }) : dispatchChat({ type: 'CLEAR_ERROR' });
   const [isListening, setIsListening] = useState(false);
-  const [chatError, setChatError] = useState('');
   const [availableProviders, setAvailableProviders] = useState<string[]>([]);
   const [defaultLocalModel, setDefaultLocalModel] = useState(DEFAULT_MODELS.local);
   const [modelCatalog, setModelCatalog] = useState<Record<string, string[]>>(DEFAULT_MODEL_CATALOG);
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historySearch, setHistorySearch] = useState('');
+  const [showArchivedHistory, setShowArchivedHistory] = useState(false);
+  const [factsSearch, setFactsSearch] = useState('');
+  const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
+  const [conversationModels, setConversationModels] = useState<Record<string, { provider: string; model: string }>>({});
+  const [editingLabelId, setEditingLabelId] = useState('');
+  const [labelDraft, setLabelDraft] = useState('');
   const [facts, setFacts] = useState<Fact[]>([]);
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [memoryUrls, setMemoryUrls] = useState<MemoryUrl[]>([]);
+  const [agentFactCounts, setAgentFactCounts] = useState<{ total: number; counts: Record<string, number> }>({ total: 0, counts: {} });
   const [customSkills, setCustomSkills] = useState<FunctionPreset[]>([]);
-  const [customBots, setCustomBots] = useState<AgentDefinition[]>([]);
+  const [customAgents, setCustomAgents] = useState<AgentDefinition[]>([]);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [dailyTokens, setDailyTokens] = useState(0);
   const [dailyModelUsage, setDailyModelUsage] = useState<ModelUsageEntry[]>([]);
   const [dailyProviderUsage, setDailyProviderUsage] = useState<Array<{ provider: string; tokens: number }>>([]);
   const [usageTrend, setUsageTrend] = useState<Array<{ date: string; tokens: number }>>([]);
+  const [usagePeriod, setUsagePeriod] = useState<7 | 30>(7);
+  const usagePeriodRef = useRef<7 | 30>(7);
   const [systemPrompt, setSystemPrompt] = useState('');
   const [localUrl, setLocalUrl] = useState('http://127.0.0.1:11435');
   const [useMemory, setUseMemory] = useState(true);
@@ -302,7 +327,7 @@ function AppShell() {
   const [telegramModel, setTelegramModel] = useState('');
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatusResponse | null>(null);
   const [loadingTelegramStatus, setLoadingTelegramStatus] = useState(false);
-  const [activeFunctionId, setActiveFunctionId] = useState('');
+  const [activePresetId, setActivePresetId] = useState('');
   const [applyingFunctionId, setApplyingFunctionId] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
   const [hasSidebarPreference, setHasSidebarPreference] = useState(() => {
@@ -352,41 +377,52 @@ function AppShell() {
   });
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [agentFacts, setAgentFacts] = useState<Record<string, Fact[]>>({});
+  const [expandedAgentMemory, setExpandedAgentMemory] = useState<Record<string, boolean>>({});
   const factFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
-  const [newSkillTitle, setNewSkillTitle] = useState('');
-  const [newSkillDescription, setNewSkillDescription] = useState('');
-  const [newSkillCommand, setNewSkillCommand] = useState('');
-  const [newSkillUseWhen, setNewSkillUseWhen] = useState('');
-  const [newSkillBoundaries, setNewSkillBoundaries] = useState('');
-  const [newSkillSystemPrompt, setNewSkillSystemPrompt] = useState('');
-  const [newSkillStarterPrompt, setNewSkillStarterPrompt] = useState('');
-  const [newBotTitle, setNewBotTitle] = useState('');
-  const [newBotDescription, setNewBotDescription] = useState('');
-  const [newBotCommand, setNewBotCommand] = useState('');
-  const [newBotUseWhen, setNewBotUseWhen] = useState('');
-  const [newBotBoundaries, setNewBotBoundaries] = useState('');
-  const [newBotProvider, setNewBotProvider] = useState('');
-  const [newBotModel, setNewBotModel] = useState('');
-  const [newBotMemoryMode, setNewBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
-  const [newBotExecutorType, setNewBotExecutorType] = useState<AgentExecutorType>('internal-llm');
-  const [newBotEndpoint, setNewBotEndpoint] = useState('');
-  const [newBotSystemPrompt, setNewBotSystemPrompt] = useState('');
-  const [newBotStarterPrompt, setNewBotStarterPrompt] = useState('');
-  const [editingBotId, setEditingBotId] = useState('');
-  const [editingBotTitle, setEditingBotTitle] = useState('');
-  const [editingBotDescription, setEditingBotDescription] = useState('');
-  const [editingBotCommand, setEditingBotCommand] = useState('');
-  const [editingBotUseWhen, setEditingBotUseWhen] = useState('');
-  const [editingBotBoundaries, setEditingBotBoundaries] = useState('');
-  const [editingBotProvider, setEditingBotProvider] = useState('');
-  const [editingBotModel, setEditingBotModel] = useState('');
-  const [editingBotMemoryMode, setEditingBotMemoryMode] = useState<'shared' | 'isolated' | 'none'>('shared');
-  const [editingBotExecutorType, setEditingBotExecutorType] = useState<AgentExecutorType>('internal-llm');
-  const [editingBotEndpoint, setEditingBotEndpoint] = useState('');
-  const [editingBotSystemPrompt, setEditingBotSystemPrompt] = useState('');
-  const [editingBotStarterPrompt, setEditingBotStarterPrompt] = useState('');
+  const { state: newSkill, patch: patchNewSkill, reset: resetNewSkill } = useSkillFormReducer();
+  const newSkillTitle = newSkill.title;
+  const newSkillDescription = newSkill.description;
+  const newSkillCommand = newSkill.command;
+  const newSkillUseWhen = newSkill.useWhen;
+  const newSkillBoundaries = newSkill.boundaries;
+  const newSkillSystemPrompt = newSkill.systemPrompt;
+  const newSkillStarterPrompt = newSkill.starterPrompt;
+
+  const { state: newBot, patch: patchNewBot, reset: resetNewBot } = useNewBotFormReducer();
+  const newBotTitle = newBot.title;
+  const newBotDescription = newBot.description;
+  const newBotCommand = newBot.command;
+  const newBotUseWhen = newBot.useWhen;
+  const newBotBoundaries = newBot.boundaries;
+  const newBotProvider = newBot.provider;
+  const newBotModel = newBot.model;
+  const newBotMemoryMode = newBot.memoryMode;
+  const newBotExecutorType = newBot.executorType;
+  const newBotEndpoint = newBot.endpoint;
+  const newBotSystemPrompt = newBot.systemPrompt;
+  const newBotStarterPrompt = newBot.starterPrompt;
+  const newBotTools = newBot.tools;
+  const newBotMaxTurns = newBot.maxTurns;
+
+  const { state: editingBot, patch: patchEditingBot, reset: resetEditingBot, load: loadEditingBot } = useBotEditorReducer();
+  const editingBotId = editingBot.id;
+  const editingBotTitle = editingBot.title;
+  const editingBotDescription = editingBot.description;
+  const editingBotCommand = editingBot.command;
+  const editingBotUseWhen = editingBot.useWhen;
+  const editingBotBoundaries = editingBot.boundaries;
+  const editingBotProvider = editingBot.provider;
+  const editingBotModel = editingBot.model;
+  const editingBotMemoryMode = editingBot.memoryMode;
+  const editingBotExecutorType = editingBot.executorType;
+  const editingBotEndpoint = editingBot.endpoint;
+  const editingBotSystemPrompt = editingBot.systemPrompt;
+  const editingBotStarterPrompt = editingBot.starterPrompt;
+  const editingBotTools = editingBot.tools;
+  const editingBotMaxTurns = editingBot.maxTurns;
   const [savingBotId, setSavingBotId] = useState('');
   const [deletingBotId, setDeletingBotId] = useState('');
   const [confirmingDeleteBotId, setConfirmingDeleteBotId] = useState('');
@@ -414,17 +450,17 @@ function AppShell() {
     Authorization: `Bearer ${token}`,
   }), [token]);
 
-  const allFunctionPresets = useMemo(() => [...FUNCTION_PRESETS, ...customSkills, ...customBots], [customSkills, customBots]);
-  const skillPresets = useMemo(() => [...SKILL_PRESETS, ...customSkills], [customSkills]);
-  const botPresets = useMemo(() => [...BOT_PRESETS, ...customBots], [customBots]);
-  const usedFunctionCommands = useMemo(() => new Set(allFunctionPresets.map(item => item.command.toLowerCase())), [allFunctionPresets]);
-  const builtInAgentPresets = useMemo(() => BOT_PRESETS, []);
-  const customAgentPresets = useMemo(() => customBots, [customBots]);
-  const activeFunctionPreset = useMemo(
-    () => allFunctionPresets.find(item => item.id === activeFunctionId) || null,
-    [activeFunctionId, allFunctionPresets],
+  const allPresets = useMemo(() => [...BUILT_IN_PRESETS, ...customSkills, ...customAgents], [customSkills, customAgents]);
+  const skillPresets = useMemo(() => [...BUILT_IN_SKILLS, ...customSkills], [customSkills]);
+  const agentPresets = useMemo(() => [...BUILT_IN_AGENTS, ...customAgents], [customAgents]);
+  const usedCommands = useMemo(() => new Set(allPresets.map(item => item.command.toLowerCase())), [allPresets]);
+  const builtInAgents = useMemo(() => BUILT_IN_AGENTS, []);
+  const customAgentsPresets = useMemo(() => customAgents, [customAgents]);
+  const activePreset = useMemo(
+    () => allPresets.find(item => item.id === activePresetId) || null,
+    [activePresetId, allPresets],
   );
-  const activePresetTitle = activeFunctionPreset?.title || '';
+  const activePresetTitle = activePreset?.title || '';
   const activeTabLabel = TABS.find(tab => tab.value === activeTab)?.label || activeTab;
   const slashCommands = useMemo<SlashCommand[]>(() => [
     {
@@ -478,7 +514,7 @@ function AppShell() {
       category: 'command' as const,
     })),
   ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
-  const activeBotPreset = useMemo(() => activeFunctionPreset?.kind === 'agent' ? activeFunctionPreset : null, [activeFunctionPreset]);
+  const activeBotPreset = useMemo(() => activePreset?.kind === 'agent' ? activePreset : null, [activePreset]);
 
   function getAgentExecutorType(agent: FunctionPreset | AgentDefinition): AgentExecutorType {
     return 'executorType' in agent && agent.executorType === 'remote-http' ? 'remote-http' : 'internal-llm';
@@ -675,7 +711,15 @@ function AppShell() {
       return isDarkMode ? 'bg-sky-500/15 text-sky-100 border border-sky-400/20' : 'bg-sky-50 text-sky-700 border border-sky-200';
     }
 
-    if (item.preset && activeFunctionId === item.preset.id) {
+    if (item.category === 'agent') {
+      if (item.preset && activePresetId === item.preset.id) {
+        return isDarkMode ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-400/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
+      }
+      return isDarkMode ? 'bg-violet-500/15 text-violet-100 border border-violet-400/20' : 'bg-violet-50 text-violet-700 border border-violet-200';
+    }
+
+    // skill
+    if (item.preset && activePresetId === item.preset.id) {
       return isDarkMode ? 'bg-emerald-500/15 text-emerald-100 border border-emerald-400/20' : 'bg-emerald-50 text-emerald-700 border border-emerald-200';
     }
 
@@ -831,6 +875,13 @@ function AppShell() {
     window.localStorage.setItem('botty.theme', isDarkMode ? 'dark' : 'light');
   }, [isDarkMode]);
 
+  // Terminate the shared Tesseract OCR worker when the app unmounts
+  useEffect(() => {
+    return () => {
+      terminateOcrWorker().catch(() => {});
+    };
+  }, []);
+
   useEffect(() => {
     if (!notice) {
       return undefined;
@@ -847,6 +898,14 @@ function AppShell() {
   useEffect(() => {
     window.localStorage.setItem('botty.sidebarExpanded', isSidebarExpanded ? 'true' : 'false');
   }, [isSidebarExpanded]);
+
+  useEffect(() => {
+    if (prompt) {
+      window.localStorage.setItem('botty.draftPrompt', prompt);
+    } else {
+      window.localStorage.removeItem('botty.draftPrompt');
+    }
+  }, [prompt]);
 
   useEffect(() => {
     const mediaQuery = window.matchMedia('(max-width: 1023px)');
@@ -1064,7 +1123,7 @@ function AppShell() {
     return response.json() as Promise<T>;
   }
 
-  async function apiSend<T>(path: string, method: 'POST' | 'PUT' | 'DELETE', body?: unknown, options?: { signal?: AbortSignal }) {
+  async function apiSend<T>(path: string, method: 'POST' | 'PUT' | 'DELETE' | 'PATCH', body?: unknown, options?: { signal?: AbortSignal }) {
     const response = await fetch(path, {
       method,
       headers: authHeaders,
@@ -1092,25 +1151,27 @@ function AppShell() {
   }
 
   async function refreshAll() {
-    const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData] = await Promise.all([
-      apiGet<HistoryEntry[]>('/api/history'),
+    const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData, agentCountsData] = await Promise.all([
+      apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history'),
       apiGet<Fact[]>('/api/memory/facts'),
       apiGet<MemoryFile[]>('/api/memory/files'),
       apiGet<MemoryUrl[]>('/api/memory/urls'),
       apiGet<FunctionCatalogResponse>('/api/settings/functions'),
       apiGet<ApiKey[]>('/api/keys'),
-      apiGet<UsageResponse>('/api/usage'),
+      apiGet<UsageResponse>(`/api/usage?days=${usagePeriodRef.current}`),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customBots?: AgentDefinition[] }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
+      apiGet<{ total: number; counts: Record<string, number> }>('/api/memory/facts/agent-counts'),
     ]);
 
     setHistory(historyRows);
     setFacts(factRows);
     setMemoryFiles(fileRows);
     setMemoryUrls(urlRows);
+    setAgentFactCounts(agentCountsData || { total: 0, counts: {} });
     setCustomSkills(functionsData.skills || []);
-    setCustomBots(functionsData.bots || []);
+    setCustomAgents(functionsData.agents || []);
     setApiKeys(keyRows);
     setDailyTokens(usageData.tokens || 0);
     setDailyModelUsage(Array.isArray(usageData.modelUsage) ? usageData.modelUsage : []);
@@ -1124,7 +1185,9 @@ function AppShell() {
     setTelegramBotEnabled(settingsData.telegramBotEnabled !== false);
     setTelegramAllowedChatIds(settingsData.telegramAllowedChatIds || '');
     setSystemPrompt(userSettingsData.systemPrompt || '');
-    setActiveFunctionId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...FUNCTION_PRESETS, ...(functionsData.skills || []), ...(functionsData.bots || [])])?.id || '');
+    setActivePresetId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...BUILT_IN_PRESETS, ...(functionsData.skills || []), ...(functionsData.agents || [])])?.id || '');
+    setConversationLabels(userSettingsData.conversationLabels || {});
+    setConversationModels(userSettingsData.conversationModels || {});
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     const nextModelCatalog = {
@@ -1218,8 +1281,7 @@ function AppShell() {
     localStorage.removeItem('botty.user');
     setToken('');
     setUser(null);
-    setMessages([]);
-    setConversationId(null);
+    dispatchChat({ type: 'RESET' });
     setHistory([]);
     setAvailableProviders([]);
   }
@@ -1231,66 +1293,110 @@ function AppShell() {
     }
 
     const displayPrompt = text || `Attached ${pendingAttachments.length} file${pendingAttachments.length === 1 ? '' : 's'}`;
-    const nextMessages = [...messages, { role: 'user' as const, content: displayPrompt }];
-    setMessages(nextMessages);
+    dispatchChat({ type: 'ADD_USER_MESSAGE', content: displayPrompt });
     setPrompt('');
-    setChatError('');
-    setIsSending(true);
+    dispatchChat({ type: 'SET_SENDING', value: true });
     const abortController = new AbortController();
     chatAbortControllerRef.current = abortController;
 
-    try {
-      const response = await apiSend<{
-        text: string;
-        tokensUsed: number;
-        model: string;
-        provider: string;
-        conversationId: string;
-        routingMode: string | null;
-      }>('/api/chat', 'POST', {
-        prompt: text,
-        provider: isAutoRouteProvider(provider) ? 'auto' : provider,
-        routingMode: isAutoRouteProvider(provider) ? provider : undefined,
-        model: isAutoRouteProvider(provider) ? undefined : model,
-        conversationId,
-        messages: messages.slice(-10),
-        attachments: pendingAttachments.map(item => ({
-          name: item.name,
-          content: item.content,
-          type: item.type,
-        })),
-        activeAgentId: activeBotPreset?.id || null,
-      }, { signal: abortController.signal });
+    const body = {
+      prompt: text,
+      provider: isAutoRouteProvider(provider) ? 'auto' : provider,
+      routingMode: isAutoRouteProvider(provider) ? provider : undefined,
+      model: isAutoRouteProvider(provider) ? undefined : model,
+      conversationId,
+      messages: messages.slice(-10),
+      attachments: pendingAttachments.map(item => ({
+        name: item.name,
+        content: item.content,
+        type: item.type,
+      })),
+      activeAgentId: activeBotPreset?.id || null,
+    };
 
-      setConversationId(response.conversationId);
+    try {
+      // SSE streaming path
+      const streamRes = await fetch('/api/chat/stream', {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: abortController.signal,
+      });
+
+      if (!streamRes.ok || !streamRes.body) {
+        throw new Error(`Stream request failed: ${streamRes.status}`);
+      }
+
+      dispatchChat({ type: 'ADD_ASSISTANT_PLACEHOLDER' });
+
+      const reader = streamRes.body.getReader();
+      const decoder = new TextDecoder();
+      let sseBuffer = '';
+      let meta: { id: string; text: string; tokensUsed: number; model: string; provider: string; conversationId: string; routingMode: string | null } | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split('\n');
+        sseBuffer = lines.pop() ?? '';
+
+        for (const line of lines) {
+          if (!line.startsWith('data:')) continue;
+          try {
+            const event = JSON.parse(line.slice(5).trim()) as { type: string; delta?: string; meta?: typeof meta; error?: string };
+            if (event.type === 'chunk' && typeof event.delta === 'string') {
+              dispatchChat({ type: 'APPEND_ASSISTANT_CHUNK', delta: event.delta });
+            } else if (event.type === 'done' && event.meta) {
+              meta = event.meta;
+            } else if (event.type === 'error') {
+              throw new Error(event.error || 'Stream error');
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof Error && parseErr.message !== 'Stream error') continue;
+            throw parseErr;
+          }
+        }
+      }
+
+      if (meta) {
+        dispatchChat({
+          type: 'FINALIZE_ASSISTANT',
+          content: meta.text,
+          model: meta.model,
+          provider: meta.provider,
+          routingMode: meta.routingMode,
+          tokensUsed: meta.tokensUsed,
+          conversationId: meta.conversationId,
+        });
+        setDailyTokens(prev => prev + meta!.tokensUsed);
+        if (meta.conversationId && meta.provider && meta.model) {
+          const nextModels = { ...conversationModels, [meta.conversationId]: { provider: meta.provider, model: meta.model } };
+          setConversationModels(nextModels);
+          void apiSend('/api/settings/user-settings', 'POST', { conversationModels: nextModels });
+        }
+      }
+
       setPendingAttachments([]);
       if (attachmentInputRef.current) {
         attachmentInputRef.current.value = '';
       }
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: response.text,
-        model: response.model,
-        provider: response.provider,
-        routingMode: response.routingMode,
-        tokensUsed: response.tokensUsed,
-      }]);
-      setDailyTokens(prev => prev + response.tokensUsed);
       await refreshAll();
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
-        setChatError('Response stopped.');
+        dispatchChat({ type: 'SET_ERROR', message: 'Response stopped.' });
+        setPrompt(text);
         return;
       }
 
       const message = error instanceof Error ? error.message : 'Chat request failed';
-      setChatError(message);
-      setMessages(prev => prev.slice(0, -1));
+      dispatchChat({ type: 'SET_ERROR', message });
+      dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
     } finally {
       if (chatAbortControllerRef.current === abortController) {
         chatAbortControllerRef.current = null;
       }
-      setIsSending(false);
+      dispatchChat({ type: 'SET_SENDING', value: false });
     }
   }
 
@@ -1455,9 +1561,7 @@ function AppShell() {
   }
 
   function startNewChat() {
-    setConversationId(null);
-    setMessages([]);
-    setChatError('');
+    dispatchChat({ type: 'RESET' });
     setActiveTab('chat');
     setIsSidebarDrawerOpen(false);
   }
@@ -1471,15 +1575,19 @@ function AppShell() {
       .filter(item => item.conversationId === selectedConversationId)
       .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
 
-    const nextMessages: Message[] = [];
+    const nextMessages: ChatMessage[] = [];
     conversationRows.forEach(item => {
       nextMessages.push({ role: 'user', content: item.prompt });
       nextMessages.push({ role: 'assistant', content: item.response, model: item.model, tokensUsed: item.tokensUsed || 0 });
     });
 
-    setConversationId(selectedConversationId);
-    setMessages(nextMessages);
+    dispatchChat({ type: 'LOAD_HISTORY', messages: nextMessages, conversationId: selectedConversationId });
     setActiveTab('chat');
+    const pinnedModel = conversationModels[selectedConversationId];
+    if (pinnedModel?.provider) {
+      setProvider(pinnedModel.provider);
+      setModel(pinnedModel.model || '');
+    }
   }
 
   function openTab(tab: TabValue) {
@@ -1489,16 +1597,14 @@ function AppShell() {
   async function saveSystemPromptOnly(nextSystemPrompt: string) {
     await apiSend('/api/settings/user-settings', 'POST', { systemPrompt: nextSystemPrompt || null });
     setSystemPrompt(nextSystemPrompt);
-    setActiveFunctionId(getFunctionPresetForPrompt(nextSystemPrompt, allFunctionPresets)?.id || '');
+    setActivePresetId(getFunctionPresetForPrompt(nextSystemPrompt, allPresets)?.id || '');
   }
 
   async function activateFunctionPreset(preset: FunctionPreset, options?: { startNewChat?: boolean }) {
     setApplyingFunctionId(preset.id);
     try {
       if (options?.startNewChat) {
-        setConversationId(null);
-        setMessages([]);
-        setChatError('');
+        dispatchChat({ type: 'RESET' });
       }
 
       await saveSystemPromptOnly(preset.systemPrompt);
@@ -1615,7 +1721,7 @@ function AppShell() {
           title: item.title,
           description: item.description,
           detail: item.useWhen || getPresetAutonomyLabel(item),
-          badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in' : 'Custom',
+          badge: activePresetId === item.id ? 'Active' : item.builtIn ? 'Built-in' : 'Custom',
           keywords: [
             item.useWhen,
             item.boundaries,
@@ -1627,13 +1733,17 @@ function AppShell() {
           category: 'skill' as const,
           preset: item,
         })),
-      ...botPresets.map(item => ({
+      ...agentPresets.map(item => ({
         id: item.id,
         command: item.command,
         title: item.title,
         description: item.description,
-        detail: item.useWhen || `${getPresetRoutingLabel(item)}. ${getPresetMemoryLabel(item)}`,
-        badge: activeFunctionId === item.id ? 'Active' : item.builtIn ? 'Built-in agent' : 'Custom agent',
+        detail: [
+          item.provider ? `Provider: ${item.provider}` : 'Provider: auto',
+          `Memory: ${item.memoryMode || 'shared'}`,
+          'executorType' in item && item.executorType === 'remote-http' ? 'Executor: remote' : null,
+        ].filter(Boolean).join(' · '),
+        badge: activePresetId === item.id ? 'Active' : item.builtIn ? 'Built-in agent' : 'Custom agent',
         keywords: [
           item.useWhen,
           item.boundaries,
@@ -1644,7 +1754,7 @@ function AppShell() {
           'agent',
           'specialist',
         ].filter(Boolean),
-        category: 'bot' as const,
+        category: 'agent' as const,
         preset: item,
       })),
     ];
@@ -1660,7 +1770,7 @@ function AppShell() {
         || item.detail?.toLowerCase().includes(slashQuery)
         || item.keywords?.some(keyword => keyword.toLowerCase().includes(slashQuery));
     });
-  }, [activeFunctionId, botPresets, botPresets.length, prompt, skillPresets, slashCommands, slashQuery]);
+  }, [activePresetId, agentPresets, agentPresets.length, prompt, skillPresets, slashCommands, slashQuery]);
   const groupedSlashItems = useMemo(() => {
     const recentItems = !slashQuery
       ? recentSlashItemIds
@@ -1674,7 +1784,7 @@ function AppShell() {
       recent: recentItems,
       commands: nonRecentItems.filter(item => item.category === 'command'),
       skills: nonRecentItems.filter(item => item.category === 'skill'),
-      bots: nonRecentItems.filter(item => item.category === 'bot'),
+      agents: nonRecentItems.filter(item => item.category === 'agent'),
     };
   }, [recentSlashItemIds, slashMenuItems, slashQuery]);
 
@@ -1694,7 +1804,7 @@ function AppShell() {
       return;
     }
 
-    if (RESERVED_SLASH_COMMANDS.has(command) || usedFunctionCommands.has(command)) {
+    if (RESERVED_SLASH_COMMANDS.has(command) || usedCommands.has(command)) {
       setNotice('That slash command is already in use.');
       return;
     }
@@ -1711,13 +1821,7 @@ function AppShell() {
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
       });
-      setNewSkillTitle('');
-      setNewSkillDescription('');
-      setNewSkillCommand('');
-      setNewSkillUseWhen('');
-      setNewSkillBoundaries('');
-      setNewSkillSystemPrompt('');
-      setNewSkillStarterPrompt('');
+      resetNewSkill();
       await refreshAll();
       setNotice('Custom skill added.');
     } finally {
@@ -1738,13 +1842,15 @@ function AppShell() {
     const endpointValue = newBotEndpoint.trim();
     const systemPromptValue = newBotSystemPrompt.trim();
     const starterPromptValue = newBotStarterPrompt.trim();
+    const parsedMaxTurns = parseInt(newBotMaxTurns, 10);
+    const maxTurnsValue = Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? parsedMaxTurns : null;
 
     if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
       setNotice('Fill in all agent fields before saving.');
       return;
     }
 
-    if (RESERVED_SLASH_COMMANDS.has(command) || usedFunctionCommands.has(command)) {
+    if (RESERVED_SLASH_COMMANDS.has(command) || usedCommands.has(command)) {
       setNotice('That slash command is already in use.');
       return;
     }
@@ -1770,19 +1876,10 @@ function AppShell() {
         endpoint: newBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
+        tools: newBotTools.length > 0 ? newBotTools : null,
+        maxTurns: maxTurnsValue,
       });
-      setNewBotTitle('');
-      setNewBotDescription('');
-      setNewBotCommand('');
-      setNewBotUseWhen('');
-      setNewBotBoundaries('');
-      setNewBotProvider('');
-      setNewBotModel('');
-      setNewBotMemoryMode('shared');
-      setNewBotExecutorType('internal-llm');
-      setNewBotEndpoint('');
-      setNewBotSystemPrompt('');
-      setNewBotStarterPrompt('');
+      resetNewBot();
       await refreshAll();
       setNotice('Custom agent added.');
     } finally {
@@ -1791,35 +1888,27 @@ function AppShell() {
   }
 
   function startEditingCustomBot(agent: AgentDefinition) {
-    setEditingBotId(agent.id);
-    setEditingBotTitle(agent.title);
-    setEditingBotDescription(agent.description);
-    setEditingBotCommand(agent.command);
-    setEditingBotUseWhen(agent.useWhen || '');
-    setEditingBotBoundaries(agent.boundaries || '');
-    setEditingBotProvider(agent.provider || '');
-    setEditingBotModel(agent.model || '');
-    setEditingBotMemoryMode(agent.memoryMode || 'shared');
-    setEditingBotExecutorType(agent.executorType || 'internal-llm');
-    setEditingBotEndpoint(agent.endpoint || '');
-    setEditingBotSystemPrompt(agent.systemPrompt);
-    setEditingBotStarterPrompt(agent.starterPrompt);
+    loadEditingBot({
+      id: agent.id,
+      title: agent.title,
+      description: agent.description,
+      command: agent.command,
+      useWhen: agent.useWhen || '',
+      boundaries: agent.boundaries || '',
+      provider: agent.provider || '',
+      model: agent.model || '',
+      memoryMode: agent.memoryMode || 'shared',
+      executorType: agent.executorType || 'internal-llm',
+      endpoint: agent.endpoint || '',
+      systemPrompt: agent.systemPrompt,
+      starterPrompt: agent.starterPrompt,
+      tools: agent.tools || [],
+      maxTurns: agent.maxTurns ? String(agent.maxTurns) : '',
+    });
   }
 
   function stopEditingCustomBot() {
-    setEditingBotId('');
-    setEditingBotTitle('');
-    setEditingBotDescription('');
-    setEditingBotCommand('');
-    setEditingBotUseWhen('');
-    setEditingBotBoundaries('');
-    setEditingBotProvider('');
-    setEditingBotModel('');
-    setEditingBotMemoryMode('shared');
-    setEditingBotExecutorType('internal-llm');
-    setEditingBotEndpoint('');
-    setEditingBotSystemPrompt('');
-    setEditingBotStarterPrompt('');
+    resetEditingBot();
   }
 
   function requestDeleteCustomBot(agentId: string) {
@@ -1841,7 +1930,9 @@ function AppShell() {
     const endpointValue = editingBotEndpoint.trim();
     const systemPromptValue = editingBotSystemPrompt.trim();
     const starterPromptValue = editingBotStarterPrompt.trim();
-    const commandTaken = allFunctionPresets.some(item => item.id !== agentId && item.command === command);
+    const parsedMaxTurns = parseInt(editingBotMaxTurns, 10);
+    const maxTurnsValue = Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? parsedMaxTurns : null;
+    const commandTaken = allPresets.some(item => item.id !== agentId && item.command === command);
 
     if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
       setNotice('Fill in all agent fields before saving.');
@@ -1873,6 +1964,8 @@ function AppShell() {
         endpoint: editingBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
         starterPrompt: starterPromptValue,
+        tools: editingBotTools.length > 0 ? editingBotTools : null,
+        maxTurns: maxTurnsValue,
       });
       stopEditingCustomBot();
       await refreshAll();
@@ -1887,8 +1980,8 @@ function AppShell() {
     try {
       await apiSend(`/api/settings/functions/agents/${agent.id}`, 'DELETE');
       setConfirmingDeleteBotId('');
-      if (activeFunctionId === agent.id) {
-        setActiveFunctionId('');
+      if (activePresetId === agent.id) {
+        setActivePresetId('');
       }
       if (editingBotId === agent.id) {
         stopEditingCustomBot();
@@ -1909,11 +2002,66 @@ function AppShell() {
       return;
     }
 
+    // Prune orphaned label before the backend delete so refreshAll sees it gone
+    if (conversationLabels[selectedConversationId]) {
+      const next = { ...conversationLabels };
+      delete next[selectedConversationId];
+      setConversationLabels(next);
+      void apiSend('/api/settings/user-settings', 'POST', { conversationLabels: next });
+    }
+    if (conversationModels[selectedConversationId]) {
+      const next = { ...conversationModels };
+      delete next[selectedConversationId];
+      setConversationModels(next);
+      void apiSend('/api/settings/user-settings', 'POST', { conversationModels: next });
+    }
+
     await apiSend(`/api/history/group/${selectedConversationId}`, 'DELETE');
     if (conversationId === selectedConversationId) {
       startNewChat();
     }
     await refreshAll();
+  }
+
+  async function archiveConversation(selectedConversationId: string) {
+    await apiSend(`/api/history/group/${selectedConversationId}/archive`, 'PATCH');
+    if (conversationId === selectedConversationId) {
+      startNewChat();
+    }
+    await refreshAll();
+  }
+
+  async function unarchiveConversation(selectedConversationId: string) {
+    await apiSend(`/api/history/group/${selectedConversationId}/unarchive`, 'PATCH');
+    await refreshAll();
+  }
+
+  async function saveConversationLabel(id: string, label: string) {
+    const next = { ...conversationLabels };
+    if (label.trim()) {
+      next[id] = label.trim();
+    } else {
+      delete next[id];
+    }
+    setConversationLabels(next);
+    setEditingLabelId('');
+    await apiSend('/api/settings/user-settings', 'POST', { conversationLabels: next });
+  }
+
+  function exportConversation(conv: { id: string; items: HistoryEntry[] }) {
+    const sorted = [...conv.items].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
+    const lines: string[] = [`# Conversation export\n\nExported: ${new Date().toLocaleString()}\nID: ${conv.id}\n`];
+    for (const entry of sorted) {
+      lines.push(`## User\n\n${entry.prompt}\n`);
+      lines.push(`## Assistant (${entry.model})\n\n${entry.response}\n`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `conversation-${conv.id.slice(0, 8)}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
   }
 
   async function addFact(event: FormEvent<HTMLFormElement>) {
@@ -1930,6 +2078,30 @@ function AppShell() {
   async function deleteFact(id: string) {
     await apiSend(`/api/memory/facts/${id}`, 'DELETE');
     await refreshAll();
+  }
+
+  async function loadAgentFacts(agentId: string) {
+    const rows = await apiGet<Fact[]>(`/api/memory/facts?botId=${encodeURIComponent(agentId)}`);
+    setAgentFacts(prev => ({ ...prev, [agentId]: rows }));
+  }
+
+  async function deleteAgentFact(agentId: string, factId: string) {
+    await apiSend(`/api/memory/facts/${factId}`, 'DELETE');
+    await loadAgentFacts(agentId);
+  }
+
+  async function clearAgentFacts(agentId: string) {
+    await apiSend(`/api/memory/facts/agent/${agentId}`, 'DELETE');
+    setAgentFacts(prev => ({ ...prev, [agentId]: [] }));
+    await refreshAll();
+  }
+
+  function toggleAgentMemory(agentId: string) {
+    const wasOpen = expandedAgentMemory[agentId];
+    setExpandedAgentMemory(prev => ({ ...prev, [agentId]: !wasOpen }));
+    if (!wasOpen) {
+      void loadAgentFacts(agentId);
+    }
   }
 
   async function addFactFiles(fileList: FileList | null) {
@@ -2412,6 +2584,13 @@ function AppShell() {
               <span className={sidebarTextClass}>New chat</span>
             </button>
 
+            {activePresetId && isSidebarExpanded ? (
+              <div className="flex items-center gap-1.5 rounded-md bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                <span className="flex-1 truncate font-medium">{allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'} active</span>
+                <button onClick={() => void clearFunctionPreset()} title="Clear active mode" className="shrink-0 hover:text-violet-900 dark:hover:text-violet-100"><X className="w-3 h-3" /></button>
+              </div>
+            ) : null}
+
             <nav className="space-y-1.5 text-sm">
               {TABS.map(({ value, label, Icon }) => (
                 <button
@@ -2507,7 +2686,7 @@ function AppShell() {
                   <p className={`text-sm ${subtleTextClass}`}>
                     {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
                     {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
-                    {activeTab === 'bots' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
+                    {activeTab === 'agents' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
                     {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
                     {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
                     {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
@@ -2526,14 +2705,23 @@ function AppShell() {
             {activeTab === 'chat' ? (
               <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
                 <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh]'}`}>
-                  {activeFunctionPreset ? (
-                    <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${isDarkMode ? 'border-white/8 bg-white/4 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
-                      <div>
-                        <div className="font-medium">Session mode: {activeFunctionPreset.title}</div>
-                        <div className={`mt-1 text-xs ${subtleTextClass}`}>
-                          {activeFunctionPreset.kind === 'skill'
-                            ? 'Skill active in the current chat. It inherits the current provider, memory, and session context.'
-                            : 'Agent active for this chat. It can own the workflow and may use its own routing or memory behavior.'}
+                  {activePreset ? (
+                    <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
+                      activePreset.kind === 'skill'
+                        ? (isDarkMode ? 'border-amber-400/20 bg-amber-500/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900')
+                        : (isDarkMode ? 'border-violet-400/20 bg-violet-500/10 text-violet-100' : 'border-violet-200 bg-violet-50 text-violet-900')
+                    }`}>
+                      <div className="flex items-start gap-2">
+                        {activePreset.kind === 'skill'
+                          ? <Sparkles className="mt-0.5 w-4 h-4 shrink-0" />
+                          : <Bot className="mt-0.5 w-4 h-4 shrink-0" />}
+                        <div>
+                          <div className="font-medium">{activePreset.kind === 'skill' ? 'Skill overlay' : 'Agent session'}: {activePreset.title}</div>
+                          <div className={`mt-1 text-xs opacity-80`}>
+                            {activePreset.kind === 'skill'
+                              ? 'Inherits the current provider, memory, and session — does not take over the workflow.'
+                              : 'Owns the session. May apply its own routing, model, and memory policy.'}
+                          </div>
                         </div>
                       </div>
                       <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
@@ -2584,6 +2772,23 @@ function AppShell() {
                         <div className="whitespace-pre-wrap text-[15px] leading-6 sm:leading-7">{message.content}</div>
                         {message.role === 'assistant' && formatTokenUsage(message.tokensUsed, message.provider, message.model) ? (
                           <div className={`mt-3 text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model)}</div>
+                        ) : null}
+                        {message.role === 'assistant' && message.model && index === messages.length - 1 && !isSending ? (
+                          <div className="mt-2 flex justify-end">
+                            <button
+                              type="button"
+                              title="Retry — resend the last message"
+                              onClick={() => {
+                                const lastUser = [...messages].reverse().find(m => m.role === 'user');
+                                if (!lastUser) return;
+                                dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
+                                setPrompt(lastUser.content);
+                              }}
+                              className={`flex items-center gap-1 text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}
+                            >
+                              <RefreshCw className="w-3 h-3" /> Retry
+                            </button>
+                          </div>
                         ) : null}
                       </div>
                     ))}
@@ -2717,7 +2922,7 @@ function AppShell() {
 
                               {groupedSlashItems.commands.length > 0 ? (
                                 <div>
-                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Commands</div>
+                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Navigation</div>
                                   <div className="space-y-1">
                                     {groupedSlashItems.commands.map(item => {
                                       const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
@@ -2728,16 +2933,15 @@ function AppShell() {
                                           onClick={() => void activateSlashItem(item)}
                                           className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
                                         >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                              <div className="text-sm font-medium">/{item.command}</div>
-                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
-                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
+                                          <div className="flex items-center justify-between gap-3">
+                                            <div className="flex items-center gap-2 min-w-0">
+                                              <span className={`text-xs ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>→</span>
+                                              <div>
+                                                <span className="text-sm font-medium">/{item.command}</span>
+                                                <span className={`ml-2 text-xs ${subtleTextClass}`}>{item.description}</span>
+                                              </div>
                                             </div>
-                                            <div className="flex flex-col items-end gap-2">
-                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
-                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
-                                            </div>
+                                            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
                                           </div>
                                         </button>
                                       );
@@ -2777,11 +2981,11 @@ function AppShell() {
                                 </div>
                               ) : null}
 
-                              {groupedSlashItems.bots.length > 0 ? (
+                              {groupedSlashItems.agents.length > 0 ? (
                                 <div>
                                   <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Agents</div>
                                   <div className="space-y-1">
-                                    {groupedSlashItems.bots.map(item => {
+                                    {groupedSlashItems.agents.map(item => {
                                       const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
                                       return (
                                         <button
@@ -2816,7 +3020,7 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activeFunctionId ? `Mode: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activePresetId ? `Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.</p>
                       <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
                         <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
                           <Upload className="w-4 h-4" />
@@ -2864,7 +3068,7 @@ function AppShell() {
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Skills are lightweight overlays: reusable, narrow capabilities that stay inside the current chat and inherit its provider, memory, and session context.</p>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'Custom mode'}` : 'Active: default chat'}</div>
+                    <div className={`text-sm ${mutedTextClass}`}>{activePresetId ? `Active skill: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'}` : 'No active skill'}</div>
                     <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
                       {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
                     </button>
@@ -2907,22 +3111,22 @@ function AppShell() {
                     <h3 className="font-medium">Create skill</h3>
                   </div>
                   <form onSubmit={createCustomSkill} className="grid gap-3 md:grid-cols-2">
-                    <input value={newSkillTitle} onChange={event => setNewSkillTitle(event.target.value)} placeholder="Skill title, e.g. Architecture Critic" className={textInputClass} />
-                    <input value={newSkillCommand} onChange={event => setNewSkillCommand(event.target.value)} placeholder="Slash command, e.g. architecture" className={textInputClass} />
+                    <input value={newSkillTitle} onChange={event => patchNewSkill({ title: event.target.value })} placeholder="Skill title, e.g. Architecture Critic" className={textInputClass} />
+                    <input value={newSkillCommand} onChange={event => patchNewSkill({ command: event.target.value })} placeholder="Slash command, e.g. architecture" className={textInputClass} />
                     <div className="md:col-span-2">
-                      <input value={newSkillDescription} onChange={event => setNewSkillDescription(event.target.value)} placeholder="Capability summary, e.g. critiques designs and tradeoffs" className={textInputClass} />
+                      <input value={newSkillDescription} onChange={event => patchNewSkill({ description: event.target.value })} placeholder="Capability summary, e.g. critiques designs and tradeoffs" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <input value={newSkillUseWhen} onChange={event => setNewSkillUseWhen(event.target.value)} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
+                      <input value={newSkillUseWhen} onChange={event => patchNewSkill({ useWhen: event.target.value })} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillBoundaries} onChange={event => setNewSkillBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, and should not take over the whole session" className={textareaClass} />
+                      <textarea value={newSkillBoundaries} onChange={event => patchNewSkill({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, and should not take over the whole session" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillSystemPrompt} onChange={event => setNewSkillSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this focused capability" className={textareaClass} />
+                      <textarea value={newSkillSystemPrompt} onChange={event => patchNewSkill({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this focused capability" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newSkillStarterPrompt} onChange={event => setNewSkillStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
+                      <textarea value={newSkillStarterPrompt} onChange={event => patchNewSkill({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'skill'} className={responsivePrimaryButtonClass}>
@@ -2939,7 +3143,7 @@ function AppShell() {
                   </div>
                   <div className="grid gap-3 xl:grid-cols-2">
                     {skillPresets.map(item => {
-                      const isActive = activeFunctionId === item.id;
+                      const isActive = activePresetId === item.id;
 
                       return (
                         <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
@@ -2978,14 +3182,28 @@ function AppShell() {
               </div>
             ) : null}
 
-            {activeTab === 'bots' ? (
+            {activeTab === 'agents' ? (
               <div className="space-y-4">
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Agents</h3>
                     <p className={`text-sm ${subtleTextClass} mt-1`}>Agents are dedicated specialists: they can own a longer workflow, optionally use their own routing, and choose how memory behaves across the session.</p>
                   </div>
-                  <div className={`text-sm ${mutedTextClass}`}>{activeFunctionId ? `Active agent: ${allFunctionPresets.find(item => item.id === activeFunctionId)?.title || 'none'}` : 'No active agent'}</div>
+                  <div className={`flex items-center gap-1.5 text-sm`}>
+                    {activePresetId && allPresets.find(item => item.id === activePresetId)?.kind === 'agent' ? (
+                      <>
+                        <Bot className="w-3.5 h-3.5 text-violet-500 shrink-0" />
+                        <span className="text-violet-600 dark:text-violet-400 font-medium">Active: {allPresets.find(item => item.id === activePresetId)?.title}</span>
+                      </>
+                    ) : activePresetId ? (
+                      <>
+                        <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                        <span className="text-amber-600 dark:text-amber-400 font-medium">Active: {allPresets.find(item => item.id === activePresetId)?.title}</span>
+                      </>
+                    ) : (
+                      <span className={mutedTextClass}>No active agent</span>
+                    )}
+                  </div>
                 </section>
 
                 <section className={sectionCardClass}>
@@ -3011,47 +3229,44 @@ function AppShell() {
                     <h3 className="font-medium">Create agent</h3>
                   </div>
                   <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2">
-                    <input value={newBotTitle} onChange={event => setNewBotTitle(event.target.value)} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
-                    <input value={newBotCommand} onChange={event => setNewBotCommand(event.target.value)} placeholder="Slash command, e.g. security-review" className={textInputClass} />
+                    <input value={newBotTitle} onChange={event => patchNewBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
+                    <input value={newBotCommand} onChange={event => patchNewBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
                     <div className="md:col-span-2">
-                      <input value={newBotDescription} onChange={event => setNewBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
+                      <input value={newBotDescription} onChange={event => patchNewBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <input value={newBotUseWhen} onChange={event => setNewBotUseWhen(event.target.value)} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
+                      <input value={newBotUseWhen} onChange={event => patchNewBot({ useWhen: event.target.value })} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotBoundaries} onChange={event => setNewBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
+                      <textarea value={newBotBoundaries} onChange={event => patchNewBot({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
                     </div>
-                    <select value={newBotExecutorType} onChange={event => setNewBotExecutorType(event.target.value as AgentExecutorType)} className={textInputClass}>
+                    <select value={newBotExecutorType} onChange={event => patchNewBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                       <option value="internal-llm">Internal Botty agent</option>
                       <option value="remote-http">Remote HTTP agent</option>
                     </select>
-                    <input value={newBotEndpoint} onChange={event => setNewBotEndpoint(event.target.value)} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
+                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
                     {newBotExecutorType === 'internal-llm' ? (
                       <>
                         <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
                           const nextProvider = event.target.value;
                           if (!nextProvider) {
-                            setNewBotProvider('');
-                            setNewBotModel('');
+                            patchNewBot({ provider: '', model: '' });
                             return;
                           }
 
                           if (nextProvider === 'auto') {
-                            setNewBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
-                            setNewBotModel('');
+                            patchNewBot({ provider: isAutoRouteProvider(newBotProvider) ? newBotProvider : 'auto', model: '' });
                             return;
                           }
 
-                          setNewBotProvider(nextProvider);
-                          setNewBotModel(getPreferredSelectableModel(nextProvider, newBotStarterPrompt));
+                          patchNewBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, newBotStarterPrompt) });
                         }} className={textInputClass}>
                           <option value="">Inherit chat provider</option>
                           {PROVIDERS.map(option => (
                             <option key={option.value} value={option.value}>{option.label}</option>
                           ))}
                         </select>
-                        <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                           <option value="shared">Shared memory</option>
                           <option value="isolated">Isolated agent memory</option>
                           <option value="none">No memory</option>
@@ -3060,7 +3275,7 @@ function AppShell() {
                     ) : (
                       <>
                         <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
-                        <select value={newBotMemoryMode} onChange={event => setNewBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                           <option value="shared">Shared memory</option>
                           <option value="isolated">Isolated agent memory</option>
                           <option value="none">No memory</option>
@@ -3070,16 +3285,16 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <select value={newBotProvider && isAutoRouteProvider(newBotProvider) ? newBotProvider : newBotModel} onChange={event => {
                         if (!newBotProvider) {
-                          setNewBotModel(event.target.value);
+                          patchNewBot({ model: event.target.value });
                           return;
                         }
 
                         if (isAutoRouteProvider(newBotProvider)) {
-                          setNewBotProvider(event.target.value);
+                          patchNewBot({ provider: event.target.value });
                           return;
                         }
 
-                        setNewBotModel(event.target.value);
+                        patchNewBot({ model: event.target.value });
                       }} disabled={!newBotProvider || newBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!newBotProvider || newBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
                         {!newBotProvider ? <option value="">Inherit provider default</option> : null}
                         {newBotProvider && isAutoRouteProvider(newBotProvider)
@@ -3093,10 +3308,49 @@ function AppShell() {
                       </select>
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotSystemPrompt} onChange={event => setNewBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
+                      <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <textarea value={newBotStarterPrompt} onChange={event => setNewBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                      <textarea value={newBotStarterPrompt} onChange={event => patchNewBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                    </div>
+                    <div>
+                      <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <div className="flex flex-col gap-2">
+                        <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional) — listed in the system prompt so the LLM knows which tools are available</div>
+                        {newBotTools.map((tool, idx) => (
+                          <div key={idx} className="flex gap-2 items-start">
+                            <input
+                              value={tool.name}
+                              onChange={event => patchNewBot({ tools: newBotTools.map((t, i) => i === idx ? { ...t, name: event.target.value } : t) })}
+                              placeholder="Tool name, e.g. search_web"
+                              className={textInputClass}
+                            />
+                            <input
+                              value={tool.description}
+                              onChange={event => patchNewBot({ tools: newBotTools.map((t, i) => i === idx ? { ...t, description: event.target.value } : t) })}
+                              placeholder="What this tool does"
+                              className={textInputClass}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => patchNewBot({ tools: newBotTools.filter((_, i) => i !== idx) })}
+                              className={`shrink-0 ${secondaryButtonClass}`}
+                              aria-label="Remove tool"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => patchNewBot({ tools: [...newBotTools, { name: '', description: '' }] })}
+                          className={secondaryButtonClass}
+                        >
+                          <Plus className="w-4 h-4" /> Add tool
+                        </button>
+                      </div>
                     </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
@@ -3109,11 +3363,11 @@ function AppShell() {
                 <section className={sectionCardClass}>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <h3 className="font-medium">Built-in agents</h3>
-                    <span className={`text-xs ${subtleTextClass}`}>{builtInAgentPresets.length} available</span>
+                    <span className={`text-xs ${subtleTextClass}`}>{builtInAgents.length} available</span>
                   </div>
                   <div className="grid gap-3 xl:grid-cols-2">
-                    {builtInAgentPresets.map(item => {
-                      const isActive = activeFunctionId === item.id;
+                    {builtInAgents.map(item => {
+                      const isActive = activePresetId === item.id;
 
                       return (
                         <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
@@ -3169,12 +3423,12 @@ function AppShell() {
                 <section className={sectionCardClass}>
                   <div className="mb-3 flex items-center justify-between gap-3">
                     <h3 className="font-medium">Custom agents</h3>
-                    <span className={`text-xs ${subtleTextClass}`}>{customAgentPresets.length} created</span>
+                    <span className={`text-xs ${subtleTextClass}`}>{customAgentsPresets.length} created</span>
                   </div>
-                  {customAgentPresets.length > 0 ? (
+                  {customAgentsPresets.length > 0 ? (
                     <div className="grid gap-3 xl:grid-cols-2">
-                      {customAgentPresets.map(item => {
-                        const isActive = activeFunctionId === item.id;
+                      {customAgentsPresets.map(item => {
+                        const isActive = activePresetId === item.id;
                         const isEditing = editingBotId === item.id;
                         const isSaving = savingBotId === item.id;
                         const isDeleting = deletingBotId === item.id;
@@ -3194,47 +3448,44 @@ function AppShell() {
 
                             {isEditing ? (
                               <div className="grid gap-3 md:grid-cols-2">
-                                <input value={editingBotTitle} onChange={event => setEditingBotTitle(event.target.value)} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
-                                <input value={editingBotCommand} onChange={event => setEditingBotCommand(event.target.value)} placeholder="Slash command, e.g. security-review" className={textInputClass} />
+                                <input value={editingBotTitle} onChange={event => patchEditingBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
+                                <input value={editingBotCommand} onChange={event => patchEditingBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
                                 <div className="md:col-span-2">
-                                  <input value={editingBotDescription} onChange={event => setEditingBotDescription(event.target.value)} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
+                                  <input value={editingBotDescription} onChange={event => patchEditingBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <input value={editingBotUseWhen} onChange={event => setEditingBotUseWhen(event.target.value)} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
+                                  <input value={editingBotUseWhen} onChange={event => patchEditingBot({ useWhen: event.target.value })} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <textarea value={editingBotBoundaries} onChange={event => setEditingBotBoundaries(event.target.value)} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
+                                  <textarea value={editingBotBoundaries} onChange={event => patchEditingBot({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
                                 </div>
-                                <select value={editingBotExecutorType} onChange={event => setEditingBotExecutorType(event.target.value as AgentExecutorType)} className={textInputClass}>
+                                <select value={editingBotExecutorType} onChange={event => patchEditingBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                                   <option value="internal-llm">Internal Botty agent</option>
                                   <option value="remote-http">Remote HTTP agent</option>
                                 </select>
-                                <input value={editingBotEndpoint} onChange={event => setEditingBotEndpoint(event.target.value)} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
+                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
                                 {editingBotExecutorType === 'internal-llm' ? (
                                   <>
                                     <select value={editingBotProvider ? getProviderSelectValue(editingBotProvider) : ''} onChange={event => {
                                       const nextProvider = event.target.value;
                                       if (!nextProvider) {
-                                        setEditingBotProvider('');
-                                        setEditingBotModel('');
+                                        patchEditingBot({ provider: '', model: '' });
                                         return;
                                       }
 
                                       if (nextProvider === 'auto') {
-                                        setEditingBotProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
-                                        setEditingBotModel('');
+                                        patchEditingBot({ provider: isAutoRouteProvider(editingBotProvider) ? editingBotProvider : 'auto', model: '' });
                                         return;
                                       }
 
-                                      setEditingBotProvider(nextProvider);
-                                      setEditingBotModel(getPreferredSelectableModel(nextProvider, editingBotStarterPrompt, editingBotModel));
+                                      patchEditingBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, editingBotStarterPrompt, editingBotModel) });
                                     }} className={textInputClass}>
                                       <option value="">Inherit chat provider</option>
                                       {PROVIDERS.map(option => (
                                         <option key={option.value} value={option.value}>{option.label}</option>
                                       ))}
                                     </select>
-                                    <select value={editingBotMemoryMode} onChange={event => setEditingBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                                       <option value="shared">Shared memory</option>
                                       <option value="isolated">Isolated agent memory</option>
                                       <option value="none">No memory</option>
@@ -3243,7 +3494,7 @@ function AppShell() {
                                 ) : (
                                   <>
                                     <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
-                                    <select value={editingBotMemoryMode} onChange={event => setEditingBotMemoryMode(event.target.value as 'shared' | 'isolated' | 'none')} className={textInputClass}>
+                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
                                       <option value="shared">Shared memory</option>
                                       <option value="isolated">Isolated agent memory</option>
                                       <option value="none">No memory</option>
@@ -3253,16 +3504,16 @@ function AppShell() {
                                 <div className="md:col-span-2">
                                   <select value={editingBotProvider && isAutoRouteProvider(editingBotProvider) ? editingBotProvider : editingBotModel} onChange={event => {
                                     if (!editingBotProvider) {
-                                      setEditingBotModel(event.target.value);
+                                      patchEditingBot({ model: event.target.value });
                                       return;
                                     }
 
                                     if (isAutoRouteProvider(editingBotProvider)) {
-                                      setEditingBotProvider(event.target.value);
+                                      patchEditingBot({ provider: event.target.value });
                                       return;
                                     }
 
-                                    setEditingBotModel(event.target.value);
+                                    patchEditingBot({ model: event.target.value });
                                   }} disabled={!editingBotProvider || editingBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!editingBotProvider || editingBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
                                     {!editingBotProvider ? <option value="">Inherit provider default</option> : null}
                                     {editingBotProvider && isAutoRouteProvider(editingBotProvider)
@@ -3276,10 +3527,49 @@ function AppShell() {
                                   </select>
                                 </div>
                                 <div className="md:col-span-2">
-                                  <textarea value={editingBotSystemPrompt} onChange={event => setEditingBotSystemPrompt(event.target.value)} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
+                                  <textarea value={editingBotSystemPrompt} onChange={event => patchEditingBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
                                 </div>
                                 <div className="md:col-span-2">
-                                  <textarea value={editingBotStarterPrompt} onChange={event => setEditingBotStarterPrompt(event.target.value)} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                                  <textarea value={editingBotStarterPrompt} onChange={event => patchEditingBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                                </div>
+                                <div>
+                                  <input type="number" min="1" max="100" value={editingBotMaxTurns} onChange={event => patchEditingBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <div className="flex flex-col gap-2">
+                                    <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional) — listed in the system prompt so the LLM knows which tools are available</div>
+                                    {editingBotTools.map((tool, idx) => (
+                                      <div key={idx} className="flex gap-2 items-start">
+                                        <input
+                                          value={tool.name}
+                                          onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, name: event.target.value } : t) })}
+                                          placeholder="Tool name, e.g. search_web"
+                                          className={textInputClass}
+                                        />
+                                        <input
+                                          value={tool.description}
+                                          onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, description: event.target.value } : t) })}
+                                          placeholder="What this tool does"
+                                          className={textInputClass}
+                                        />
+                                        <button
+                                          type="button"
+                                          onClick={() => patchEditingBot({ tools: editingBotTools.filter((_, i) => i !== idx) })}
+                                          className={`shrink-0 ${secondaryButtonClass}`}
+                                          aria-label="Remove tool"
+                                        >
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                    <button
+                                      type="button"
+                                      onClick={() => patchEditingBot({ tools: [...editingBotTools, { name: '', description: '' }] })}
+                                      className={secondaryButtonClass}
+                                    >
+                                      <Plus className="w-4 h-4" /> Add tool
+                                    </button>
+                                  </div>
                                 </div>
                                 <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                                   <button type="button" onClick={() => void saveEditedCustomBot(item.id)} disabled={isSaving} className={responsivePrimaryButtonClass}>
@@ -3384,6 +3674,10 @@ function AppShell() {
                         <div className="mt-2 text-2xl font-semibold">{dailyTokens.toLocaleString()}</div>
                       </div>
                       <div className={elevatedCardClass}>
+                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Agent memory facts</div>
+                        <div className="mt-2 text-2xl font-semibold">{agentFactCounts.total}</div>
+                      </div>
+                      <div className={elevatedCardClass}>
                         <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Active providers</div>
                         <div className="mt-2 text-2xl font-semibold">{dailyProviderUsage.length}</div>
                       </div>
@@ -3396,17 +3690,21 @@ function AppShell() {
                     <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
                       <div className={elevatedCardClass}>
                         <div className="flex items-center justify-between gap-3">
-                          <h4 className="text-sm font-medium">7-day trend</h4>
-                          <span className={`text-xs ${subtleTextClass}`}>{usageTrend.length} day{usageTrend.length === 1 ? '' : 's'}</span>
+                          <h4 className="text-sm font-medium">{usagePeriod}-day trend</h4>
+                          <div className="flex gap-1">
+                            {([7, 30] as const).map(p => (
+                              <button key={p} type="button" onClick={() => { usagePeriodRef.current = p; setUsagePeriod(p); void apiGet<UsageResponse>(`/api/usage?days=${p}`).then(d => setUsageTrend(Array.isArray(d.trend) ? d.trend : [])); }} className={`rounded px-2 py-0.5 text-xs transition-colors ${usagePeriod === p ? (isDarkMode ? 'bg-white/15 text-white' : 'bg-stone-900 text-white') : (isDarkMode ? 'text-stone-400 hover:text-stone-200' : 'text-stone-500 hover:text-stone-700')}`}>{p}d</button>
+                            ))}
+                          </div>
                         </div>
                         <div className="mt-4 flex h-44 items-end gap-2">
-                          {usageTrend.length > 0 ? usageTrend.map(entry => {
+                          {usageTrend.length > 0 ? usageTrend.map((entry, index) => {
                             const height = Math.max((entry.tokens / trendPeak) * 100, entry.tokens > 0 ? 10 : 4);
                             return (
                               <div key={entry.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                                <div className="text-[11px] leading-none opacity-70">{entry.tokens.toLocaleString()}</div>
+                                {usagePeriod === 7 ? <div className="text-[11px] leading-none opacity-70">{entry.tokens.toLocaleString()}</div> : null}
                                 <div className={`w-full rounded-t-2xl ${isDarkMode ? 'bg-amber-300/70' : 'bg-stone-900/75'}`} style={{ height: `${height}%` }} />
-                                <div className={`text-[11px] ${subtleTextClass}`}>{entry.date.slice(5)}</div>
+                                <div className={`text-[11px] ${subtleTextClass}`}>{usagePeriod === 30 && index % 5 !== 0 && index !== usageTrend.length - 1 ? '' : entry.date.slice(5)}</div>
                               </div>
                             );
                           }) : <div className={`text-sm ${subtleTextClass}`}>No usage yet.</div>}
@@ -3456,18 +3754,75 @@ function AppShell() {
                   </div>
                 </section>
 
-                {conversations.map(item => (
+                <div className="flex gap-2">
+                  <input
+                    value={historySearch}
+                    onChange={event => setHistorySearch(event.target.value)}
+                    placeholder="Search conversations..."
+                    className={`flex-1 ${textInputClass}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => { setShowArchivedHistory(v => !v); void refreshAll(); }}
+                    className={responsiveSecondaryButtonClass}
+                    title={showArchivedHistory ? 'Show active conversations' : 'Show archived conversations'}
+                  >
+                    {showArchivedHistory ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
+                    <span className="hidden sm:inline">{showArchivedHistory ? 'Active' : 'Archived'}</span>
+                  </button>
+                </div>
+
+                {conversations.filter(item =>
+                  !historySearch.trim() || item.items.some(entry =>
+                    entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
+                    entry.response.toLowerCase().includes(historySearch.toLowerCase())
+                  ) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())
+                ).map(item => (
                   <div key={item.id} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between`}>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
+                      {editingLabelId === item.id ? (
+                        <form onSubmit={event => { event.preventDefault(); void saveConversationLabel(item.id, labelDraft); }} className="mb-2 flex gap-2">
+                          <input
+                            autoFocus
+                            value={labelDraft}
+                            onChange={event => setLabelDraft(event.target.value)}
+                            placeholder="Rename this conversation…"
+                            className={`flex-1 text-sm ${inputClass}`}
+                          />
+                          <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
+                          <button type="button" onClick={() => setEditingLabelId('')} className={responsiveSecondaryButtonClass}>Cancel</button>
+                        </form>
+                      ) : (
+                        <button type="button" onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className="w-full text-left">
+                          <div className="text-sm font-medium line-clamp-2">
+                            {conversationLabels[item.id] || item.items[0].prompt}
+                          </div>
+                          {conversationLabels[item.id] ? (
+                            <div className={`mt-0.5 text-xs line-clamp-1 ${subtleTextClass}`}>{item.items[0].prompt}</div>
+                          ) : null}
+                        </button>
+                      )}
                       <div className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs ${subtleTextClass}`}>
-                        <span>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</span>
+                        <span>{(() => { const t = item.items.reduce((s, e) => s + (e.tokensUsed || 0), 0); return t > 0 ? `${t.toLocaleString()} tokens total` : 'Tokens: unknown'; })()}</span>
                         <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
                         <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
                       </div>
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
+                      {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
+                      <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
+                        <Download className="w-4 h-4" />
+                      </button>
+                      {showArchivedHistory ? (
+                        <button onClick={() => void unarchiveConversation(item.id)} className={responsiveSecondaryButtonClass} title="Restore conversation">
+                          <ArchiveRestore className="w-4 h-4" />
+                        </button>
+                      ) : (
+                        <button onClick={() => void archiveConversation(item.id)} className={responsiveSecondaryButtonClass} title="Archive conversation">
+                          <Archive className="w-4 h-4" />
+                        </button>
+                      )}
                       <button onClick={() => void deleteConversation(item.id)} className={responsiveDestructiveButtonClass}>
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -3475,6 +3830,7 @@ function AppShell() {
                   </div>
                 ))}
                 {conversations.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
+                {conversations.length > 0 && historySearch.trim() && conversations.filter(item => item.items.some(entry => entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) || entry.response.toLowerCase().includes(historySearch.toLowerCase())) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
               </div>
             ) : null}
 
@@ -3564,16 +3920,59 @@ function AppShell() {
                       <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
                       <button className={responsivePrimaryButtonClass}>Add</button>
                     </form>
+                    {facts.length > 4 ? (
+                      <div className="mb-3 relative">
+                        <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${subtleTextClass}`} />
+                        <input value={factsSearch} onChange={event => setFactsSearch(event.target.value)} placeholder="Filter facts…" className={`w-full pl-7 text-sm ${inputClass}`} />
+                      </div>
+                    ) : null}
                     <div className="space-y-2">
-                      {facts.map(item => (
+                      {facts.filter(item => !factsSearch.trim() || item.content.toLowerCase().includes(factsSearch.toLowerCase())).map(item => (
                         <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
                           <div className="text-sm">{item.content}</div>
                           <button onClick={() => void deleteFact(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
                         </div>
                       ))}
                       {facts.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved facts yet.</div> : null}
+                      {facts.length > 0 && factsSearch.trim() && facts.filter(item => item.content.toLowerCase().includes(factsSearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No facts match your filter.</div> : null}
                     </div>
                   </section>
+
+                  {customAgents.filter(agent => agent.memoryMode === 'isolated').map(agent => (
+                    <section key={agent.id} className={sectionCardClass}>
+                      <button
+                        type="button"
+                        className="mb-3 flex w-full items-center justify-between gap-3 text-left"
+                        onClick={() => toggleAgentMemory(agent.id)}
+                      >
+                        <div>
+                          <h3 className="font-medium">{agent.title} — isolated memory</h3>
+                          <p className={`mt-0.5 text-xs ${subtleTextClass}`}>/{agent.command}</p>
+                        </div>
+                        <span className={`text-xs ${subtleTextClass}`}>{expandedAgentMemory[agent.id] ? '▲' : '▼'}</span>
+                      </button>
+                      {expandedAgentMemory[agent.id] ? (
+                        <div className="space-y-2">
+                          {(agentFacts[agent.id] || []).map(item => (
+                            <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
+                              <div className="text-sm">{item.content}</div>
+                              <button onClick={() => void deleteAgentFact(agent.id, item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                          ))}
+                          {(agentFacts[agent.id] || []).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No isolated facts yet for this agent.</div> : null}
+                          {(agentFacts[agent.id] || []).length > 0 ? (
+                            <button
+                              type="button"
+                              onClick={() => void clearAgentFacts(agent.id)}
+                              className={responsiveDestructiveButtonClass}
+                            >
+                              <Trash2 className="w-4 h-4" /> Clear all agent facts
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </section>
+                  ))}
 
                   <section className={sectionCardClass}>
                     <div className="mb-3 flex items-start justify-between gap-3">

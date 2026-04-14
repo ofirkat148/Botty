@@ -8,7 +8,7 @@ import {
   isAbortError,
   getRuntimeSettings,
 } from '../utils/llm.js';
-import { runChatForUser } from '../services/chat.js';
+import { runChatForUser, streamChatForUser } from '../services/chat.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -72,6 +72,65 @@ router.post('/', async (req: Request, res: Response) => {
   } finally {
     req.off('aborted', abortRequest);
     res.off('close', abortOnResponseClose);
+  }
+});
+
+// POST /api/chat/stream — Server-Sent Events streaming chat
+// Client reads SSE events: data: {"type":"chunk","delta":"..."} and data: {"type":"done","meta":{...}}
+router.post('/stream', async (req: Request, res: Response) => {
+  const abortController = new AbortController();
+  const abortRequest = () => abortController.abort();
+  req.once('aborted', abortRequest);
+  res.once('close', abortRequest);
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  function send(event: Record<string, unknown>) {
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  }
+
+  try {
+    const result = await streamChatForUser({
+      uid: req.userId!,
+      prompt: String(req.body?.prompt || '').trim(),
+      requestedProvider: String(req.body?.provider || '').trim().toLowerCase(),
+      routingMode: String(req.body?.routingMode || '').trim().toLowerCase(),
+      requestedModel: String(req.body?.model || '').trim(),
+      messages: Array.isArray(req.body?.messages) ? req.body.messages : [],
+      incomingConversationId: String(req.body?.conversationId || '').trim(),
+      activeAgentId: typeof req.body?.activeAgentId === 'string' ? req.body.activeAgentId.trim() : '',
+      attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
+      signal: abortController.signal,
+      onChunk: (delta) => send({ type: 'chunk', delta }),
+    });
+
+    send({
+      type: 'done',
+      meta: {
+        id: result.id,
+        text: result.text,
+        tokensUsed: result.tokensUsed,
+        model: result.model,
+        provider: result.provider,
+        conversationId: result.conversationId,
+        routingMode: result.routingMode,
+      },
+    });
+  } catch (error) {
+    if (!isAbortError(error)) {
+      const message = error instanceof Error ? error.message : 'Stream failed';
+      console.error('Chat stream error:', error);
+      send({ type: 'error', error: message });
+    }
+  } finally {
+    req.off('aborted', abortRequest);
+    res.off('close', abortRequest);
+    if (!res.writableEnded) res.end();
   }
 });
 

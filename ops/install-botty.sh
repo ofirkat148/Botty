@@ -6,6 +6,7 @@ SERVICE_NAME="botty.service"
 SERVICE_PATH="/etc/systemd/system/${SERVICE_NAME}"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 COMPOSE_FILE="${REPO_DIR}/docker-compose.yml"
+HOST_RESOLVER_PATH="/run/systemd/resolve/resolv.conf"
 TARGET_USER="${SUDO_USER:-${USER}}"
 TARGET_GROUP=""
 ENV_FILE_DEFAULT="${REPO_DIR}/.env.local"
@@ -103,11 +104,30 @@ resolve_docker_bin() {
   [[ -n "${DOCKER_BIN}" ]] || fail "Could not resolve docker binary path"
 }
 
+ensure_compose_prerequisites() {
+  [[ -f "${COMPOSE_FILE}" ]] || fail "Could not find ${COMPOSE_FILE}"
+
+  if [[ ! -r "${HOST_RESOLVER_PATH}" ]]; then
+    fail "Missing ${HOST_RESOLVER_PATH}. The current docker-compose.yml mounts this resolver file into the app and ollama containers to keep DNS working on restricted networks. Enable systemd-resolved on this host or update the Compose runtime before continuing."
+  fi
+}
+
 read_env_value() {
   local key="$1"
   local line
   line="$(grep -E "^${key}=" "${ENV_FILE}" | tail -n 1 || true)"
   printf '%s' "${line#*=}"
+}
+
+append_env_value_if_missing() {
+  local key="$1"
+  local value="$2"
+
+  if grep -Eq "^${key}=" "${ENV_FILE}"; then
+    return
+  fi
+
+  printf '\n%s=%s\n' "${key}" "${value}" >> "${ENV_FILE}"
 }
 
 env_value_is_truthy() {
@@ -125,26 +145,37 @@ validate_env_file() {
   print_step "Validating runtime configuration"
 
   local jwt_secret
+  local key_encryption_secret
   local local_auth_enabled
   local telegram_enabled
   local telegram_token
   local public_base_url
+  local gemini_api_key
 
   jwt_secret="$(read_env_value JWT_SECRET)"
+  key_encryption_secret="$(read_env_value KEY_ENCRYPTION_SECRET)"
   local_auth_enabled="$(read_env_value LOCAL_AUTH_ENABLED)"
   telegram_enabled="$(read_env_value TELEGRAM_BOT_ENABLED)"
   telegram_token="$(read_env_value TELEGRAM_BOT_TOKEN)"
   public_base_url="$(read_env_value PUBLIC_BASE_URL)"
+  gemini_api_key="$(read_env_value GEMINI_API_KEY)"
 
   [[ -n "${jwt_secret}" ]] || fail "JWT_SECRET is missing from ${ENV_FILE}"
   [[ "${jwt_secret}" != "your-super-secret-jwt-key-change-this-in-production" ]] || fail "JWT_SECRET is still using the example placeholder in ${ENV_FILE}"
+
+  [[ -n "${key_encryption_secret}" ]] || fail "KEY_ENCRYPTION_SECRET is missing from ${ENV_FILE}. Generate one with: openssl rand -hex 32"
+  [[ "${key_encryption_secret}" != "your-key-encryption-secret-change-this-in-production" ]] || fail "KEY_ENCRYPTION_SECRET is still using the example placeholder in ${ENV_FILE}"
 
   if [[ -n "${public_base_url}" && ! "${public_base_url}" =~ ^https?:// ]]; then
     fail "PUBLIC_BASE_URL must start with http:// or https://"
   fi
 
-  if env_value_is_truthy "${telegram_enabled}" && [[ -z "${telegram_token}" ]]; then
+  if { [[ -z "${telegram_enabled}" ]] || env_value_is_truthy "${telegram_enabled}"; } && [[ -z "${telegram_token}" ]]; then
     warn "TELEGRAM_BOT_ENABLED is true but TELEGRAM_BOT_TOKEN is empty; the web app will still run, but Telegram will stay unconfigured"
+  fi
+
+  if [[ "${gemini_api_key}" == "MY_GEMINI_API_KEY" ]]; then
+    warn "GEMINI_API_KEY is still using the example placeholder; hosted Gemini requests will fail until you set a real key or clear the value"
   fi
 
   if [[ -z "$(read_env_value CORS_ORIGINS)" && -n "${public_base_url}" ]]; then
@@ -153,6 +184,24 @@ validate_env_file() {
 
   if [[ -n "${public_base_url}" ]] && env_value_is_truthy "${local_auth_enabled}"; then
     warn "LOCAL_AUTH_ENABLED is true while PUBLIC_BASE_URL is set. Local auth is intended for trusted personal deployments only; disable it before broader public exposure."
+  fi
+}
+
+sync_env_file_defaults() {
+  local current_local_llm_url
+
+  append_env_value_if_missing PUBLIC_BASE_URL ""
+  append_env_value_if_missing CORS_ORIGINS ""
+  append_env_value_if_missing KEY_ENCRYPTION_SECRET "$(openssl rand -hex 32)"
+  append_env_value_if_missing TELEGRAM_BOT_TOKEN ""
+  append_env_value_if_missing TELEGRAM_BOT_ENABLED "true"
+  append_env_value_if_missing TELEGRAM_ALLOWED_CHAT_IDS ""
+  append_env_value_if_missing TELEGRAM_PROVIDER "auto"
+  append_env_value_if_missing TELEGRAM_MODEL ""
+
+  current_local_llm_url="$(read_env_value LOCAL_LLM_URL)"
+  if [[ -z "${current_local_llm_url}" || "${current_local_llm_url}" == "http://localhost:11434" ]]; then
+    sed -i 's|^LOCAL_LLM_URL=.*|LOCAL_LLM_URL=http://127.0.0.1:11435|' "${ENV_FILE}"
   fi
 }
 
@@ -205,6 +254,11 @@ ensure_env_file() {
   local generated_secret
   generated_secret="$(openssl rand -hex 32)"
   sed -i "s/^JWT_SECRET=.*/JWT_SECRET=${generated_secret}/" "${ENV_FILE}"
+
+  local generated_enc_secret
+  generated_enc_secret="$(openssl rand -hex 32)"
+  sed -i "s/^KEY_ENCRYPTION_SECRET=.*/KEY_ENCRYPTION_SECRET=${generated_enc_secret}/" "${ENV_FILE}"
+
   sed -i 's|^LOCAL_LLM_URL=.*|LOCAL_LLM_URL=http://127.0.0.1:11435|' "${ENV_FILE}"
 
   echo "Created ${ENV_FILE}. Review API keys and Telegram settings before exposing Botty publicly." >&2
@@ -225,7 +279,7 @@ SupplementaryGroups=docker
 WorkingDirectory=${REPO_DIR}
 Environment=NODE_ENV=production
 EnvironmentFile=${ENV_FILE}
-ExecStartPre=${DOCKER_BIN} compose -f ${COMPOSE_FILE} up -d postgres ollama
+ExecStartPre=${DOCKER_BIN} compose -f ${COMPOSE_FILE} up -d --wait postgres ollama
 ExecStart=${DOCKER_BIN} compose -f ${COMPOSE_FILE} up app
 ExecStop=${DOCKER_BIN} compose -f ${COMPOSE_FILE} stop app
 ExecStopPost=-${DOCKER_BIN} compose -f ${COMPOSE_FILE} rm -f app
@@ -281,18 +335,25 @@ show_runtime_diagnostics() {
 }
 
 show_status() {
-  print_step "Waiting for Botty health endpoint"
-  local attempt
-  for attempt in $(seq 1 30); do
+  print_step "Waiting for Botty health endpoint (up to 3 min)"
+  local attempt dots=0
+  for attempt in $(seq 1 90); do
     if curl -fsS http://127.0.0.1:5000/api/health >/dev/null 2>&1; then
+      echo
       print_step "Botty is healthy"
       curl -fsS http://127.0.0.1:5000/api/health
       echo
       return 0
     fi
+    printf '.'
+    dots=$(( dots + 1 ))
+    if [[ $(( dots % 30 )) -eq 0 ]]; then
+      printf ' %ds\n' $(( attempt * 2 ))
+    fi
     sleep 2
   done
 
+  echo
   show_runtime_diagnostics
   fail "Timed out waiting for http://127.0.0.1:5000/api/health"
 }
@@ -306,6 +367,7 @@ print_post_install_notes() {
 - Container status: ${DOCKER_BIN} compose -f ${COMPOSE_FILE} ps
 - Runtime model: host networking with localhost-only binds for app, postgres, and ollama
 - Review provider API keys in ${ENV_FILE} before using hosted models
+- JWT_SECRET and KEY_ENCRYPTION_SECRET are auto-generated on first install; back them up before migrating
 - Set TELEGRAM_BOT_TOKEN in ${ENV_FILE} if you want Telegram enabled
 - Set PUBLIC_BASE_URL and review ops/REVERSE_PROXY.md before public exposure
 - On enterprise networks, outbound DNS and Telegram access may still be restricted even when Botty itself is healthy
@@ -318,6 +380,7 @@ main() {
   require_command curl
   require_command systemctl
   resolve_target_account
+  ensure_compose_prerequisites
 
   if [[ ! -f "${ENV_TEMPLATE}" ]]; then
     fail "Could not find ${ENV_TEMPLATE}"
@@ -326,6 +389,7 @@ main() {
   ensure_docker
   ensure_user_in_docker_group
   ensure_env_file
+  sync_env_file_defaults
   validate_env_file
   build_app_image
   install_systemd_unit

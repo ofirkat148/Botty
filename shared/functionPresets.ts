@@ -24,17 +24,21 @@ export function normalizeSlashCommand(value: string) {
     .slice(0, 40);
 }
 
-export const CORE_SLASH_COMMANDS = [
+/** Navigation/system commands — not skills or agents. */
+export const SYSTEM_COMMANDS = [
   'new-chat',
   'clear-mode',
   'refresh',
   'sandbox',
   'skills',
-  'bots',
+  'agents',
   'history',
   'memory',
   'settings',
 ] as const;
+
+/** @deprecated Use SYSTEM_COMMANDS */
+export const CORE_SLASH_COMMANDS = SYSTEM_COMMANDS;
 
 export const FUNCTION_PRESETS: FunctionPreset[] = [
   {
@@ -111,11 +115,15 @@ export const FUNCTION_PRESETS: FunctionPreset[] = [
   },
 ];
 
-export const SKILL_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'skill');
-export const BOT_PRESETS = FUNCTION_PRESETS.filter(item => item.kind === 'agent');
+export const BUILT_IN_SKILLS = FUNCTION_PRESETS.filter(item => item.kind === 'skill');
+export const BUILT_IN_AGENTS = FUNCTION_PRESETS.filter(item => item.kind === 'agent');
+export const BUILT_IN_PRESETS = FUNCTION_PRESETS;
+
+/** @deprecated Use BUILT_IN_SKILLS */ export const SKILL_PRESETS = BUILT_IN_SKILLS;
+/** @deprecated Use BUILT_IN_AGENTS */ export const BOT_PRESETS = BUILT_IN_AGENTS;
 
 export const RESERVED_SLASH_COMMANDS = new Set<string>([
-  ...CORE_SLASH_COMMANDS,
+  ...SYSTEM_COMMANDS,
   ...FUNCTION_PRESETS.map(item => item.command),
 ]);
 

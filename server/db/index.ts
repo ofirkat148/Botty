@@ -59,6 +59,10 @@ async function bootstrapSchema(pool: Pool) {
   `);
 
   await pool.query(`
+    CREATE INDEX IF NOT EXISTS facts_bot_id_idx ON facts (bot_id)
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS memory_files (
       id TEXT PRIMARY KEY,
       uid VARCHAR(255) NOT NULL,
@@ -157,6 +161,21 @@ async function bootstrapSchema(pool: Pool) {
   await pool.query(`
     ALTER TABLE user_settings
     ADD COLUMN IF NOT EXISTS custom_bots JSONB
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS conversation_labels JSONB
+  `);
+
+  await pool.query(`
+    ALTER TABLE history
+    ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE
+  `);
+
+  await pool.query(`
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS conversation_models JSONB
   `);
 
   await pool.query(`

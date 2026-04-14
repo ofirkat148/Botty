@@ -1,4 +1,4 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, unique } from 'drizzle-orm/pg-core';
+import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, unique, index } from 'drizzle-orm/pg-core';
 
 // Users table
 export const users = pgTable('users', {
@@ -18,7 +18,9 @@ export const apiKeys = pgTable('api_keys', {
   provider: varchar('provider', { length: 100 }).notNull(),
   encryptedKey: text('encrypted_key').notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
-});
+}, (t) => ({
+  uidProviderUnique: unique().on(t.uid, t.provider),
+}));
 
 // Chat History table
 export const history = pgTable('history', {
@@ -30,6 +32,7 @@ export const history = pgTable('history', {
   tokensUsed: integer('tokens_used'),
   status: varchar('status', { length: 50 }).default('completed'),
   conversationId: text('conversation_id'),
+  isArchived: boolean('is_archived').default(false),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
 });
 
@@ -41,7 +44,9 @@ export const facts = pgTable('facts', {
   content: text('content').notNull(),
   isSkill: boolean('is_skill').default(false),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
-});
+}, (t) => ({
+  botIdIdx: index('facts_bot_id_idx').on(t.botId),
+}));
 
 // Memory Files table
 export const memoryFiles = pgTable('memory_files', {
@@ -90,6 +95,8 @@ export const userSettings = pgTable('user_settings', {
   systemPrompt: text('system_prompt'),
   customSkills: jsonb('custom_skills'),
   customBots: jsonb('custom_bots'),
+  conversationLabels: jsonb('conversation_labels'),
+  conversationModels: jsonb('conversation_models'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
