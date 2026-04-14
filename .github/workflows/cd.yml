@@ -1,0 +1,55 @@
+name: CD - Deploy to Production
+
+# Runs automatically after "Build and Publish Docker Image" succeeds on main.
+# Can also be triggered manually from the Actions tab.
+on:
+  workflow_run:
+    workflows: ["Build and Publish Docker Image"]
+    types: [completed]
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy via SSH
+    runs-on: ubuntu-latest
+
+    # Only run if the upstream publish workflow actually succeeded
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      # Pull the new image on the server, re-tag it as botty-app:local
+      # (the name docker-compose.yml expects), then restart the systemd service.
+      - name: Deploy to server
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          # Log in to GHCR, pull the fresh image, tag it,
+          # and restart via systemd so postgres/ollama are untouched.
+          script: |
+            echo "${{ secrets.GHCR_TOKEN }}" | \
+              docker login ghcr.io -u "${{ secrets.DEPLOY_USER }}" --password-stdin
+
+            docker pull ghcr.io/${{ github.repository_owner }}/botty:main
+
+            docker tag \
+              ghcr.io/${{ github.repository_owner }}/botty:main \
+              botty-app:local
+
+            sudo systemctl restart botty.service
+
+      # Verify the app is healthy after deployment
+      - name: Verify deployment
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            timeout 60 bash -c \
+              'until curl -fsS http://127.0.0.1:5000/api/health; do sleep 3; done'
+            echo "Deployment healthy"
