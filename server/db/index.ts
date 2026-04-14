@@ -232,6 +232,11 @@ async function bootstrapSchema(pool: Pool) {
       created_at TIMESTAMP NOT NULL DEFAULT NOW()
     )
   `);
+
+  await pool.query(`
+    ALTER TABLE settings
+    ADD COLUMN IF NOT EXISTS history_retention_days INTEGER
+  `);
 }
 
 export async function initializeDatabase() {

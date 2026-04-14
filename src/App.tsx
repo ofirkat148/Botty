@@ -131,6 +131,7 @@ type SettingsResponse = {
   useMemory: boolean;
   autoMemory: boolean;
   sandboxMode: boolean;
+  historyRetentionDays?: number | null;
   telegramBotToken?: string | null;
   telegramBotEnabled?: boolean;
   telegramAllowedChatIds?: string | null;
@@ -321,6 +322,7 @@ function AppShell() {
   const [useMemory, setUseMemory] = useState(true);
   const [autoMemory, setAutoMemory] = useState(true);
   const [sandboxMode, setSandboxMode] = useState(false);
+  const [historyRetentionDays, setHistoryRetentionDays] = useState('');
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramBotEnabled, setTelegramBotEnabled] = useState(true);
   const [telegramAllowedChatIds, setTelegramAllowedChatIds] = useState('');
@@ -1198,6 +1200,7 @@ function AppShell() {
     setUseMemory(settingsData.useMemory !== false);
     setAutoMemory(settingsData.autoMemory !== false);
     setSandboxMode(settingsData.sandboxMode === true);
+    setHistoryRetentionDays(settingsData.historyRetentionDays ? String(settingsData.historyRetentionDays) : '');
     setTelegramBotToken(settingsData.telegramBotToken || '');
     setTelegramBotEnabled(settingsData.telegramBotEnabled !== false);
     setTelegramAllowedChatIds(settingsData.telegramAllowedChatIds || '');
@@ -2274,11 +2277,12 @@ function AppShell() {
     setSavingSettings(true);
     try {
       const [settingsResult] = await Promise.all([
-        apiSend<{ success: boolean; telegramError?: string | null }>('/api/settings', 'POST', {
+        apiSend<{ success: boolean; telegramError?: string | null; pruned?: number }>('/api/settings', 'POST', {
           localUrl,
           useMemory,
           autoMemory,
           sandboxMode,
+          historyRetentionDays: historyRetentionDays.trim() ? Number(historyRetentionDays) : null,
           telegramBotToken,
           telegramBotEnabled,
           telegramAllowedChatIds,
@@ -4216,6 +4220,20 @@ function AppShell() {
                   <div>
                     <label className={sectionLabelClass}>Local LLM URL</label>
                     <input value={localUrl} onChange={event => setLocalUrl(event.target.value)} className={textInputClass} />
+                  </div>
+
+                  <div>
+                    <label className={sectionLabelClass}>History retention (days)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      max="3650"
+                      value={historyRetentionDays}
+                      onChange={event => setHistoryRetentionDays(event.target.value)}
+                      placeholder="No limit"
+                      className={textInputClass}
+                    />
+                    <p className={`mt-1 text-xs ${subtleTextClass}`}>History older than this many days is pruned when you save settings. Leave blank to keep everything.</p>
                   </div>
 
                   <div>

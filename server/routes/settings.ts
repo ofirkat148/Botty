@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { randomUUID, createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { getDatabase } from '../db/index.js';
 import { appSettings, facts, settings, userSettings } from '../db/schema.js';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, lt } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
 import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.js';
 import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
@@ -168,6 +168,7 @@ router.get('/', async (req: Request, res: Response) => {
         useMemory: true,
         autoMemory: true,
         sandboxMode: false,
+        historyRetentionDays: null,
         telegramBotToken,
         telegramBotEnabled: appSettingsRow?.telegramBotEnabled !== false,
         telegramAllowedChatIds: appSettingsRow?.telegramAllowedChatIds || '',
@@ -198,6 +199,7 @@ router.post('/', async (req: Request, res: Response) => {
       useMemory,
       autoMemory,
       sandboxMode,
+      historyRetentionDays,
       telegramBotToken,
       telegramBotEnabled,
       telegramAllowedChatIds,
@@ -206,6 +208,11 @@ router.post('/', async (req: Request, res: Response) => {
     } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
+
+    const parsedRetentionDays = Number(historyRetentionDays);
+    const retentionDaysValue = Number.isFinite(parsedRetentionDays) && parsedRetentionDays > 0
+      ? Math.min(Math.round(parsedRetentionDays), 3650)
+      : null;
 
     // Upsert settings
     await db
@@ -216,6 +223,7 @@ router.post('/', async (req: Request, res: Response) => {
         useMemory: useMemory !== undefined ? useMemory : true,
         autoMemory: autoMemory !== undefined ? autoMemory : true,
         sandboxMode: sandboxMode === true,
+        historyRetentionDays: retentionDaysValue,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
@@ -225,6 +233,7 @@ router.post('/', async (req: Request, res: Response) => {
           useMemory: useMemory !== undefined ? useMemory : true,
           autoMemory: autoMemory !== undefined ? autoMemory : true,
           sandboxMode: sandboxMode === true,
+          historyRetentionDays: retentionDaysValue,
           updatedAt: new Date(),
         },
       });
@@ -277,7 +286,20 @@ router.post('/', async (req: Request, res: Response) => {
       console.error('Telegram refresh after settings save failed:', error);
     }
 
-    res.json({ success: true, telegramError });
+    // Apply retention prune immediately if configured
+    let pruned = 0;
+    if (retentionDaysValue && retentionDaysValue > 0) {
+      try {
+        const cutoff = new Date(Date.now() - retentionDaysValue * 24 * 60 * 60 * 1000);
+        const { history } = await import('../db/schema.js');
+        const result = await db.delete(history).where(and(eq(history.uid, uid), lt(history.timestamp, cutoff)));
+        pruned = (result as unknown as { rowCount?: number })?.rowCount ?? 0;
+      } catch (pruneErr) {
+        console.error('History prune on settings save failed (non-fatal):', pruneErr);
+      }
+    }
+
+    res.json({ success: true, telegramError, pruned });
   } catch (error) {
     console.error('Error updating settings:', error);
     res.status(500).json({ error: 'Failed to update settings' });

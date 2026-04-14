@@ -76,6 +76,7 @@ export const settings = pgTable('settings', {
   useMemory: boolean('use_memory').default(true),
   autoMemory: boolean('auto_memory').default(true),
   sandboxMode: boolean('sandbox_mode').default(false),
+  historyRetentionDays: integer('history_retention_days'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 
