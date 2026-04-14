@@ -327,24 +327,33 @@ router.get('/user-settings', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/user-settings - Update system prompt
+// POST /api/user-settings - Update user settings (partial updates supported)
 router.post('/user-settings', async (req: Request, res: Response) => {
   try {
-    const { systemPrompt } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
+
+    // Fetch existing row to safely merge partial updates
+    const existing = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+    const current = existing[0];
+
+    const { systemPrompt, conversationLabels } = req.body;
+    const nextSystemPrompt = 'systemPrompt' in req.body ? (systemPrompt || null) : (current?.systemPrompt ?? null);
+    const nextLabels = 'conversationLabels' in req.body ? (conversationLabels || null) : (current?.conversationLabels ?? null);
 
     await db
       .insert(userSettings)
       .values({
         uid,
-        systemPrompt: systemPrompt || null,
+        systemPrompt: nextSystemPrompt,
+        conversationLabels: nextLabels,
         updatedAt: new Date(),
       })
       .onConflictDoUpdate({
         target: userSettings.uid,
         set: {
-          systemPrompt: systemPrompt || null,
+          systemPrompt: nextSystemPrompt,
+          conversationLabels: nextLabels,
           updatedAt: new Date(),
         },
       });

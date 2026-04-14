@@ -94,6 +94,7 @@ export const userSettings = pgTable('user_settings', {
   systemPrompt: text('system_prompt'),
   customSkills: jsonb('custom_skills'),
   customBots: jsonb('custom_bots'),
+  conversationLabels: jsonb('conversation_labels'),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });
 

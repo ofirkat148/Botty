@@ -14,9 +14,11 @@ import {
   Moon,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
   Plus,
   RefreshCw,
   Save,
+  Search,
   Send,
   Settings,
   Sparkles,
@@ -291,6 +293,10 @@ function AppShell() {
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
+  const [factsSearch, setFactsSearch] = useState('');
+  const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
+  const [editingLabelId, setEditingLabelId] = useState('');
+  const [labelDraft, setLabelDraft] = useState('');
   const [facts, setFacts] = useState<Fact[]>([]);
   const [memoryFiles, setMemoryFiles] = useState<MemoryFile[]>([]);
   const [memoryUrls, setMemoryUrls] = useState<MemoryUrl[]>([]);
@@ -1139,7 +1145,7 @@ function AppShell() {
       apiGet<ApiKey[]>('/api/keys'),
       apiGet<UsageResponse>('/api/usage'),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[] }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
       apiGet<{ total: number; counts: Record<string, number> }>('/api/memory/facts/agent-counts'),
     ]);
@@ -1165,6 +1171,7 @@ function AppShell() {
     setTelegramAllowedChatIds(settingsData.telegramAllowedChatIds || '');
     setSystemPrompt(userSettingsData.systemPrompt || '');
     setActivePresetId(getFunctionPresetForPrompt(userSettingsData.systemPrompt, [...BUILT_IN_PRESETS, ...(functionsData.skills || []), ...(functionsData.agents || [])])?.id || '');
+    setConversationLabels(userSettingsData.conversationLabels || {});
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     const nextModelCatalog = {
@@ -1975,6 +1982,18 @@ function AppShell() {
     await refreshAll();
   }
 
+  async function saveConversationLabel(id: string, label: string) {
+    const next = { ...conversationLabels };
+    if (label.trim()) {
+      next[id] = label.trim();
+    } else {
+      delete next[id];
+    }
+    setConversationLabels(next);
+    setEditingLabelId('');
+    await apiSend('/api/settings/user-settings', 'POST', { conversationLabels: next });
+  }
+
   function exportConversation(conv: { id: string; items: HistoryEntry[] }) {
     const sorted = [...conv.items].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
     const lines: string[] = [`# Conversation export\n\nExported: ${new Date().toLocaleString()}\nID: ${conv.id}\n`];
@@ -2510,6 +2529,13 @@ function AppShell() {
               <Plus className="w-4 h-4" />
               <span className={sidebarTextClass}>New chat</span>
             </button>
+
+            {activePresetId && isSidebarExpanded ? (
+              <div className="flex items-center gap-1.5 rounded-md bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
+                <span className="flex-1 truncate font-medium">{allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'} active</span>
+                <button onClick={() => void clearFunctionPreset()} title="Clear active mode" className="shrink-0 hover:text-violet-900 dark:hover:text-violet-100"><X className="w-3 h-3" /></button>
+              </div>
+            ) : null}
 
             <nav className="space-y-1.5 text-sm">
               {TABS.map(({ value, label, Icon }) => (
@@ -3664,11 +3690,30 @@ function AppShell() {
                   !historySearch.trim() || item.items.some(entry =>
                     entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
                     entry.response.toLowerCase().includes(historySearch.toLowerCase())
-                  )
+                  ) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())
                 ).map(item => (
                   <div key={item.id} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between`}>
                     <div className="min-w-0 flex-1">
-                      <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
+                      {editingLabelId === item.id ? (
+                        <form onSubmit={event => { event.preventDefault(); void saveConversationLabel(item.id, labelDraft); }} className="mb-2 flex gap-2">
+                          <input
+                            autoFocus
+                            value={labelDraft}
+                            onChange={event => setLabelDraft(event.target.value)}
+                            placeholder="Label this conversation…"
+                            className={`flex-1 text-sm ${inputClass}`}
+                          />
+                          <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
+                          <button type="button" onClick={() => setEditingLabelId('')} className={responsiveSecondaryButtonClass}>Cancel</button>
+                        </form>
+                      ) : (
+                        <>
+                          {conversationLabels[item.id] ? (
+                            <div className="mb-0.5 text-xs font-semibold text-violet-600 dark:text-violet-400">{conversationLabels[item.id]}</div>
+                          ) : null}
+                          <div className="text-sm font-medium line-clamp-2">{item.items[0].prompt}</div>
+                        </>
+                      )}
                       <div className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs ${subtleTextClass}`}>
                         <span>{formatTokenUsage(item.items[0].tokensUsed, undefined, item.items[0].model) || 'Tokens: unknown'}</span>
                         <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
@@ -3676,6 +3721,7 @@ function AppShell() {
                       </div>
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
+                      <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Label conversation"><Pencil className="w-4 h-4" /></button>
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
                         <Download className="w-4 h-4" />
@@ -3687,7 +3733,7 @@ function AppShell() {
                   </div>
                 ))}
                 {conversations.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
-                {conversations.length > 0 && historySearch.trim() && conversations.filter(item => item.items.some(entry => entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) || entry.response.toLowerCase().includes(historySearch.toLowerCase()))).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
+                {conversations.length > 0 && historySearch.trim() && conversations.filter(item => item.items.some(entry => entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) || entry.response.toLowerCase().includes(historySearch.toLowerCase())) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
               </div>
             ) : null}
 
@@ -3777,14 +3823,21 @@ function AppShell() {
                       <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
                       <button className={responsivePrimaryButtonClass}>Add</button>
                     </form>
+                    {facts.length > 4 ? (
+                      <div className="mb-3 relative">
+                        <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${subtleTextClass}`} />
+                        <input value={factsSearch} onChange={event => setFactsSearch(event.target.value)} placeholder="Filter facts…" className={`w-full pl-7 text-sm ${inputClass}`} />
+                      </div>
+                    ) : null}
                     <div className="space-y-2">
-                      {facts.map(item => (
+                      {facts.filter(item => !factsSearch.trim() || item.content.toLowerCase().includes(factsSearch.toLowerCase())).map(item => (
                         <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
                           <div className="text-sm">{item.content}</div>
                           <button onClick={() => void deleteFact(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
                         </div>
                       ))}
                       {facts.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved facts yet.</div> : null}
+                      {facts.length > 0 && factsSearch.trim() && facts.filter(item => item.content.toLowerCase().includes(factsSearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No facts match your filter.</div> : null}
                     </div>
                   </section>
 

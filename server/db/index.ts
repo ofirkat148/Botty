@@ -164,6 +164,11 @@ async function bootstrapSchema(pool: Pool) {
   `);
 
   await pool.query(`
+    ALTER TABLE user_settings
+    ADD COLUMN IF NOT EXISTS conversation_labels JSONB
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_definitions (
       id TEXT PRIMARY KEY,
       uid VARCHAR(255) NOT NULL,

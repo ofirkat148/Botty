@@ -279,7 +279,7 @@ SupplementaryGroups=docker
 WorkingDirectory=${REPO_DIR}
 Environment=NODE_ENV=production
 EnvironmentFile=${ENV_FILE}
-ExecStartPre=${DOCKER_BIN} compose -f ${COMPOSE_FILE} up -d postgres ollama
+ExecStartPre=${DOCKER_BIN} compose -f ${COMPOSE_FILE} up -d --wait postgres ollama
 ExecStart=${DOCKER_BIN} compose -f ${COMPOSE_FILE} up app
 ExecStop=${DOCKER_BIN} compose -f ${COMPOSE_FILE} stop app
 ExecStopPost=-${DOCKER_BIN} compose -f ${COMPOSE_FILE} rm -f app
