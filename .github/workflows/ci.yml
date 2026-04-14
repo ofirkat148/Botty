@@ -82,6 +82,9 @@ jobs:
           timeout 90 bash -c 'until curl -fsS http://127.0.0.1:5000/api/health; do sleep 2; done'
 
       # Step 9: Run tests against the live app
+      - name: Run agent resolution tests
+        run: npm run test:agent-resolution
+
       - name: Run chat regression tests
         run: npm run test:chat-regression
 
@@ -96,6 +99,9 @@ jobs:
 
       - name: Run provider routing/fallback tests
         run: npm run test:provider-fallback
+
+      - name: Run agent tools and maxTurns tests
+        run: npm run test:agent-tools-maxturn
 
       - name: Run Telegram status tests
         run: npm run test:telegram

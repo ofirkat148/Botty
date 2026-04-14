@@ -187,13 +187,26 @@ async function startServer() {
   });
 
   // Start server
-  app.listen(Number(PORT), HOST, () => {
+  const server = app.listen(Number(PORT), HOST, () => {
     console.log(`
 🚀 Server is running at http://${HOST}:${PORT}
 📊 Database: PostgreSQL
 🔐 Auth: Local JWT
     `);
   });
+
+  // Graceful shutdown: stop accepting new connections and close cleanly
+  const shutdown = () => {
+    console.log('Received shutdown signal, closing server...');
+    server.close(() => {
+      console.log('Server closed.');
+      process.exit(0);
+    });
+    // Force-exit if connections don't drain within 10 seconds
+    setTimeout(() => process.exit(1), 10_000).unref();
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 
   try {
     await startTelegramBot();

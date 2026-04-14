@@ -21,6 +21,7 @@
     "test:memory": "node --test tests/memory-consolidation.test.mjs",
     "test:provider-fallback": "node --test tests/provider-fallback.test.mjs",
     "test:telegram": "node --test tests/telegram-status.test.mjs",
+    "test:agent-tools-maxturn": "node --test tests/agent-tools-maxturn.test.mjs",
     "migrate:encrypt-keys": "node ops/migrate-encrypt-keys.mjs",
     "db:push": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio"
