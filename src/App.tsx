@@ -362,6 +362,8 @@ function AppShell() {
   });
   const [newFact, setNewFact] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [agentFacts, setAgentFacts] = useState<Record<string, Fact[]>>({});
+  const [expandedAgentMemory, setExpandedAgentMemory] = useState<Record<string, boolean>>({});
   const factFileInputRef = useRef<HTMLInputElement | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
@@ -1999,6 +2001,24 @@ function AppShell() {
   async function deleteFact(id: string) {
     await apiSend(`/api/memory/facts/${id}`, 'DELETE');
     await refreshAll();
+  }
+
+  async function loadAgentFacts(agentId: string) {
+    const rows = await apiGet<Fact[]>(`/api/memory/facts?botId=${encodeURIComponent(agentId)}`);
+    setAgentFacts(prev => ({ ...prev, [agentId]: rows }));
+  }
+
+  async function deleteAgentFact(agentId: string, factId: string) {
+    await apiSend(`/api/memory/facts/${factId}`, 'DELETE');
+    await loadAgentFacts(agentId);
+  }
+
+  function toggleAgentMemory(agentId: string) {
+    const wasOpen = expandedAgentMemory[agentId];
+    setExpandedAgentMemory(prev => ({ ...prev, [agentId]: !wasOpen }));
+    if (!wasOpen) {
+      void loadAgentFacts(agentId);
+    }
   }
 
   async function addFactFiles(fileList: FileList | null) {
@@ -3740,6 +3760,33 @@ function AppShell() {
                       {facts.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved facts yet.</div> : null}
                     </div>
                   </section>
+
+                  {customAgents.filter(agent => agent.memoryMode === 'isolated').map(agent => (
+                    <section key={agent.id} className={sectionCardClass}>
+                      <button
+                        type="button"
+                        className="mb-3 flex w-full items-center justify-between gap-3 text-left"
+                        onClick={() => toggleAgentMemory(agent.id)}
+                      >
+                        <div>
+                          <h3 className="font-medium">{agent.title} — isolated memory</h3>
+                          <p className={`mt-0.5 text-xs ${subtleTextClass}`}>/{agent.command}</p>
+                        </div>
+                        <span className={`text-xs ${subtleTextClass}`}>{expandedAgentMemory[agent.id] ? '▲' : '▼'}</span>
+                      </button>
+                      {expandedAgentMemory[agent.id] ? (
+                        <div className="space-y-2">
+                          {(agentFacts[agent.id] || []).map(item => (
+                            <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
+                              <div className="text-sm">{item.content}</div>
+                              <button onClick={() => void deleteAgentFact(agent.id, item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
+                            </div>
+                          ))}
+                          {(agentFacts[agent.id] || []).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No isolated facts yet for this agent.</div> : null}
+                        </div>
+                      ) : null}
+                    </section>
+                  ))}
 
                   <section className={sectionCardClass}>
                     <div className="mb-3 flex items-start justify-between gap-3">
