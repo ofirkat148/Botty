@@ -239,7 +239,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
       }];
   const memoryMode = (activeAgent?.memoryMode || 'shared') as BotMemoryMode;
 
-  const memoryContext = runtimeSettings.useMemory || runtimeSettings.sandboxMode || memoryMode === 'isolated'
+  const memoryContext = memoryMode !== 'none' && (runtimeSettings.useMemory || runtimeSettings.sandboxMode || memoryMode === 'isolated')
     ? await getMemoryContext(uid, {
         sandboxMode: runtimeSettings.sandboxMode,
         botId: memoryMode === 'isolated' ? activeAgent?.id || null : null,

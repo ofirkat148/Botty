@@ -892,7 +892,7 @@ export async function learnFactsFromConversation(params: {
 
   let candidateFacts = heuristicFacts;
 
-  if (candidateFacts.length === 0) {
+  if (candidateFacts.length === 0 && isSupportedChatProvider(provider)) {
     const extractionPrompt = [
       'Extract only durable user facts from this conversation.',
       'Return a JSON array of short strings.',

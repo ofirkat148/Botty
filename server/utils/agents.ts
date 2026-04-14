@@ -177,11 +177,14 @@ export async function listCustomAgentsForUser(uid: string) {
 
   storedRows
     .map(rowToAgentDefinition)
+    .filter((agent) => agent.enabled !== false)
     .forEach((agent) => {
       merged.set(agent.id, agent);
     });
 
-  normalizeLegacyAgents(legacyRows[0]?.customBots).forEach((agent) => {
+  normalizeLegacyAgents(legacyRows[0]?.customBots)
+    .filter((agent) => agent.enabled !== false)
+    .forEach((agent) => {
     if (!merged.has(agent.id)) {
       merged.set(agent.id, agent);
     }
