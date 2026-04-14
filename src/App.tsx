@@ -1016,7 +1016,12 @@ function AppShell() {
 
       if (event.altKey && event.key === 'Enter' && !isEditableTarget) {
         event.preventDefault();
-        void toggleFullscreenMode();
+        toggleFullscreenMode();
+      }
+
+      // Escape exits CSS fullscreen (native Esc is handled by the browser for native fullscreen)
+      if (event.key === 'Escape' && isFullscreen && !isEditableTarget) {
+        setIsFullscreen(false);
       }
     }
 
@@ -1691,19 +1696,8 @@ function AppShell() {
   }
 
   function toggleFullscreenMode() {
-    // Toggle the CSS-driven fullscreen state immediately — reliable across all environments.
-    setIsFullscreen(current => {
-      const next = !current;
-      // Best-effort: try to also engage/disengage the browser native fullscreen API.
-      if (next) {
-        document.documentElement.requestFullscreen().catch(() => {/* non-fatal */});
-      } else {
-        if (document.fullscreenElement) {
-          document.exitFullscreen().catch(() => {/* non-fatal */});
-        }
-      }
-      return next;
-    });
+    // Pure CSS-driven fullscreen — no native browser API to avoid permission/race issues.
+    setIsFullscreen(current => !current);
   }
 
   function toggleSidebarPreference() {
@@ -3238,7 +3232,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'skills' ? (
-              <div className="space-y-4">
+              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Skills</h3>
@@ -3360,7 +3354,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'agents' ? (
-              <div className="space-y-4">
+              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Agents</h3>
@@ -3848,7 +3842,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'history' ? (
-              <div className="space-y-3">
+              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
                 <section className={sectionCardClass}>
                   <div className="flex flex-col gap-4">
                     <div>
@@ -4031,7 +4025,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'memory' ? (
-              <div className="space-y-4">
+              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
                 <div className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Memory backup</h3>
@@ -4234,7 +4228,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'settings' ? (
-              <div className="space-y-4">
+              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
                 <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
                     <KeyRound className="w-4 h-4" />
