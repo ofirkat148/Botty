@@ -335,18 +335,25 @@ show_runtime_diagnostics() {
 }
 
 show_status() {
-  print_step "Waiting for Botty health endpoint"
-  local attempt
-  for attempt in $(seq 1 30); do
+  print_step "Waiting for Botty health endpoint (up to 3 min)"
+  local attempt dots=0
+  for attempt in $(seq 1 90); do
     if curl -fsS http://127.0.0.1:5000/api/health >/dev/null 2>&1; then
+      echo
       print_step "Botty is healthy"
       curl -fsS http://127.0.0.1:5000/api/health
       echo
       return 0
     fi
+    printf '.'
+    dots=$(( dots + 1 ))
+    if [[ $(( dots % 30 )) -eq 0 ]]; then
+      printf ' %ds\n' $(( attempt * 2 ))
+    fi
     sleep 2
   done
 
+  echo
   show_runtime_diagnostics
   fail "Timed out waiting for http://127.0.0.1:5000/api/health"
 }
