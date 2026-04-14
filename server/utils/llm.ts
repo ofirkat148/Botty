@@ -218,24 +218,27 @@ function classifyPrompt(prompt: string) {
   };
 }
 
-export function getSuggestedModel(provider: string, prompt: string, options?: { defaultLocalModel?: string | null; preferQuality?: boolean }) {
+export function getSuggestedModel(provider: string, prompt: string, options?: { defaultLocalModel?: string | null; preferQuality?: boolean; preferFast?: boolean }) {
   if (provider === 'local') {
     return options?.defaultLocalModel?.trim() || getDefaultModel('local');
   }
 
   if (provider === 'anthropic') {
+    if (options?.preferFast) return 'claude-3-5-haiku-latest';
     return classifyPrompt(prompt).prefersReasoning
       ? 'claude-3-7-sonnet-latest'
       : 'claude-3-5-haiku-latest';
   }
 
   if (provider === 'google') {
+    if (options?.preferFast) return 'gemini-2.5-flash';
     return options?.preferQuality && classifyPrompt(prompt).prefersReasoning
       ? 'gemini-2.5-pro'
       : 'gemini-2.5-flash';
   }
 
   if (provider === 'openai') {
+    if (options?.preferFast) return getDefaultModel('openai');
     return options?.preferQuality && classifyPrompt(prompt).prefersReasoning
       ? 'gpt-4o'
       : getDefaultModel('openai');
@@ -1069,10 +1072,19 @@ export function getAutoRouteCandidates(prompt: string, availableProviders: strin
 }
 
 function orderProvidersForMode(mode: RoutingMode, prompt: string, availableProviders: string[], options?: { defaultLocalModel?: string | null }) {
+  const { prefersReasoning } = classifyPrompt(prompt);
   const smartPrimary = getSmartRoute(prompt, availableProviders, options).provider;
   const uniqueProviders = Array.from(new Set(availableProviders));
+
+  // For auto mode, make the fallback chain reasoning-aware:
+  // reasoning queries: smart → anthropic → openai → google → local
+  // non-reasoning queries: smart → google → openai → anthropic → local
+  const autoFallback = prefersReasoning
+    ? [smartPrimary, 'anthropic', 'openai', 'google', 'local']
+    : [smartPrimary, 'google', 'openai', 'anthropic', 'local'];
+
   const preferredOrder: Record<RoutingMode, string[]> = {
-    auto: [smartPrimary, 'local', 'google', 'openai', 'anthropic'],
+    auto: autoFallback,
     fastest: ['local', 'google', 'openai', 'anthropic'],
     cheapest: ['local', 'google', 'openai', 'anthropic'],
     'best-quality': ['anthropic', 'openai', 'google', 'local'],
@@ -1091,7 +1103,11 @@ export function getRouteCandidatesForMode(
   availableProviders: string[],
   options?: { defaultLocalModel?: string | null },
 ): ProviderRoute[] {
-  const extendedOptions = { ...options, preferQuality: mode === 'best-quality' };
+  const extendedOptions = {
+    ...options,
+    preferQuality: mode === 'best-quality',
+    preferFast: mode === 'fastest' || mode === 'cheapest',
+  };
   return orderProvidersForMode(mode, prompt, availableProviders, options).map(provider => ({
     provider,
     model: getSuggestedModel(provider, prompt, extendedOptions),
