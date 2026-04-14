@@ -969,10 +969,8 @@ function AppShell() {
 
   useEffect(() => {
     function handleFullscreenChange() {
-      const nextIsFullscreen = Boolean(document.fullscreenElement);
-      setIsFullscreen(nextIsFullscreen);
-
       // Sync CSS state with native fullscreen when it changes externally (e.g. user presses Esc).
+      const nextIsFullscreen = Boolean(document.fullscreenElement);
       setIsFullscreen(nextIsFullscreen);
 
       if (nextIsFullscreen) {
@@ -2844,10 +2842,21 @@ function AppShell() {
                 </div>
               </div>
 
-              <button onClick={() => void refreshAll()} className={`${actionButtonClass} w-full md:w-auto`}>
-                <RefreshCw className="w-4 h-4" />
-                Refresh
-              </button>
+              <div className="flex items-center gap-2">
+                <button onClick={() => void refreshAll()} className={`${actionButtonClass} w-full md:w-auto`}>
+                  <RefreshCw className="w-4 h-4" />
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  onClick={() => toggleFullscreenMode()}
+                  className={actionButtonClass}
+                  title={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                  aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+                >
+                  {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
 
             {notice ? <div className={noticeClass}>{notice}</div> : null}
