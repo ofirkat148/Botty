@@ -3,28 +3,6 @@ import test from 'node:test';
 import { buildAuthHeaders, fetchJson, loginLocalUser, baseUrl } from './helpers/live-botty.mjs';
 
 // ---------------------------------------------------------------------------
-// Auth rate limiting
-// ---------------------------------------------------------------------------
-test('auth rate limiter blocks after 20 rapid requests', async () => {
-  const email = `ratelimit-test-${Date.now()}@example.com`;
-  let blockedCount = 0;
-  const requests = Array.from({ length: 25 }, () =>
-    fetch(`${baseUrl}/api/auth/local`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email }),
-    }),
-  );
-
-  const responses = await Promise.all(requests);
-  for (const res of responses) {
-    if (res.status === 429) blockedCount++;
-  }
-
-  assert.ok(blockedCount > 0, `Expected at least 1 rate-limited 429 response, got ${blockedCount}`);
-});
-
-// ---------------------------------------------------------------------------
 // API key encryption round-trip
 // ---------------------------------------------------------------------------
 test('stored API key can be retrieved and matches original value', async () => {
@@ -166,3 +144,31 @@ test('remote agent with invalid endpoint scheme is rejected', async () => {
     assert.ok(!createRes || createRes.status >= 400, 'ftp:// endpoint should be rejected at creation or use');
   }
 });
+
+// ---------------------------------------------------------------------------
+// Auth rate limiting — run last; exhausts the rate-limit window for this IP.
+// Skipped in CI because the CI server raises the limit to 10,000 (CI=true),
+// so the test can never trigger 429s there. Run locally in isolation.
+// ---------------------------------------------------------------------------
+test(
+  'auth rate limiter blocks after 20 rapid requests',
+  { skip: process.env.CI === 'true' ? 'CI raises auth limit; rate-limit test must run locally in isolation' : false },
+  async () => {
+    const email = `ratelimit-test-${Date.now()}@example.com`;
+    let blockedCount = 0;
+    const requests = Array.from({ length: 25 }, () =>
+      fetch(`${baseUrl}/api/auth/local`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+      }),
+    );
+
+    const responses = await Promise.all(requests);
+    for (const res of responses) {
+      if (res.status === 429) blockedCount++;
+    }
+
+    assert.ok(blockedCount > 0, `Expected at least 1 rate-limited 429 response, got ${blockedCount}`);
+  },
+);

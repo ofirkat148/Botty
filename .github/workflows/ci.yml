@@ -106,6 +106,12 @@ jobs:
       - name: Run Telegram status tests
         run: npm run test:telegram
 
+      - name: Run function preset tests
+        run: npm run test:function-presets
+
+      - name: Run security tests
+        run: npm run test:security
+
       - name: Show logs on failure
         if: failure()
         run: |
