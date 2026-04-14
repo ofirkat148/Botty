@@ -1639,11 +1639,43 @@ export async function streamCallLLM(params: {
     return { tokensUsed: totalTokens };
 
   } else if (provider === 'google') {
-    // Google GenAI SDK does not expose a simple SSE stream in this integration;
-    // fall back to non-streaming and deliver the whole response as a single chunk.
-    const result = await callLLM({ prompt, provider, model, apiKey, systemPrompt, messages, localUrl, signal });
-    onChunk(result.responseText);
-    return { tokensUsed: result.tokensUsed };
+    try {
+      throwIfAborted(signal);
+      const { GoogleGenAI } = await import('@google/genai');
+      const client = new GoogleGenAI({ apiKey });
+      const contents = messages.map(message => ({
+        role: message.role === 'assistant' ? 'model' : 'user',
+        parts: [{ text: message.content }],
+      }));
+      contents.push({ role: 'user', parts: [{ text: prompt }] });
+
+      const stream = await client.models.generateContentStream({
+        model,
+        contents,
+        config: {
+          systemInstruction: systemPrompt || 'You are a helpful assistant.',
+        },
+      });
+
+      let fullText = '';
+      let tokensUsed = 0;
+
+      for await (const chunk of stream) {
+        throwIfAborted(signal);
+        const delta = chunk.text;
+        if (typeof delta === 'string' && delta) {
+          fullText += delta;
+          onChunk(delta);
+        }
+        if (chunk.usageMetadata?.totalTokenCount) {
+          tokensUsed = chunk.usageMetadata.totalTokenCount;
+        }
+      }
+
+      return { tokensUsed: tokensUsed || Math.ceil((systemPrompt.length + prompt.length + fullText.length) / 4) };
+    } catch (error) {
+      throw normalizeProviderError(provider, error, 'Google streaming request failed');
+    }
 
   } else {
     throw new Error(`Unsupported provider: ${provider}`);
