@@ -1969,6 +1969,22 @@ function AppShell() {
     await refreshAll();
   }
 
+  function exportConversation(conv: { id: string; items: HistoryEntry[] }) {
+    const sorted = [...conv.items].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
+    const lines: string[] = [`# Conversation export\n\nExported: ${new Date().toLocaleString()}\nID: ${conv.id}\n`];
+    for (const entry of sorted) {
+      lines.push(`## User\n\n${entry.prompt}\n`);
+      lines.push(`## Assistant (${entry.model})\n\n${entry.response}\n`);
+    }
+    const blob = new Blob([lines.join('\n')], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `conversation-${conv.id.slice(0, 8)}.md`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function addFact(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!newFact.trim()) {
@@ -3615,6 +3631,9 @@ function AppShell() {
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
+                      <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass}>
+                        <Download className="w-4 h-4" />
+                      </button>
                       <button onClick={() => void deleteConversation(item.id)} className={responsiveDestructiveButtonClass}>
                         <Trash2 className="w-4 h-4" />
                       </button>
