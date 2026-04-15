@@ -29,6 +29,7 @@ export const history = pgTable('history', {
   prompt: text('prompt').notNull(),
   response: text('response').notNull(),
   model: varchar('model', { length: 100 }).notNull(),
+  provider: varchar('provider', { length: 100 }),
   tokensUsed: integer('tokens_used'),
   status: varchar('status', { length: 50 }).default('completed'),
   conversationId: text('conversation_id'),

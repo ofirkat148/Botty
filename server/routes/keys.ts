@@ -14,10 +14,20 @@ const IV_LEN = 12;
 const TAG_LEN = 16;
 const VERSION_PREFIX = 'v1:';
 
+// Insecure dev-only fallback — never used if KEY_ENCRYPTION_SECRET is set
+const DEV_FALLBACK_SECRET = 'botty-dev-only-insecure-secret-do-not-use-in-prod';
+
 function getDerivedEncryptionKey(): Buffer {
   const secret = process.env.KEY_ENCRYPTION_SECRET;
   if (!secret || secret.length < 16) {
-    throw new Error('KEY_ENCRYPTION_SECRET env var must be set and at least 16 characters');
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        'KEY_ENCRYPTION_SECRET env var must be set (≥16 chars) in production. ' +
+        'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+      );
+    }
+    console.warn('[keys] KEY_ENCRYPTION_SECRET not set — using insecure dev fallback. Set it before storing real API keys.');
+    return crypto.createHash('sha256').update(DEV_FALLBACK_SECRET).digest();
   }
   return crypto.createHash('sha256').update(secret).digest();
 }

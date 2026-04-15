@@ -173,11 +173,12 @@ async function startServer() {
     res.json({ status: 'ok', database: dbInitialized ? 'connected' : 'disconnected' });
   });
 
-  // Rate limit auth endpoints — 20 requests per 15 minutes per IP
-  // In CI (GitHub Actions sets CI=true), use a high limit so all test suites can run sequentially
+  // Rate limit auth endpoints — 20 requests per 15 minutes per IP.
+  // Set DISABLE_RATE_LIMIT=true for local dev/test runs, or CI=true (set by GitHub Actions).
+  const rateLimitDisabled = process.env.DISABLE_RATE_LIMIT === 'true' || process.env.CI === 'true';
   const authLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: process.env.CI === 'true' ? 10000 : 20,
+    max: rateLimitDisabled ? 10_000 : 20,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many authentication requests, please try again later.' },

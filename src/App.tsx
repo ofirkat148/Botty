@@ -296,6 +296,7 @@ function AppShell() {
   const [defaultLocalModel, setDefaultLocalModel] = useState(DEFAULT_MODELS.local);
   const [modelCatalog, setModelCatalog] = useState<Record<string, string[]>>(DEFAULT_MODEL_CATALOG);
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
+  const [isRefreshingModels, setIsRefreshingModels] = useState(false);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
@@ -1348,6 +1349,28 @@ function AppShell() {
     dispatchChat({ type: 'RESET' });
     setHistory([]);
     setAvailableProviders([]);
+  }
+
+  async function refreshModels() {
+    if (isRefreshingModels) return;
+    setIsRefreshingModels(true);
+    try {
+      const providersData = await apiGet<ProvidersResponse>('/api/chat/providers');
+      const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
+      const nextModelCatalog = {
+        ...DEFAULT_MODEL_CATALOG,
+        ...(providersData.modelCatalog || {}),
+        local: providersData.modelCatalog?.local?.length ? providersData.modelCatalog.local : [nextLocalModel],
+      };
+      setAvailableProviders(providersData.providers || []);
+      setDefaultLocalModel(nextLocalModel);
+      setModelCatalog(nextModelCatalog);
+      setProviderStatuses(Array.isArray(providersData.providerStatuses) ? providersData.providerStatuses : []);
+    } catch {
+      // silently ignore; stale catalog stays in place
+    } finally {
+      setIsRefreshingModels(false);
+    }
   }
 
   async function sendPrompt() {
@@ -2663,16 +2686,18 @@ function AppShell() {
             <h2 className="text-2xl font-semibold mb-2">Local sign-in</h2>
             <p className={`${isDarkMode ? 'text-stone-400' : 'text-stone-600'} mb-6`}>Create or reuse a local identity stored in PostgreSQL.</p>
 
-            <label className={`${isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-700 mb-2'}`}>Display name</label>
+            <label htmlFor="login-display-name" className={`${isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-700 mb-2'}`}>Display name</label>
             <input
+              id="login-display-name"
               value={loginName}
               onChange={event => setLoginName(event.target.value)}
               placeholder="Ofir"
               className={`${textInputClass} mb-4`}
             />
 
-            <label className={`${isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-700 mb-2'}`}>Email</label>
+            <label htmlFor="login-email" className={`${isDarkMode ? 'block text-sm text-stone-300 mb-2' : 'block text-sm text-stone-700 mb-2'}`}>Email</label>
             <input
+              id="login-email"
               value={loginEmail}
               onChange={event => setLoginEmail(event.target.value)}
               type="email"
@@ -2986,7 +3011,7 @@ function AppShell() {
                         </div>
                       </div>
                     ) : null}
-                    <div className="mb-3 grid gap-3 sm:grid-cols-[minmax(0,180px)_1fr]">
+                    <div className="mb-3 grid gap-3 sm:grid-cols-[minmax(0,180px)_1fr_auto]">
                       <select
                         value={getProviderSelectValue(provider)}
                         onChange={event => {
@@ -3027,7 +3052,38 @@ function AppShell() {
                               <option key={option} value={option}>{formatModelOptionLabel(option, provider)}</option>
                             ))}
                       </select>
+
+                      <button
+                        type="button"
+                        title="Refresh model catalog"
+                        onClick={() => void refreshModels()}
+                        disabled={isRefreshingModels}
+                        className={`flex items-center justify-center rounded-lg px-3 py-2 text-sm transition-opacity ${isDarkMode ? 'bg-white/10 hover:bg-white/20 text-stone-300' : 'bg-stone-100 hover:bg-stone-200 text-stone-600'} disabled:opacity-40`}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          className={`h-4 w-4 ${isRefreshingModels ? 'animate-spin' : ''}`}
+                        >
+                          <path d="M23 4v6h-6" />
+                          <path d="M1 20v-6h6" />
+                          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
+                          <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
+                        </svg>
+                      </button>
                     </div>
+
+                    {conversationId && conversationModels[conversationId] ? (
+                      <div className={`mb-2 flex items-center gap-1.5 text-xs ${subtleTextClass}`}>
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 shrink-0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        <span>Locked to <strong>{[conversationModels[conversationId].provider, conversationModels[conversationId].model].filter(Boolean).join(' · ')}</strong> for this conversation</span>
+                      </div>
+                    ) : null}
 
                     <textarea
                       ref={composerTextareaRef}
@@ -4310,8 +4366,8 @@ function AppShell() {
                   </div>
 
                   <div>
-                    <label className={sectionLabelClass}>Local LLM URL</label>
-                    <input value={localUrl} onChange={event => setLocalUrl(event.target.value)} className={textInputClass} />
+                    <label htmlFor="local-llm-url" className={sectionLabelClass}>Local LLM URL</label>
+                    <input id="local-llm-url" value={localUrl} onChange={event => setLocalUrl(event.target.value)} className={textInputClass} />
                   </div>
 
                   <div>
@@ -4330,8 +4386,8 @@ function AppShell() {
                   </div>
 
                   <div>
-                    <label className={sectionLabelClass}>System prompt</label>
-                    <textarea value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={textareaClass} />
+                    <label htmlFor="system-prompt" className={sectionLabelClass}>System prompt</label>
+                    <textarea id="system-prompt" value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={textareaClass} />
                   </div>
 
                   <div className={`grid gap-4 lg:grid-cols-2 ${elevatedCardClass}`}>
@@ -4362,8 +4418,9 @@ function AppShell() {
                     </div>
 
                     <div className="lg:col-span-2">
-                      <label className={sectionLabelClass}>Bot token</label>
+                      <label htmlFor="telegram-bot-token" className={sectionLabelClass}>Bot token</label>
                       <input
+                        id="telegram-bot-token"
                         type="password"
                         value={telegramBotToken}
                         onChange={event => setTelegramBotToken(event.target.value)}
@@ -4378,8 +4435,9 @@ function AppShell() {
                     </label>
 
                     <div>
-                      <label className={sectionLabelClass}>Allowed chat IDs</label>
+                      <label htmlFor="telegram-allowed-chat-ids" className={sectionLabelClass}>Allowed chat IDs</label>
                       <input
+                        id="telegram-allowed-chat-ids"
                         value={telegramAllowedChatIds}
                         onChange={event => setTelegramAllowedChatIds(event.target.value)}
                         placeholder="123456789,987654321"
@@ -4388,8 +4446,8 @@ function AppShell() {
                     </div>
 
                     <div>
-                      <label className={sectionLabelClass}>Telegram provider</label>
-                      <select value={getProviderSelectValue(telegramProvider)} onChange={event => {
+                      <label htmlFor="telegram-provider" className={sectionLabelClass}>Telegram provider</label>
+                      <select id="telegram-provider" value={getProviderSelectValue(telegramProvider)} onChange={event => {
                         const nextProvider = event.target.value;
                         if (nextProvider === 'auto') {
                           setTelegramProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
@@ -4407,8 +4465,9 @@ function AppShell() {
                     </div>
 
                     <div>
-                      <label className={sectionLabelClass}>Telegram model override</label>
+                      <label htmlFor="telegram-model" className={sectionLabelClass}>Telegram model override</label>
                       <select
+                        id="telegram-model"
                         value={isAutoRouteProvider(telegramProvider) ? telegramProvider : telegramModel}
                         onChange={event => {
                           if (isAutoRouteProvider(telegramProvider)) {

@@ -62,6 +62,7 @@ router.post('/', async (req: Request, res: Response) => {
       prompt,
       response,
       model,
+      provider: provider || null,
       tokensUsed: tokensUsed || 0,
       status: 'completed',
       conversationId,

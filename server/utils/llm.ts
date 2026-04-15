@@ -126,9 +126,13 @@ function decodeKey(encryptedKey: string): string {
     return Buffer.from(encryptedKey, 'base64').toString('utf8');
   }
 
-  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  const _DEV_FALLBACK = 'botty-dev-only-insecure-secret-do-not-use-in-prod';
+  const secret = process.env.KEY_ENCRYPTION_SECRET || (process.env.NODE_ENV !== 'production' ? _DEV_FALLBACK : undefined);
   if (!secret || secret.length < 16) {
-    throw new Error('KEY_ENCRYPTION_SECRET env var must be set to decrypt stored API keys');
+    throw new Error(
+      'KEY_ENCRYPTION_SECRET env var must be set (≥16 chars) in production. ' +
+      'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(32).toString(\'hex\'))"'
+    );
   }
   const key = createHash('sha256').update(secret).digest();
   const raw = Buffer.from(encryptedKey.slice(_KEY_VERSION_PREFIX.length), 'base64');

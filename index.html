@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Botty Local OSS</title>
+    <!-- Blocking script: apply dark background before React hydrates to prevent white flash -->
+    <script>
+      (function () {
+        var t = localStorage.getItem('botty.theme');
+        var dark = t === 'dark' || (t === null && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if (dark) {
+          document.documentElement.style.backgroundColor = '#0d0f11';
+          document.documentElement.style.colorScheme = 'dark';
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -242,6 +242,11 @@ async function bootstrapSchema(pool: Pool) {
     ALTER TABLE user_settings
     ADD COLUMN IF NOT EXISTS pinned_conversations JSONB
   `);
+
+  await pool.query(`
+    ALTER TABLE history
+    ADD COLUMN IF NOT EXISTS provider VARCHAR(100)
+  `);
 }
 
 export async function initializeDatabase() {
