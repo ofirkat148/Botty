@@ -118,6 +118,9 @@ jobs:
       - name: Run memory backup round-trip tests
         run: npm run test:memory-backup
 
+      - name: Run UI features tests (browser)
+        run: npm run test:ui-features
+
       - name: Show logs on failure
         if: failure()
         run: |

@@ -333,6 +333,8 @@ function AppShell() {
   const [telegramModel, setTelegramModel] = useState('');
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatusResponse | null>(null);
   const [loadingTelegramStatus, setLoadingTelegramStatus] = useState(false);
+  const [sendingTelegramTest, setSendingTelegramTest] = useState(false);
+  const [telegramTestResult, setTelegramTestResult] = useState<{ ok: boolean; message: string } | null>(null);
   const [activePresetId, setActivePresetId] = useState('');
   const [applyingFunctionId, setApplyingFunctionId] = useState('');
   const [selectedSlashIndex, setSelectedSlashIndex] = useState(0);
@@ -1310,6 +1312,27 @@ function AppShell() {
       });
     } finally {
       setLoadingTelegramStatus(false);
+    }
+  }
+
+  async function sendTelegramTest() {
+    if (sendingTelegramTest) return;
+    setSendingTelegramTest(true);
+    setTelegramTestResult(null);
+    try {
+      const data = await apiSend<{ ok: boolean; results: Array<{ chatId: string; ok: boolean; error?: string }> }>(
+        '/api/settings/telegram-test', 'POST'
+      );
+      if (data?.ok) {
+        setTelegramTestResult({ ok: true, message: `Test message sent to ${data.results.length} chat ID${data.results.length === 1 ? '' : 's'}.` });
+      } else {
+        const failed = (data?.results || []).filter(r => !r.ok).map(r => `${r.chatId}: ${r.error}`).join('; ');
+        setTelegramTestResult({ ok: false, message: failed || 'Some messages failed to send.' });
+      }
+    } catch (error) {
+      setTelegramTestResult({ ok: false, message: error instanceof Error ? error.message : 'Test failed' });
+    } finally {
+      setSendingTelegramTest(false);
     }
   }
 
@@ -3945,7 +3968,12 @@ function AppShell() {
                             ))}
                           </div>
                         </div>
-                        <div className="mt-4 flex h-44 items-end gap-2">
+                        <div className="mt-4 flex gap-2">
+                          <div className="flex flex-col justify-between pb-7 text-right">
+                            <div className="text-[10px] leading-none opacity-60">{trendPeak.toLocaleString()}</div>
+                            <div className="text-[10px] leading-none opacity-60">0</div>
+                          </div>
+                          <div className="flex flex-1 h-44 items-end gap-2">
                           {usageTrend.length > 0 ? usageTrend.map((entry, index) => {
                             const height = Math.max((entry.tokens / trendPeak) * 100, entry.tokens > 0 ? 10 : 4);
                             return (
@@ -3956,6 +3984,7 @@ function AppShell() {
                               </div>
                             );
                           }) : <div className={`text-sm ${subtleTextClass}`}>No usage yet.</div>}
+                          </div>
                         </div>
                       </div>
 
@@ -4414,8 +4443,24 @@ function AppShell() {
                           <RefreshCw className={`w-4 h-4 ${loadingTelegramStatus ? 'animate-spin' : ''}`} />
                           Refresh
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => void sendTelegramTest()}
+                          className={responsiveSecondaryButtonClass}
+                          disabled={sendingTelegramTest}
+                          title="Send a test message to all configured chat IDs"
+                        >
+                          <Send className={`w-4 h-4 ${sendingTelegramTest ? 'opacity-50' : ''}`} />
+                          Test
+                        </button>
                       </div>
                     </div>
+
+                    {telegramTestResult ? (
+                      <div className={`lg:col-span-2 rounded-[1rem] border px-4 py-3 text-sm ${telegramTestResult.ok ? (isDarkMode ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800') : (isDarkMode ? 'border-red-400/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-800')}`}>
+                        {telegramTestResult.message}
+                      </div>
+                    ) : null}
 
                     <div className="lg:col-span-2">
                       <label htmlFor="telegram-bot-token" className={sectionLabelClass}>Bot token</label>

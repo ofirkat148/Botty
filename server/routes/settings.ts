@@ -316,6 +316,52 @@ router.get('/telegram-status', async (req: Request, res: Response) => {
   }
 });
 
+// POST /api/settings/telegram-test — Send a test message to configured Telegram chat IDs
+router.post('/telegram-test', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const appSettingsRow = await db.select().from(appSettings).where(eq(appSettings.id, APP_SETTINGS_ID)).limit(1).then(rows => rows[0]);
+
+    const rawToken = appSettingsRow?.telegramBotToken ? decryptValue(appSettingsRow.telegramBotToken) : '';
+    const allowedChatIds = (appSettingsRow?.telegramAllowedChatIds || '').split(',').map(id => id.trim()).filter(Boolean);
+
+    if (!rawToken) {
+      return res.status(400).json({ error: 'No bot token configured. Save your Telegram settings first.' });
+    }
+    if (allowedChatIds.length === 0) {
+      return res.status(400).json({ error: 'No allowed chat IDs configured. Add at least one chat ID first.' });
+    }
+
+    const results: Array<{ chatId: string; ok: boolean; error?: string }> = [];
+    for (const chatId of allowedChatIds) {
+      try {
+        // Validate chatId is numeric (positive int or negative for groups)
+        if (!/^-?\d+$/.test(chatId)) {
+          results.push({ chatId, ok: false, error: 'Invalid chat ID format' });
+          continue;
+        }
+        const apiUrl = `https://api.telegram.org/bot${rawToken}/sendMessage`;
+        const response = await fetch(apiUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: chatId, text: '✅ Botty test message — your bot is configured correctly!' }),
+          signal: AbortSignal.timeout(10_000),
+        });
+        const data = await response.json() as { ok: boolean; description?: string };
+        results.push({ chatId, ok: data.ok, error: data.ok ? undefined : (data.description || 'Telegram API error') });
+      } catch (err) {
+        results.push({ chatId, ok: false, error: err instanceof Error ? err.message : 'Network error' });
+      }
+    }
+
+    const allOk = results.every(r => r.ok);
+    res.json({ ok: allOk, results });
+  } catch (error) {
+    console.error('Error sending Telegram test message:', error);
+    res.status(500).json({ error: 'Failed to send test message' });
+  }
+});
+
 // GET /api/user-settings - Get system prompt and other user settings
 router.get('/user-settings', async (req: Request, res: Response) => {
   try {

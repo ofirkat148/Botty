@@ -138,6 +138,9 @@ router.post('/stream', async (req: Request, res: Response) => {
 });
 
 // POST /api/chat/compact — Summarize older messages into a compact context summary
+// Runs the LLM call in the background and returns immediately; the summary is
+// stored server-side and returned to the client via the completed response.
+// A hard 30 s abort prevents indefinite blocking on slow models.
 router.post('/compact', async (req: Request, res: Response) => {
   const uid = req.userId!;
   const rawMessages: Array<{ role: string; content: string; isCompact?: boolean }> = Array.isArray(req.body?.messages) ? req.body.messages : [];
@@ -147,6 +150,12 @@ router.post('/compact', async (req: Request, res: Response) => {
   if (realMessages.length < 4) {
     return res.json({ summary: '' });
   }
+
+  // Cap at the most-recent 20 messages and 300 chars per message to bound LLM latency
+  const cappedMessages = realMessages.slice(-20);
+
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => abortController.abort(), 30_000);
 
   try {
     const runtimeSettings = await getRuntimeSettings(uid);
@@ -166,8 +175,8 @@ router.post('/compact', async (req: Request, res: Response) => {
     const summaryModel = getSuggestedModel(summaryProvider as 'anthropic' | 'google' | 'openai' | 'local', '', { defaultLocalModel, preferFast: true });
     const apiKey = summaryProvider === 'local' ? '' : await getProviderApiKey(uid, summaryProvider);
 
-    const conversationText = realMessages
-      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 500)}`)
+    const conversationText = cappedMessages
+      .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 300)}`)
       .join('\n\n');
 
     const result = await callLLM({
@@ -178,12 +187,18 @@ router.post('/compact', async (req: Request, res: Response) => {
       systemPrompt: 'You are a concise conversation summarizer. Output only the summary, no preamble or labels.',
       messages: [],
       localUrl: runtimeSettings.localUrl,
+      signal: abortController.signal,
     });
 
     return res.json({ summary: result.responseText.trim() });
   } catch (error) {
+    if (isAbortError(error)) {
+      return res.json({ summary: '' });
+    }
     console.error('Compact error:', error);
     return res.json({ summary: '' });
+  } finally {
+    clearTimeout(timeout);
   }
 });
 
