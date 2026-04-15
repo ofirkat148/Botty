@@ -28,6 +28,7 @@ type ChatAction =
   | { type: 'ROLLBACK_OPTIMISTIC' }
   | { type: 'LOAD_HISTORY'; messages: ChatMessage[]; conversationId: string }
   | { type: 'COMPACT_HISTORY'; summary: string; keepLast: number }
+  | { type: 'FORK_AT'; beforeIndex: number }
   | { type: 'RESET' };
 
 const initialState: ChatState = {
@@ -102,6 +103,9 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       ];
       return { ...state, messages: [...summaryMessages, ...kept] };
     }
+
+    case 'FORK_AT':
+      return { ...state, messages: state.messages.slice(0, action.beforeIndex), conversationId: null };
 
     case 'RESET':
       return initialState;

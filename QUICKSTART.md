@@ -103,6 +103,16 @@ The current runtime keeps Botty bound to `127.0.0.1:5000` on the host, so revers
 - If Telegram is unreachable at startup, Botty keeps serving the app and retries Telegram in the background.
 - Enterprise DNS filtering and firewall policy can affect Docker builds and Telegram connectivity even when the web app stays healthy.
 
+### Ollama model size trade-offs
+
+The default model is `qwen2.5:3b` (~2 GB RAM). For machines with limited RAM, `qwen2.5:1.5b` (~900 MB) is sufficient for most chat tasks:
+
+```bash
+docker exec -it botty-ollama-1 ollama pull qwen2.5:1.5b
+```
+
+Then set **Local LLM** → model in Botty Settings, or update `LOCAL_LLM_URL` to point at the smaller model. Use `qwen2.5:7b` or larger for complex coding tasks if your machine has 8 GB+ RAM available for the model.
+
 ## GitHub Sync Helpers
 
 If this machine can reach GitHub normally, you can use:

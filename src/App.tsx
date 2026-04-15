@@ -4,6 +4,7 @@ import {
   ArchiveRestore,
   Bot,
   Download,
+  GitBranch,
   History,
   KeyRound,
   Layers,
@@ -526,7 +527,7 @@ function AppShell() {
       category: 'command' as const,
     })),
   ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
-  const activeBotPreset = useMemo(() => activePreset?.kind === 'agent' ? activePreset : null, [activePreset]);
+  const activeBotPreset = useMemo(() => activePreset?.kind === 'agent' ? activePreset as AgentDefinition : null, [activePreset]);
 
   const conversationTokenWarning = useMemo(() => {
     if (messages.length === 0) return null;
@@ -2999,6 +3000,15 @@ function AppShell() {
                               ? 'Inherits the current provider, memory, and session — does not take over the workflow.'
                               : 'Owns the session. May apply its own routing, model, and memory policy.'}
                           </div>
+                          {activeBotPreset?.tools?.length ? (
+                            <div className="mt-1.5 flex flex-wrap gap-1">
+                              {activeBotPreset.tools.map(tool => (
+                                <span key={tool.name} className={`rounded-full border px-2 py-0.5 text-[11px] tracking-wide opacity-80 ${isDarkMode ? 'border-violet-400/20 bg-violet-500/10' : 'border-violet-200 bg-violet-100'}`}>
+                                  {tool.name}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
                         </div>
                       </div>
                       <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
@@ -3063,6 +3073,21 @@ function AppShell() {
                             : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
                         </div>
                         <div className="whitespace-pre-wrap text-[15px] leading-6 sm:leading-7">{message.content}</div>
+                        {message.role === 'user' && !isSending ? (
+                          <div className="mt-2 flex justify-start">
+                            <button
+                              type="button"
+                              title="Fork — branch from this point"
+                              onClick={() => {
+                                dispatchChat({ type: 'FORK_AT', beforeIndex: index });
+                                setPrompt(message.content);
+                              }}
+                              className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100`}
+                            >
+                              <GitBranch className="w-3 h-3" /> Fork
+                            </button>
+                          </div>
+                        ) : null}
                         {message.role === 'assistant' && formatTokenUsage(message.tokensUsed, message.provider, message.model) ? (
                           <div className={`mt-3 text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model)}</div>
                         ) : null}
