@@ -30,7 +30,7 @@ _Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
 |---|------|-------|
 | 5 | ✅ **Conversation search in sidebar** | Done: Sidebar search input with fuzzy matching on conversation label/prompt/response, shows up to 8 results. |
 | 6 | ✅ **Model catalog refresh without restart** | Done: ↻ Refresh models button in composer re-calls `/api/chat/providers` live. |
-| 7 | **Multi-file attachment** | Currently single-file only. Support drag-drop of multiple files; useful for code review use cases. |
+| 7 | ✅ **Multi-file attachment** | Done: file input has `multiple`, `addChatFiles` processes all dropped/selected files in a loop, up to 6 files shown as chips. |
 | 8 | ✅ **Agent tool execution UI** | Done: Active agent banner now lists declared tool names as badge chips below the session description. |
 | 9 | ✅ **Conversation branching / fork** | Done: Fork button on every user message bubble — trims thread to that point, loads text into composer, new sends branch into a fresh conversation. |
 | 10 | ✅ **Streaming compact summary** | Done: `/compact` now has 30 s AbortController timeout; capped to last 20 messages × 300 chars. |
@@ -51,7 +51,7 @@ _Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
 | # | Item | Notes |
 |---|------|-------|
 | 17 | ✅ **Dark mode flash on load** | Done: Blocking `<script>` in `index.html` sets background and colorScheme before React paint. |
-| 18 | **Export excludes archived conversations** | CSV/Markdown export only works from the active history list. Archived conversations can't be exported without unarchiving first. |
+| 18 | ✅ **Export excludes archived conversations** | Done: export buttons (Markdown + CSV) are unconditionally rendered in both active and archived history views. |
 | 19 | ✅ **Telegram "Send test message" button** | Done: "Test" button next to Refresh in Telegram status card; result shown green/red. |
 | 20 | ✅ **Fullscreen: hamburger menu missing on mobile** | Done: Hamburger button always visible in fullscreen (`lg:hidden` removed in fullscreen mode). |
 | 21 | ✅ **Token usage trend chart Y-axis** | Done: Y-axis column with peak/0 labels added to the trend sparkline. |
