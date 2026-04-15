@@ -20,12 +20,14 @@ export const AUTO_ROUTE_OPTIONS = [
   { value: 'local-first', label: 'Local first' },
 ] as const;
 
+// Provider order: free/local options first, paid cloud after.
+// Google Gemini Flash has a free tier (1500 req/day) — recommended for zero-cost cloud use.
 export const PROVIDERS = [
   { value: 'auto', label: 'Auto route' },
-  { value: 'anthropic', label: 'Anthropic / Claude' },
-  { value: 'google', label: 'Google / Gemini' },
+  { value: 'local', label: 'Local (Ollama) — free' },
+  { value: 'google', label: 'Google / Gemini — free tier' },
   { value: 'openai', label: 'OpenAI' },
-  { value: 'local', label: 'Local OpenAI-compatible' },
+  { value: 'anthropic', label: 'Anthropic / Claude' },
 ];
 
 export const AUTO_ROUTE_MODES = new Set(['auto', 'fastest', 'cheapest', 'best-quality', 'local-first']);

@@ -28,7 +28,9 @@ metadata:
   name: botty-app
   namespace: botty
 spec:
-  replicas: 2
+  # replicas: 1 is correct for personal/single-user deployments.
+  # Only increase to 2+ when you need HA and have a load balancer in front.
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:

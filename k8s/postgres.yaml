@@ -28,7 +28,8 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
+      # 2Gi is ample for personal use; increase for multi-user or large history.
+      storage: 2Gi
 
 ---
 apiVersion: apps/v1

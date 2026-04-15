@@ -1,0 +1,27 @@
+# Development override — enables server hot-reload via `tsx watch`.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#
+# What this does:
+#   - Mounts server/, shared/, and src/ into the container so local edits are
+#     reflected without a rebuild.
+#   - Replaces the production `npm run start` command with `tsx watch` so the
+#     Express server restarts automatically on any server-side file change.
+#   - Vite (frontend HMR) is still served by the host-side `npm run dev:client`
+#     if you run it separately; or omit and rely on `npm run build` for the initial
+#     frontend bundle baked into the image.
+#
+# Note: the image must have been built at least once so the `dist/` folder and
+# production node_modules are present. Only server code is hot-reloaded.
+
+services:
+  app:
+    command: ["npx", "tsx", "watch", "--clear-screen=false", "server/index.ts"]
+    environment:
+      NODE_ENV: development
+      DISABLE_RATE_LIMIT: "true"
+    volumes:
+      - /run/systemd/resolve/resolv.conf:/etc/resolv.conf:ro
+      - ./server:/app/server:ro
+      - ./shared:/app/shared:ro

@@ -302,6 +302,8 @@ function AppShell() {
   const [historySearch, setHistorySearch] = useState('');
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [factsSearch, setFactsSearch] = useState('');
+  const [sidebarSearch, setSidebarSearch] = useState('');
+  const [sidebarSearchFocused, setSidebarSearchFocused] = useState(false);
   const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
   const [pinnedConversations, setPinnedConversations] = useState<Set<string>>(new Set());
   const [conversationModels, setConversationModels] = useState<Record<string, { provider: string; model: string }>>({});
@@ -2586,6 +2588,19 @@ function AppShell() {
   const providerPeak = useMemo(() => Math.max(...dailyProviderUsage.map(entry => entry.tokens), 1), [dailyProviderUsage]);
   const modelPeak = useMemo(() => Math.max(...sortedModelUsage.map(entry => entry.tokens), 1), [sortedModelUsage]);
 
+  const sidebarSearchResults = useMemo(() => {
+    const q = sidebarSearch.trim().toLowerCase();
+    if (!q) return [];
+    return conversations
+      .filter(item => {
+        const label = (conversationLabels[item.id] || '').toLowerCase();
+        return label.includes(q) || item.items.some(entry =>
+          entry.prompt.toLowerCase().includes(q) || entry.response.toLowerCase().includes(q)
+        );
+      })
+      .slice(0, 8);
+  }, [sidebarSearch, conversations, conversationLabels]);
+
   const appBackgroundClass = isDarkMode
     ? `w-full overflow-x-hidden bg-[#101214] text-stone-100 ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'}`
     : `w-full overflow-x-hidden bg-[#f3f0ea] text-stone-900 ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'}`;
@@ -2784,6 +2799,57 @@ function AppShell() {
               <span className={sidebarTextClass}>New chat</span>
             </button>
 
+            {isSidebarExpanded ? (
+              <div className="relative">
+                <div className={`flex items-center gap-2 rounded-[0.9rem] border px-3 py-2 text-sm ${isDarkMode ? 'border-white/10 bg-white/5 text-stone-300 placeholder:text-stone-500' : 'border-stone-200 bg-white/70 text-stone-700 placeholder:text-stone-400'}`}>
+                  <Search className="w-3.5 h-3.5 shrink-0 opacity-60" />
+                  <input
+                    type="text"
+                    value={sidebarSearch}
+                    onChange={event => setSidebarSearch(event.target.value)}
+                    onFocus={() => setSidebarSearchFocused(true)}
+                    onBlur={() => setTimeout(() => setSidebarSearchFocused(false), 150)}
+                    placeholder="Search conversations…"
+                    aria-label="Search conversations"
+                    className="flex-1 bg-transparent outline-none text-sm min-w-0"
+                  />
+                  {sidebarSearch ? (
+                    <button type="button" onClick={() => setSidebarSearch('')} className="shrink-0 opacity-60 hover:opacity-100">
+                      <X className="w-3 h-3" />
+                    </button>
+                  ) : null}
+                </div>
+                {(sidebarSearchFocused || sidebarSearch) && sidebarSearchResults.length > 0 ? (
+                  <div className={`absolute left-0 right-0 top-full z-50 mt-1 rounded-[0.9rem] border py-1 shadow-lg ${isDarkMode ? 'border-white/10 bg-[#1c1f23]' : 'border-stone-200 bg-white'}`}>
+                    {sidebarSearchResults.map(item => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onMouseDown={() => {
+                          loadConversation(item.id);
+                          setSidebarSearch('');
+                          closeMobileSidebar();
+                        }}
+                        className={`w-full px-3 py-2 text-left text-sm transition-colors ${isDarkMode ? 'hover:bg-white/6 text-stone-200' : 'hover:bg-stone-50 text-stone-800'}`}
+                      >
+                        <div className="truncate font-medium">
+                          {conversationLabels[item.id] || item.items[0].prompt}
+                        </div>
+                        <div className={`truncate text-xs mt-0.5 ${isDarkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                          {new Date(item.items[0].timestamp).toLocaleDateString()}
+                          {conversationLabels[item.id] ? ` · ${item.items[0].prompt.slice(0, 60)}` : ''}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                ) : (sidebarSearchFocused || sidebarSearch) && sidebarSearch.trim() && sidebarSearchResults.length === 0 ? (
+                  <div className={`absolute left-0 right-0 top-full z-50 mt-1 rounded-[0.9rem] border px-3 py-2.5 text-sm shadow-lg ${isDarkMode ? 'border-white/10 bg-[#1c1f23] text-stone-400' : 'border-stone-200 bg-white text-stone-500'}`}>
+                    No matches
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             {activePresetId && isSidebarExpanded ? (
               <div className="flex items-center gap-1.5 rounded-md bg-violet-50 px-2.5 py-1.5 text-xs text-violet-700 dark:bg-violet-950/40 dark:text-violet-300">
                 <span className="flex-1 truncate font-medium">{allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'} active</span>
@@ -2874,7 +2940,7 @@ function AppShell() {
                 <button
                   type="button"
                   onClick={() => setIsSidebarDrawerOpen(true)}
-                  className={`${actionButtonClass} lg:hidden`}
+                  className={`${actionButtonClass} ${isFullscreen ? '' : 'lg:hidden'}`}
                   aria-label="Open menu"
                   title="Open menu"
                 >
@@ -4328,6 +4394,9 @@ function AppShell() {
                   <div className="flex items-center gap-2 mb-3">
                     <KeyRound className="w-4 h-4" />
                     <h3 className="font-medium">Provider keys</h3>
+                  </div>
+                  <div className={`mb-4 rounded-[0.9rem] border px-4 py-3 text-sm ${isDarkMode ? 'border-emerald-400/20 bg-emerald-500/8 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
+                    <strong>Free options:</strong> Local (Ollama) needs no key — just a running model. Google Gemini Flash has a generous free tier (1,500 requests/day) via <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="underline">aistudio.google.com</a>.
                   </div>
                   <div className="grid gap-3 md:grid-cols-3">
                     {['anthropic', 'google', 'openai'].map(providerName => (
