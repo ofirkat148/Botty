@@ -1,0 +1,48 @@
+name: CD - Deploy to Production
+
+# Runs automatically after "Build and Publish Docker Image" succeeds on main.
+# Can also be triggered manually from the Actions tab.
+on:
+  workflow_run:
+    workflows: ["Build and Publish Docker Image"]
+    types: [completed]
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    name: Deploy on local machine
+    # Runs on the self-hosted runner registered on your machine.
+    # The runner connects OUT to GitHub — no public IP required.
+    runs-on: self-hosted
+
+    # Only run if the upstream publish workflow actually succeeded
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      # Pull the new image from GHCR, re-tag it as botty-app:local
+      # (the name docker-compose.yml expects), then restart the service.
+      # GHCR_TOKEN must be a GitHub PAT with read:packages scope.
+      - name: Pull new image from GHCR
+        run: |
+          echo "${{ secrets.GHCR_TOKEN }}" | \
+            docker login ghcr.io -u "${{ github.repository_owner }}" --password-stdin
+
+          docker pull ghcr.io/${{ github.repository_owner }}/botty:main
+
+          docker tag \
+            ghcr.io/${{ github.repository_owner }}/botty:main \
+            botty-app:local
+
+      # Restart only the app container — postgres and ollama are left running.
+      - name: Restart botty service
+        run: sudo systemctl restart botty.service
+
+      # Confirm the app is healthy before marking the deployment as successful.
+      - name: Verify deployment
+        run: |
+          timeout 60 bash -c \
+            'until curl -fsS http://127.0.0.1:5000/api/health; do sleep 3; done'
+          echo "Deployment healthy"
