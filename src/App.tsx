@@ -1168,6 +1168,11 @@ function AppShell() {
 
   async function apiGet<T>(path: string) {
     const response = await fetch(path, { headers: authHeaders });
+    if (response.status === 401) {
+      handleLogout();
+      setAuthError('Your session has expired. Please log in again.');
+      throw new Error('Session expired');
+    }
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || `Request failed: ${response.status}`);
@@ -1183,6 +1188,11 @@ function AppShell() {
       signal: options?.signal,
     });
 
+    if (response.status === 401) {
+      handleLogout();
+      setAuthError('Your session has expired. Please log in again.');
+      throw new Error('Session expired');
+    }
     if (!response.ok) {
       const data = await response.json().catch(() => ({}));
       throw new Error(data.error || `Request failed: ${response.status}`);
@@ -4305,8 +4315,9 @@ function AppShell() {
                   </div>
 
                   <div>
-                    <label className={sectionLabelClass}>History retention (days)</label>
+                    <label htmlFor="history-retention-days" className={sectionLabelClass}>History retention (days)</label>
                     <input
+                      id="history-retention-days"
                       type="number"
                       min="1"
                       max="3650"

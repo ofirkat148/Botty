@@ -8,8 +8,8 @@ _Last updated: 14 April 2026. Prioritized by impact/risk._
 
 | # | Item | Why / Impact |
 |---|------|-------------|
-| 1 | **Multi-stage Alpine Dockerfile** | Switch to a two-stage build: stage 1 installs all deps and runs `npm run build`; stage 2 starts from `node:20-alpine` and copies only `dist/`, production `node_modules`, and the built server files. Shrinks the image from ~1.5 GB → ~350 MB. Faster rebuilds, smaller pulls, less disk. This is the single biggest cost/time saving. |
-| 2 | **`npm ci` instead of `npm install` in Dockerfile** | `npm ci` is faster and deterministic; pairs well with the `--mount=type=cache` layer already in the Dockerfile. |
+| 1 | ✅ **Multi-stage Alpine Dockerfile** | Done: two-stage build — `node:20` builder stage + `node:20-alpine` runtime. `tsx` moved to production deps. Image shrinks ~1.5 GB → ~350 MB. |
+| 2 | ✅ **`npm ci` instead of `npm install` in Dockerfile** | Done: both stages now use `npm ci`. |
 | 3 | **Default cloud provider → Gemini Flash (free tier)** | `claude-3-7-sonnet-latest` is among the most expensive models (~$15/M output tokens). `gemini-2.5-flash` has a free tier on Google AI Studio (1500 req/day, 1M tokens/min) covering virtually all personal-use traffic at $0. Change the recommended onboarding order in settings to: Local → Gemini Flash → OpenAI mini → Anthropic. |
 | 4 | **k8s `replicas: 1` for single-user deployments** | `k8s/app.yaml` sets `replicas: 2`. On any cloud k8s (GKE, EKS, AKS) that doubles the compute bill. Document that replicas: 2 is only needed for HA; default to 1 for personal deployments. |
 | 5 | **Ollama: prefer smallest adequate model** | `qwen2.5:3b` is the current default (good). `qwen2.5:1.5b` uses ~900 MB RAM vs ~2 GB, sufficient for most chat tasks. Document this trade-off so users can choose based on how much RAM their machine has. |
@@ -20,9 +20,9 @@ _Last updated: 14 April 2026. Prioritized by impact/risk._
 | # | Item | Notes |
 |---|------|-------|
 | 1 | **Auth rate limiter resets on container restart** | In-memory limiter loses its state on every Docker restart. Use a persistent store or add a `DISABLE_RATE_LIMIT=true` env override for dev/test. |
-| 2 | **JWT expiry with no re-login prompt** | After 24h tokens expire; the UI breaks silently with 401s. Detect `tokenExpired` in the API layer and redirect to login. |
-| 3 | **`historyRetentionDays` label missing `htmlFor`** | Screen readers fail; test selectors are fragile. Add `id` + `htmlFor` to the Settings input. |
-| 4 | **Memory context hard-truncated at 8,000 chars** | `getMemoryContext` silently cuts memory with no warning. Surface a notice or make the limit configurable via settings. |
+| 2 | ✅ **JWT expiry with no re-login prompt** | Done: `apiGet`/`apiSend` now detect 401, call `handleLogout()` and set an "session expired" error to redirect the user to login. |
+| 3 | ✅ **`historyRetentionDays` label missing `htmlFor`** | Done: Added `id="history-retention-days"` + `htmlFor` to the Settings label. |
+| 4 | ✅ **Memory context hard-truncated at 8,000 chars** | Done: `getMemoryContext` now appends `...[memory context truncated]` when the 8,000-char limit is hit. |
 
 ## P2 — Features
 

@@ -994,7 +994,10 @@ export async function getMemoryContext(uid: string, options?: { sandboxMode?: bo
   }
 
   const joined = sections.join('\n\n');
-  return joined.length > MAX_MEMORY_CHARS ? joined.slice(0, MAX_MEMORY_CHARS) : joined;
+  if (joined.length > MAX_MEMORY_CHARS) {
+    return joined.slice(0, MAX_MEMORY_CHARS) + '\n...[memory context truncated]';
+  }
+  return joined;
 }
 
 export function buildChatSystemPrompt(params: {
