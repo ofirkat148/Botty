@@ -40,6 +40,11 @@ jobs:
       - name: Restart botty service
         run: sudo systemctl restart botty.service
 
+      # Ensure Ollama has the required model (kept in persistent volume).
+      - name: Ensure Ollama model is available
+        run: |
+          docker exec botty-ollama-1 ollama pull qwen2.5:3b
+
       # Confirm the app is healthy before marking the deployment as successful.
       - name: Verify deployment
         run: |
