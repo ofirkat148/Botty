@@ -59,3 +59,12 @@ _Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
 | 23 | ✅ **Copy message button on assistant bubbles** | Done: Copy icon button in every assistant message footer; writes content to clipboard, shows Check + "Copied!" for 1.5s. Token usage and Retry merged into the same action row. |
 | 24 | ✅ **Keyboard shortcut Ctrl+N for new conversation** | Already implemented in `handleWindowKeyDown` — Ctrl/Cmd+N when not in an editable field resets the chat and focuses the composer. |
 | 25 | ✅ **Token count estimate in the composer** | Done: composer status line appends `· ~N tokens` (chars ÷ 4) when the draft is non-empty, giving users a live rough estimate before sending. |
+
+## P5 — Next Wave
+
+| # | Item | Notes |
+|---|------|-------|
+| 26 | ✅ **Message timestamps in chat** | Done: `sentAt` ISO timestamp added to `ChatMessage` type; stamped on `ADD_USER_MESSAGE` and `FINALIZE_ASSISTANT` in the reducer; rendered as `HH:MM` in the message header alongside the role label. |
+| 27 | ✅ **Message count badge on sidebar conversations** | Already present in History tab: each conversation shows `N message pairs`. No change needed. |
+| 28 | ✅ **Auto-scroll lock** | Done: `chatScrollRef` + `scrollLockedRef` detect when user scrolls up; auto-scroll pauses and a `↓ Resume scroll` pill appears at the top of the chat. Clicking it unlocks and jumps to bottom. |
+| 29 | **Keyboard shortcut cheatsheet** | A small `?` button or `Ctrl+?` reveals all keyboard shortcuts (Ctrl+N, Ctrl+\, Ctrl+/, Alt+Enter). Currently undiscoverable. |

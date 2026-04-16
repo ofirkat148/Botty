@@ -8,6 +8,7 @@ export type ChatMessage = {
   routingMode?: string | null;
   tokensUsed?: number | null;
   isCompact?: boolean;
+  sentAt?: string; // ISO timestamp
 };
 
 export type ChatState = {
@@ -41,7 +42,7 @@ const initialState: ChatState = {
 function chatReducer(state: ChatState, action: ChatAction): ChatState {
   switch (action.type) {
     case 'ADD_USER_MESSAGE':
-      return { ...state, messages: [...state.messages, { role: 'user', content: action.content }], chatError: '' };
+      return { ...state, messages: [...state.messages, { role: 'user', content: action.content, sentAt: new Date().toISOString() }], chatError: '' };
 
     case 'ADD_ASSISTANT_PLACEHOLDER':
       return { ...state, messages: [...state.messages, { role: 'assistant', content: '' }] };
@@ -66,6 +67,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           provider: action.provider,
           routingMode: action.routingMode,
           tokensUsed: action.tokensUsed,
+          sentAt: new Date().toISOString(),
         };
       }
       return { ...state, messages: updated, conversationId: action.conversationId };

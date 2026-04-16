@@ -460,6 +460,9 @@ function AppShell() {
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
   const speechRecognitionRef = useRef<any>(null);
   const chatAbortControllerRef = useRef<AbortController | null>(null);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const scrollLockedRef = useRef(false);
+  const [showScrollResumeBtn, setShowScrollResumeBtn] = useState(false);
 
   const authHeaders = useMemo(() => ({
     'Content-Type': 'application/json',
@@ -1174,6 +1177,32 @@ function AppShell() {
   useEffect(() => {
     setSelectedSlashIndex(0);
   }, [prompt]);
+
+  // Auto-scroll to bottom when messages grow, unless user scrolled up
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el || scrollLockedRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  // Detect user scrolling up to lock auto-scroll
+  useEffect(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    function handleScroll() {
+      if (!el) return;
+      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      if (atBottom) {
+        scrollLockedRef.current = false;
+        setShowScrollResumeBtn(false);
+      } else {
+        scrollLockedRef.current = true;
+        setShowScrollResumeBtn(true);
+      }
+    }
+    el.addEventListener('scroll', handleScroll, { passive: true });
+    return () => el.removeEventListener('scroll', handleScroll);
+  }, []);
 
   async function apiGet<T>(path: string) {
     const response = await fetch(path, { headers: authHeaders });
@@ -3062,7 +3091,23 @@ function AppShell() {
                     </button>
                   </div>
 
-                  <div className="flex-1 overflow-auto space-y-3 pr-1 sm:space-y-4 sm:pr-2">
+                  <div ref={chatScrollRef} className="flex-1 overflow-auto space-y-3 pr-1 sm:space-y-4 sm:pr-2 relative">
+                    {showScrollResumeBtn ? (
+                      <div className="sticky top-0 z-10 flex justify-center pb-1 pt-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            scrollLockedRef.current = false;
+                            setShowScrollResumeBtn(false);
+                            const el = chatScrollRef.current;
+                            if (el) el.scrollTop = el.scrollHeight;
+                          }}
+                          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-md ${isDarkMode ? 'bg-stone-700 text-stone-100 hover:bg-stone-600' : 'bg-stone-800 text-white hover:bg-stone-700'}`}
+                        >
+                          ↓ Resume scroll
+                        </button>
+                      </div>
+                    ) : null}
                     {conversationTokenWarning ? (
                       <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${conversationTokenWarning.level === 'critical' ? (isDarkMode ? 'border-red-400/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-800') : (isDarkMode ? 'border-amber-400/20 bg-amber-500/8 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800')}`}>
                         <Layers className="h-3.5 w-3.5 shrink-0 opacity-70" />
@@ -3096,10 +3141,17 @@ function AppShell() {
                             Requested via {formatRoutingModeLabel(message.routingMode)}
                           </div>
                         ) : null}
-                        <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
-                          {message.role === 'user'
-                            ? 'You'
-                            : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
+                        <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2 flex items-center justify-between gap-2">
+                          <span>
+                            {message.role === 'user'
+                              ? 'You'
+                              : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
+                          </span>
+                          {message.sentAt ? (
+                            <span className="normal-case tracking-normal text-[11px] opacity-70">
+                              {new Date(message.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                            </span>
+                          ) : null}
                         </div>
                         <div className="whitespace-pre-wrap text-[15px] leading-6 sm:leading-7">{message.content}</div>
                         {message.role === 'user' && !isSending ? (
