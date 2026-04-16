@@ -57,5 +57,5 @@ _Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
 | 21 | ✅ **Token usage trend chart Y-axis** | Done: Y-axis column with peak/0 labels added to the trend sparkline. |
 | 22 | ✅ **`npm test` combined script** | Done: `npm test` runs all non-browser integration tests in sequence (13 suites). Also added `test:routing-unit` to CI pipeline. |
 | 23 | ✅ **Copy message button on assistant bubbles** | Done: Copy icon button in every assistant message footer; writes content to clipboard, shows Check + "Copied!" for 1.5s. Token usage and Retry merged into the same action row. |
-| 24 | **Keyboard shortcut Ctrl+N for new conversation** | No keyboard shortcut to reset to a new chat. Currently requires clicking the + button in the sidebar. |
-| 25 | **Token count estimate in the composer** | Show a live rough token estimate (chars ÷ 4) in the composer bar as the user types, so they know before sending whether they are approaching context limits. |
+| 24 | ✅ **Keyboard shortcut Ctrl+N for new conversation** | Already implemented in `handleWindowKeyDown` — Ctrl/Cmd+N when not in an editable field resets the chat and focuses the composer. |
+| 25 | ✅ **Token count estimate in the composer** | Done: composer status line appends `· ~N tokens` (chars ÷ 4) when the draft is non-empty, giving users a live rough estimate before sending. |

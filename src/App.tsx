@@ -3415,7 +3415,7 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activePresetId ? `Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activePresetId ? `Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.{prompt.trim().length > 0 ? ` · ~${Math.max(1, Math.round(prompt.trim().length / 4)).toLocaleString()} tokens` : ''}</p>
                       <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
                         <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
                           <Upload className="w-4 h-4" />
