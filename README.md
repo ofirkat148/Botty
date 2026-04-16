@@ -1,6 +1,6 @@
 # Botty
 
-A local-first AI chat assistant with a React frontend, Express/Node backend, PostgreSQL, and Ollama. Run entirely on your machine with no cloud dependency — or add API keys for Anthropic, Google Gemini, and OpenAI.
+A local-first AI chat assistant with a React frontend, Express/Node backend, SQLite, and Ollama. Run entirely on your machine with no cloud dependency — or add API keys for Anthropic, Google Gemini, and OpenAI.
 
 ---
 
@@ -47,7 +47,7 @@ A local-first AI chat assistant with a React frontend, Express/Node backend, Pos
 
 **Telegram Bot**
 - Long-polling Telegram bot with exponential backoff
-- Each Telegram chat gets its own Botty user in PostgreSQL
+- Each Telegram chat gets its own Botty user in SQLite
 - Configurable provider/model per Telegram session
 - Test-send button in Settings to verify bot credentials
 
@@ -55,7 +55,7 @@ A local-first AI chat assistant with a React frontend, Express/Node backend, Pos
 - Local JWT auth (email-based, single-user friendly)
 - JWT secret enforced at startup (≥ 16 chars)
 - API key encryption at rest with AES-256-GCM
-- Auth rate limiter (20 req / 15 min) persisted in Postgres across restarts
+- Auth rate limiter (20 req / 15 min) persisted in SQLite across restarts
 - Remote agent SSRF protection (http/https only)
 - CORS wildcard warning when `PUBLIC_BASE_URL` is non-localhost
 
@@ -122,7 +122,7 @@ npm run dev        # Vite on :5173, Express on :5000
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `DATABASE_PATH` | — | Path to the SQLite database file (default: `./data/botty.db`) |
 | `JWT_SECRET` | ✅ | ≥ 16 chars; generate with `openssl rand -hex 32` |
 | `KEY_ENCRYPTION_SECRET` | ✅ | ≥ 16 chars; used for AES-256-GCM key encryption |
 | `ANTHROPIC_API_KEY` | — | Enables Claude models |
@@ -157,8 +157,8 @@ Express API (:5000)
   ├─ /api/usage      — token usage + trends
   └─ /api/metrics    — Prometheus exposition
        │
-  ┌────┴─────┐
-  │ PostgreSQL│  (Drizzle ORM, auto-migrated on start)
+  ┌──────────┐
+  │  SQLite  │  (Drizzle ORM, tables created on start)
   └──────────┘
        │
   Ollama / Cloud LLM providers
@@ -180,11 +180,11 @@ docker compose ps
 docker compose build app
 sudo systemctl restart botty.service
 
-# DB backup (runs pg_dump inside the postgres container)
+# DB backup (copies the SQLite file; safe while running thanks to WAL mode)
 bash ops/backup-db.sh --dir /var/backups/botty --keep 14
 ```
 
-The stack uses **Docker host networking** with explicit localhost binds (`127.0.0.1:5000`, `127.0.0.1:11435`, `127.0.0.1:5432`) to reliably work behind enterprise DNS and firewall controls that break Docker bridge-network name resolution.
+The stack uses **Docker host networking** with explicit localhost binds (`127.0.0.1:5000`, `127.0.0.1:11435`) to reliably work behind enterprise DNS and firewall controls that break Docker bridge-network name resolution.
 
 Access Botty remotely through a reverse proxy. Sample configs:
 - [ops/Caddyfile](ops/Caddyfile)
@@ -204,7 +204,7 @@ npm run test:memory
 npm run test:telegram
 ```
 
-CI runs all suites plus browser tests (`test:ui-features`) via GitHub Actions with a live Postgres service container and a local LLM mock.
+CI runs all suites plus browser tests (`test:ui-features`) via GitHub Actions with a local LLM mock. No external database service is needed — SQLite is created in `/tmp` for each run.
 
 ---
 
@@ -220,11 +220,10 @@ bash ops/git-push.sh            # push current branch to origin
 
 ## Kubernetes
 
-Manifests are in `k8s/`. Single-replica deployment with a 2 Gi Postgres PVC.
+Manifests are in `k8s/`. Single-replica deployment. Note: `k8s/postgres.yaml` is retained for historical reference but the app no longer requires it.
 
 ```bash
 kubectl apply -f k8s/namespace-and-ingress.yaml
-kubectl apply -f k8s/postgres.yaml
 kubectl apply -f k8s/app.yaml
 ```
 
