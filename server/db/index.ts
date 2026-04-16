@@ -1,296 +1,191 @@
-import { drizzle } from 'drizzle-orm/node-postgres';
-import { Pool } from 'pg';
+import Database from 'better-sqlite3';
+import { drizzle } from 'drizzle-orm/better-sqlite3';
+import { mkdirSync } from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import * as schema from './schema.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 let db: ReturnType<typeof drizzle> | null = null;
 
-async function bootstrapSchema(pool: Pool) {
-  await pool.query(`
+function bootstrapSchema(sqlite: Database.Database) {
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL UNIQUE,
-      email VARCHAR(255) NOT NULL,
-      display_name VARCHAR(255),
+      uid TEXT NOT NULL UNIQUE,
+      email TEXT NOT NULL,
+      display_name TEXT,
       photo_url TEXT,
-      last_login TIMESTAMP,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      last_login TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS api_keys (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL,
-      provider VARCHAR(100) NOT NULL,
+      uid TEXT NOT NULL,
+      provider TEXT NOT NULL,
       encrypted_key TEXT NOT NULL,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       UNIQUE(uid, provider)
     )
   `);
 
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS history (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL,
+      uid TEXT NOT NULL,
       prompt TEXT NOT NULL,
       response TEXT NOT NULL,
-      model VARCHAR(100) NOT NULL,
+      model TEXT NOT NULL,
+      provider TEXT,
       tokens_used INTEGER,
-      status VARCHAR(50) DEFAULT 'completed',
+      status TEXT DEFAULT 'completed',
       conversation_id TEXT,
-      timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+      is_archived INTEGER NOT NULL DEFAULT 0,
+      timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS history_uid_idx ON history (uid)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS history_uid_timestamp_idx ON history (uid, timestamp DESC)`);
+
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS facts (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL,
+      uid TEXT NOT NULL,
       bot_id TEXT,
       content TEXT NOT NULL,
-      is_skill BOOLEAN DEFAULT FALSE,
-      timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+      is_skill INTEGER DEFAULT 0,
+      timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
-    ALTER TABLE facts
-    ADD COLUMN IF NOT EXISTS bot_id TEXT
-  `);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS facts_bot_id_idx ON facts (bot_id)`);
 
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS facts_bot_id_idx ON facts (bot_id)
-  `);
-
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS memory_files (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL,
-      name VARCHAR(255) NOT NULL,
+      uid TEXT NOT NULL,
+      name TEXT NOT NULL,
       content TEXT NOT NULL,
-      type VARCHAR(50),
+      type TEXT,
       size INTEGER,
-      is_skill BOOLEAN DEFAULT FALSE,
-      timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+      is_skill INTEGER DEFAULT 0,
+      timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS memory_urls (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL,
+      uid TEXT NOT NULL,
       url TEXT NOT NULL,
-      title VARCHAR(255),
-      timestamp TIMESTAMP NOT NULL DEFAULT NOW()
+      title TEXT,
+      timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS settings (
-      uid VARCHAR(255) PRIMARY KEY,
+      uid TEXT PRIMARY KEY,
       local_url TEXT,
-      use_memory BOOLEAN DEFAULT TRUE,
-      auto_memory BOOLEAN DEFAULT TRUE,
-      sandbox_mode BOOLEAN DEFAULT FALSE,
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      use_memory INTEGER DEFAULT 1,
+      auto_memory INTEGER DEFAULT 1,
+      sandbox_mode INTEGER DEFAULT 0,
+      history_retention_days INTEGER,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
-    ALTER TABLE settings
-    ADD COLUMN IF NOT EXISTS auto_memory BOOLEAN DEFAULT TRUE
-  `);
-
-  await pool.query(`
-    ALTER TABLE settings
-    ADD COLUMN IF NOT EXISTS sandbox_mode BOOLEAN DEFAULT FALSE
-  `);
-
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS app_settings (
-      id VARCHAR(64) PRIMARY KEY,
+      id TEXT PRIMARY KEY,
       telegram_bot_token TEXT,
-      telegram_bot_enabled BOOLEAN DEFAULT TRUE,
+      telegram_bot_enabled INTEGER DEFAULT 1,
       telegram_allowed_chat_ids TEXT,
-      telegram_provider VARCHAR(100),
-      telegram_model VARCHAR(255),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      telegram_provider TEXT,
+      telegram_model TEXT,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
-    ALTER TABLE app_settings
-    ADD COLUMN IF NOT EXISTS telegram_bot_token TEXT
-  `);
-
-  await pool.query(`
-    ALTER TABLE app_settings
-    ADD COLUMN IF NOT EXISTS telegram_bot_enabled BOOLEAN DEFAULT TRUE
-  `);
-
-  await pool.query(`
-    ALTER TABLE app_settings
-    ADD COLUMN IF NOT EXISTS telegram_allowed_chat_ids TEXT
-  `);
-
-  await pool.query(`
-    ALTER TABLE app_settings
-    ADD COLUMN IF NOT EXISTS telegram_provider VARCHAR(100)
-  `);
-
-  await pool.query(`
-    ALTER TABLE app_settings
-    ADD COLUMN IF NOT EXISTS telegram_model VARCHAR(255)
-  `);
-
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS user_settings (
-      uid VARCHAR(255) PRIMARY KEY,
+      uid TEXT PRIMARY KEY,
       system_prompt TEXT,
-      custom_skills JSONB,
-      custom_bots JSONB,
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+      custom_skills TEXT,
+      custom_bots TEXT,
+      conversation_labels TEXT,
+      conversation_models TEXT,
+      pinned_conversations TEXT,
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
-    ALTER TABLE user_settings
-    ADD COLUMN IF NOT EXISTS custom_skills JSONB
-  `);
-
-  await pool.query(`
-    ALTER TABLE user_settings
-    ADD COLUMN IF NOT EXISTS custom_bots JSONB
-  `);
-
-  await pool.query(`
-    ALTER TABLE user_settings
-    ADD COLUMN IF NOT EXISTS conversation_labels JSONB
-  `);
-
-  await pool.query(`
-    ALTER TABLE history
-    ADD COLUMN IF NOT EXISTS is_archived BOOLEAN NOT NULL DEFAULT FALSE
-  `);
-
-  await pool.query(`
-    ALTER TABLE user_settings
-    ADD COLUMN IF NOT EXISTS conversation_models JSONB
-  `);
-
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS agent_definitions (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL,
-      title VARCHAR(255) NOT NULL,
+      uid TEXT NOT NULL,
+      title TEXT NOT NULL,
       description TEXT NOT NULL,
-      command VARCHAR(100) NOT NULL,
+      command TEXT NOT NULL,
       use_when TEXT NOT NULL,
       boundaries TEXT NOT NULL,
       system_prompt TEXT NOT NULL,
       starter_prompt TEXT NOT NULL,
-      provider VARCHAR(100),
-      model VARCHAR(255),
-      memory_mode VARCHAR(20) DEFAULT 'shared',
-      executor_type VARCHAR(64) NOT NULL DEFAULT 'internal-llm',
+      provider TEXT,
+      model TEXT,
+      memory_mode TEXT DEFAULT 'shared',
+      executor_type TEXT NOT NULL DEFAULT 'internal-llm',
       endpoint TEXT,
-      config JSONB,
-      enabled BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+      config TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
       UNIQUE(uid, command)
     )
   `);
 
-  await pool.query(`
-    ALTER TABLE agent_definitions
-    ADD COLUMN IF NOT EXISTS executor_type VARCHAR(64) NOT NULL DEFAULT 'internal-llm'
-  `);
-
-  await pool.query(`
-    ALTER TABLE agent_definitions
-    ADD COLUMN IF NOT EXISTS endpoint TEXT
-  `);
-
-  await pool.query(`
-    ALTER TABLE agent_definitions
-    ADD COLUMN IF NOT EXISTS config JSONB
-  `);
-
-  await pool.query(`
-    ALTER TABLE agent_definitions
-    ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE
-  `);
-
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS daily_usage (
       id TEXT PRIMARY KEY,
-      uid VARCHAR(255) NOT NULL,
-      date TIMESTAMP NOT NULL,
+      uid TEXT NOT NULL,
+      date TEXT NOT NULL,
       tokens INTEGER DEFAULT 0,
-      model_usage JSONB DEFAULT '{}'::jsonb,
-      created_at TIMESTAMP NOT NULL DEFAULT NOW()
+      model_usage TEXT DEFAULT '{}',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
     )
   `);
 
-  await pool.query(`
-    ALTER TABLE settings
-    ADD COLUMN IF NOT EXISTS history_retention_days INTEGER
-  `);
-
-  await pool.query(`
-    ALTER TABLE user_settings
-    ADD COLUMN IF NOT EXISTS pinned_conversations JSONB
-  `);
-
-  await pool.query(`
-    ALTER TABLE history
-    ADD COLUMN IF NOT EXISTS provider VARCHAR(100)
-  `);
-
-  await pool.query(`
+  sqlite.exec(`
     CREATE TABLE IF NOT EXISTS rate_limit_hits (
       key TEXT PRIMARY KEY,
       hits INTEGER NOT NULL DEFAULT 0,
-      reset_at TIMESTAMPTZ NOT NULL
+      reset_at TEXT NOT NULL
     )
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS history_uid_idx ON history (uid)
-  `);
-
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS history_uid_timestamp_idx ON history (uid, timestamp DESC)
   `);
 }
 
-export async function initializeDatabase() {
-  if (db) {
-    return db;
-  }
+export function initializeDatabase() {
+  if (db) return db;
 
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL environment variable is not set');
-  }
+  const dbPath = process.env.DATABASE_PATH
+    || path.join(__dirname, '..', '..', 'data', 'botty.db');
 
-  const pool = new Pool({
-    connectionString: databaseUrl,
-  });
+  mkdirSync(path.dirname(dbPath), { recursive: true });
 
-  db = drizzle(pool, { schema });
+  const sqlite = new Database(dbPath);
+  sqlite.pragma('journal_mode = WAL');
+  sqlite.pragma('foreign_keys = ON');
 
-  // Test connection
-  try {
-    await pool.query('SELECT 1');
-    await bootstrapSchema(pool);
-    console.log('✅ Database connection successful');
-  } catch (error) {
-    console.error('❌ Database connection failed:', error);
-    throw error;
-  }
+  bootstrapSchema(sqlite);
 
+  db = drizzle(sqlite, { schema });
+  console.log(`✅ SQLite database ready: ${dbPath}`);
   return db;
 }
 

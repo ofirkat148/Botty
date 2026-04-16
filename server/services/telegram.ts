@@ -278,7 +278,7 @@ async function ensureTelegramUser(update: TelegramUpdate['message']) {
   if (existing[0]) {
     await db.update(users).set({
       displayName,
-      lastLogin: new Date(),
+      lastLogin: new Date().toISOString(),
     }).where(eq(users.id, existing[0].id));
 
     return existing[0].uid;
@@ -290,8 +290,8 @@ async function ensureTelegramUser(update: TelegramUpdate['message']) {
     email,
     displayName,
     photoURL: null,
-    lastLogin: new Date(),
-    createdAt: new Date(),
+    lastLogin: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
   });
 
   return uid;

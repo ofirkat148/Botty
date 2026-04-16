@@ -3,8 +3,8 @@ import { defineConfig } from 'drizzle-kit';
 export default defineConfig({
   schema: './server/db/schema.ts',
   out: './server/db/migrations',
-  driver: 'pg',
+  dialect: 'sqlite',
   dbCredentials: {
-    connectionString: process.env.DATABASE_URL || '',
+    url: process.env.DATABASE_PATH || './data/botty.db',
   },
 });

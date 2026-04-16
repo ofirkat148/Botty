@@ -66,7 +66,7 @@ router.post('/', async (req: Request, res: Response) => {
       tokensUsed: tokensUsed || 0,
       status: 'completed',
       conversationId,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     await db.insert(history).values(newEntry);

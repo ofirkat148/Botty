@@ -111,7 +111,7 @@ function normalizeLegacyAgents(value: unknown) {
 }
 
 function rowToAgentDefinition(row: typeof agentDefinitions.$inferSelect): AgentDefinition {
-  const config = row.config as Record<string, unknown> | null;
+  const config = row.config ? JSON.parse(row.config) as Record<string, unknown> : null;
   const tools = extractTools(config?.tools);
   const rawMaxTurns = config?.maxTurns;
   const maxTurns = typeof rawMaxTurns === 'number' && rawMaxTurns > 0 ? rawMaxTurns : null;
@@ -159,9 +159,9 @@ function agentToRow(uid: string, agent: AgentDefinition): typeof agentDefinition
     memoryMode: agent.memoryMode || 'shared',
     executorType: agent.executorType,
     endpoint: agent.endpoint || null,
-    config: Object.keys(mergedConfig).length > 0 ? mergedConfig : null,
+    config: Object.keys(mergedConfig).length > 0 ? JSON.stringify(mergedConfig) : null,
     enabled: agent.enabled !== false,
-    updatedAt: new Date(),
+    updatedAt: new Date().toISOString(),
   };
 }
 
@@ -253,9 +253,9 @@ export async function createCustomAgentForUser(uid: string, input: AgentCandidat
       memoryMode: normalized.memoryMode || 'shared',
       executorType: normalized.executorType,
       endpoint: normalized.endpoint || null,
-      config: normalized.config || null,
+      config: normalized.config ? JSON.stringify(normalized.config) : null,
       enabled: normalized.enabled !== false,
-      updatedAt: new Date(),
+      updatedAt: new Date().toISOString(),
     },
   });
 

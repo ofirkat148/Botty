@@ -136,7 +136,7 @@ async function startServer() {
   try {
     // Initialize database
     console.log('Initializing database...');
-    await initializeDatabase();
+    initializeDatabase();
     dbInitialized = true;
     console.log('✅ Database initialized successfully');
     const RECONCILE_TIMEOUT_MS = 30_000;
@@ -154,8 +154,8 @@ async function startServer() {
       try {
         const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
         const db = getDatabase();
-        const result = await db.delete(history).where(lt(history.timestamp, cutoff));
-        const deleted = (result as unknown as { rowCount?: number })?.rowCount ?? 0;
+        const result = db.delete(history).where(lt(history.timestamp, cutoff.toISOString()));
+        const deleted = (result as unknown as { changes?: number })?.changes ?? 0;
         if (deleted > 0) {
           console.log(`✅ Pruned ${deleted} history entries older than ${retentionDays} days`);
         }
@@ -175,40 +175,38 @@ async function startServer() {
 
   // Rate limit auth endpoints — 20 requests per 15 minutes per IP.
   // Set DISABLE_RATE_LIMIT=true for local dev/test runs, or CI=true (set by GitHub Actions).
-  // Uses a PostgreSQL-backed store so the counter survives container restarts.
   const rateLimitDisabled = process.env.DISABLE_RATE_LIMIT === 'true' || process.env.CI === 'true';
   const WINDOW_MS = 15 * 60 * 1000;
 
-  const pgRateLimitStore = {
+  const sqliteRateLimitStore = {
     async increment(key: string) {
-      const resetAt = new Date(Date.now() + WINDOW_MS);
-      const result = await getDatabase().execute(sql`
+      const resetAt = new Date(Date.now() + WINDOW_MS).toISOString();
+      const db = getDatabase();
+      db.run(sql`
         INSERT INTO rate_limit_hits (key, hits, reset_at)
         VALUES (${key}, 1, ${resetAt})
         ON CONFLICT (key) DO UPDATE
           SET hits = CASE
-                WHEN rate_limit_hits.reset_at <= NOW() THEN 1
-                ELSE rate_limit_hits.hits + 1
+                WHEN reset_at <= datetime('now') THEN 1
+                ELSE hits + 1
               END,
               reset_at = CASE
-                WHEN rate_limit_hits.reset_at <= NOW() THEN ${resetAt}
-                ELSE rate_limit_hits.reset_at
+                WHEN reset_at <= datetime('now') THEN ${resetAt}
+                ELSE reset_at
               END
-        RETURNING hits, reset_at
       `);
-      const row = result.rows[0] as { hits: number; reset_at: string };
+      const row = db.get(sql`SELECT hits, reset_at FROM rate_limit_hits WHERE key = ${key}`) as { hits: number; reset_at: string } | undefined;
+      if (!row) return { totalHits: 1, resetTime: new Date(resetAt) };
       return { totalHits: Number(row.hits), resetTime: new Date(row.reset_at) };
     },
     async decrement(key: string) {
-      await getDatabase().execute(
-        sql`UPDATE rate_limit_hits SET hits = GREATEST(0, hits - 1) WHERE key = ${key}`,
-      );
+      getDatabase().run(sql`UPDATE rate_limit_hits SET hits = MAX(0, hits - 1) WHERE key = ${key}`);
     },
     async resetKey(key: string) {
-      await getDatabase().execute(sql`DELETE FROM rate_limit_hits WHERE key = ${key}`);
+      getDatabase().run(sql`DELETE FROM rate_limit_hits WHERE key = ${key}`);
     },
     async resetAll() {
-      await getDatabase().execute(sql`DELETE FROM rate_limit_hits`);
+      getDatabase().run(sql`DELETE FROM rate_limit_hits`);
     },
   };
 
@@ -218,7 +216,7 @@ async function startServer() {
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many authentication requests, please try again later.' },
-    store: rateLimitDisabled ? undefined : pgRateLimitStore,
+    store: rateLimitDisabled ? undefined : sqliteRateLimitStore,
   });
 
   // Authentication routes
@@ -246,7 +244,7 @@ async function startServer() {
   const server = app.listen(Number(PORT), HOST, () => {
     console.log(`
 🚀 Server is running at http://${HOST}:${PORT}
-📊 Database: PostgreSQL
+📊 Database: SQLite
 🔐 Auth: Local JWT
     `);
   });

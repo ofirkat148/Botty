@@ -377,7 +377,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     tokensUsed,
     status: 'completed',
     conversationId,
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
   });
 
   if (!maxTurnsReached) {
@@ -573,7 +573,7 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
     tokensUsed,
     status: 'completed',
     conversationId,
-    timestamp: new Date(),
+    timestamp: new Date().toISOString(),
   });
 
   await incrementDailyUsage(uid, provider, model, tokensUsed);

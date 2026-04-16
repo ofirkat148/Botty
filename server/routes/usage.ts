@@ -28,7 +28,7 @@ router.get('/', async (req: Request, res: Response) => {
       db
         .select()
         .from(dailyUsage)
-        .where(and(eq(dailyUsage.uid, uid), gte(dailyUsage.date, startDate)))
+        .where(and(eq(dailyUsage.uid, uid), gte(dailyUsage.date, startDate.toISOString().split('T')[0])))
         .orderBy(desc(dailyUsage.date)),
     ]);
 

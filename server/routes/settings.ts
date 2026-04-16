@@ -238,7 +238,7 @@ router.post('/', async (req: Request, res: Response) => {
         autoMemory: autoMemory !== undefined ? autoMemory : true,
         sandboxMode: sandboxMode === true,
         historyRetentionDays: retentionDaysValue,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
         target: settings.uid,
@@ -248,7 +248,7 @@ router.post('/', async (req: Request, res: Response) => {
           autoMemory: autoMemory !== undefined ? autoMemory : true,
           sandboxMode: sandboxMode === true,
           historyRetentionDays: retentionDaysValue,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
       });
 
@@ -269,7 +269,7 @@ router.post('/', async (req: Request, res: Response) => {
         telegramModel: typeof telegramModel === 'string' && telegramModel.trim()
           ? telegramModel.trim()
           : null,
-        updatedAt: new Date(),
+        updatedAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
         target: appSettings.id,
@@ -287,7 +287,7 @@ router.post('/', async (req: Request, res: Response) => {
           telegramModel: typeof telegramModel === 'string' && telegramModel.trim()
             ? telegramModel.trim()
             : null,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         },
       });
 
@@ -306,8 +306,8 @@ router.post('/', async (req: Request, res: Response) => {
       try {
         const cutoff = new Date(Date.now() - retentionDaysValue * 24 * 60 * 60 * 1000);
         const { history } = await import('../db/schema.js');
-        const result = await db.delete(history).where(and(eq(history.uid, uid), lt(history.timestamp, cutoff)));
-        pruned = (result as unknown as { rowCount?: number })?.rowCount ?? 0;
+        const result = await db.delete(history).where(and(eq(history.uid, uid), lt(history.timestamp, cutoff.toISOString())));
+        pruned = result.changes ?? 0;
       } catch (pruneErr) {
         console.error('History prune on settings save failed (non-fatal):', pruneErr);
       }
@@ -432,8 +432,8 @@ router.post('/user-settings', async (req: Request, res: Response) => {
         systemPrompt: nextSystemPrompt,
         conversationLabels: nextLabels,
         conversationModels: nextModels,
-        pinnedConversations: nextPinned,
-        updatedAt: new Date(),
+        pinnedConversations: Array.isArray(nextPinned) ? JSON.stringify(nextPinned) : nextPinned,
+        updatedAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
         target: userSettings.uid,
@@ -441,8 +441,8 @@ router.post('/user-settings', async (req: Request, res: Response) => {
           systemPrompt: nextSystemPrompt,
           conversationLabels: nextLabels,
           conversationModels: nextModels,
-          pinnedConversations: nextPinned,
-          updatedAt: new Date(),
+          pinnedConversations: Array.isArray(nextPinned) ? JSON.stringify(nextPinned) : nextPinned,
+          updatedAt: new Date().toISOString(),
         },
       });
 
@@ -556,14 +556,14 @@ router.post('/functions', async (req: Request, res: Response) => {
       .values({
         uid,
         systemPrompt: existingRow?.systemPrompt || null,
-        customSkills: nextSkills,
-        updatedAt: new Date(),
+        customSkills: JSON.stringify(nextSkills),
+        updatedAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
         target: userSettings.uid,
         set: {
-          customSkills: nextSkills,
-          updatedAt: new Date(),
+          customSkills: JSON.stringify(nextSkills),
+          updatedAt: new Date().toISOString(),
         },
       });
 
@@ -660,15 +660,15 @@ router.put('/functions/agents/:agentId', async (req: Request, res: Response) => 
         .values({
           uid,
           systemPrompt: updatedAgent.systemPrompt,
-          customSkills: existingRow?.customSkills || [],
-          customBots: existingRow?.customBots || [],
-          updatedAt: new Date(),
+          customSkills: existingRow?.customSkills || null,
+          customBots: existingRow?.customBots || null,
+          updatedAt: new Date().toISOString(),
         })
         .onConflictDoUpdate({
           target: userSettings.uid,
           set: {
             systemPrompt: updatedAgent.systemPrompt,
-            updatedAt: new Date(),
+            updatedAt: new Date().toISOString(),
           },
         });
       updatedAgent.builtIn = false;
@@ -709,15 +709,15 @@ router.delete('/functions/agents/:agentId', async (req: Request, res: Response) 
         .values({
           uid,
           systemPrompt: null,
-          customSkills: existingRow?.customSkills || [],
-          customBots: existingRow?.customBots || [],
-          updatedAt: new Date(),
+          customSkills: existingRow?.customSkills || null,
+          customBots: existingRow?.customBots || null,
+          updatedAt: new Date().toISOString(),
         })
         .onConflictDoUpdate({
           target: userSettings.uid,
           set: {
             systemPrompt: null,
-            updatedAt: new Date(),
+            updatedAt: new Date().toISOString(),
           },
         });
     }

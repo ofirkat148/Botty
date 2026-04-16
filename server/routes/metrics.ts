@@ -37,29 +37,21 @@ router.get('/', async (req: Request, res: Response) => {
   try {
     const db = getDatabase();
 
-    const [
-      userCountRow,
-      historyTodayRow,
-      historyTotalRow,
-      factsCountRow,
-      tokensTodayRow,
-    ] = await Promise.all([
-      db.execute(sql`SELECT COUNT(*) AS c FROM users`),
-      db.execute(sql`SELECT COUNT(*) AS c FROM history WHERE DATE(timestamp) = CURRENT_DATE`),
-      db.execute(sql`SELECT COUNT(*) AS c FROM history`),
-      db.execute(sql`SELECT COUNT(*) AS c FROM facts`),
-      db.execute(sql`SELECT COALESCE(SUM(tokens_used), 0) AS c FROM daily_usage WHERE DATE(date) = CURRENT_DATE`),
-    ]);
+    const userCountRow = db.get(sql`SELECT COUNT(*) AS c FROM users`) as { c: number } | undefined;
+    const historyTodayRow = db.get(sql`SELECT COUNT(*) AS c FROM history WHERE DATE(timestamp) = CURRENT_DATE`) as { c: number } | undefined;
+    const historyTotalRow = db.get(sql`SELECT COUNT(*) AS c FROM history`) as { c: number } | undefined;
+    const factsCountRow = db.get(sql`SELECT COUNT(*) AS c FROM facts`) as { c: number } | undefined;
+    const tokensTodayRow = db.get(sql`SELECT COALESCE(SUM(tokens_used), 0) AS c FROM daily_usage WHERE DATE(date) = CURRENT_DATE`) as { c: number } | undefined;
 
     const g = (name: string, help: string, value: number | string) =>
       `# HELP ${name} ${help}\n# TYPE ${name} gauge\n${name} ${value}\n`;
 
     const lines = [
-      g('botty_users_total', 'Total registered users', Number(userCountRow.rows[0]?.c ?? 0)),
-      g('botty_history_requests_today', 'Chat requests completed today', Number(historyTodayRow.rows[0]?.c ?? 0)),
-      g('botty_history_requests_total', 'Total chat requests ever completed', Number(historyTotalRow.rows[0]?.c ?? 0)),
-      g('botty_facts_total', 'Total stored memory facts across all users', Number(factsCountRow.rows[0]?.c ?? 0)),
-      g('botty_tokens_used_today', 'LLM tokens consumed today (all users)', Number(tokensTodayRow.rows[0]?.c ?? 0)),
+      g('botty_users_total', 'Total registered users', Number(userCountRow?.c ?? 0)),
+      g('botty_history_requests_today', 'Chat requests completed today', Number(historyTodayRow?.c ?? 0)),
+      g('botty_history_requests_total', 'Total chat requests ever completed', Number(historyTotalRow?.c ?? 0)),
+      g('botty_facts_total', 'Total stored memory facts across all users', Number(factsCountRow?.c ?? 0)),
+      g('botty_tokens_used_today', 'LLM tokens consumed today (all users)', Number(tokensTodayRow?.c ?? 0)),
       g('botty_up', 'Whether Botty is up and the database is reachable', 1),
     ].join('\n');
 

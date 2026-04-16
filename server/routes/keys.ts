@@ -118,7 +118,7 @@ router.post('/', async (req: Request, res: Response) => {
         uid,
         provider,
         encryptedKey,
-        createdAt: new Date(),
+        createdAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
         target: [apiKeys.uid, apiKeys.provider],

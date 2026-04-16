@@ -1,147 +1,148 @@
-import { pgTable, text, varchar, integer, timestamp, boolean, jsonb, unique, index } from 'drizzle-orm/pg-core';
+import { sqliteTable, text, integer, unique, index } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
 
 // Users table
-export const users = pgTable('users', {
+export const users = sqliteTable('users', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull().unique(),
-  email: varchar('email', { length: 255 }).notNull(),
-  displayName: varchar('display_name', { length: 255 }),
+  uid: text('uid').notNull().unique(),
+  email: text('email').notNull(),
+  displayName: text('display_name'),
   photoURL: text('photo_url'),
-  lastLogin: timestamp('last_login'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  lastLogin: text('last_login'),
+  createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 
 // API Keys table
-export const apiKeys = pgTable('api_keys', {
+export const apiKeys = sqliteTable('api_keys', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
-  provider: varchar('provider', { length: 100 }).notNull(),
+  uid: text('uid').notNull(),
+  provider: text('provider').notNull(),
   encryptedKey: text('encrypted_key').notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 }, (t) => ({
   uidProviderUnique: unique().on(t.uid, t.provider),
 }));
 
 // Chat History table
-export const history = pgTable('history', {
+export const history = sqliteTable('history', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
+  uid: text('uid').notNull(),
   prompt: text('prompt').notNull(),
   response: text('response').notNull(),
-  model: varchar('model', { length: 100 }).notNull(),
-  provider: varchar('provider', { length: 100 }),
+  model: text('model').notNull(),
+  provider: text('provider'),
   tokensUsed: integer('tokens_used'),
-  status: varchar('status', { length: 50 }).default('completed'),
+  status: text('status').default('completed'),
   conversationId: text('conversation_id'),
-  isArchived: boolean('is_archived').default(false),
-  timestamp: timestamp('timestamp').defaultNow().notNull(),
+  isArchived: integer('is_archived', { mode: 'boolean' }).default(false),
+  timestamp: text('timestamp').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 }, (t) => ({
   uidIdx: index('history_uid_idx').on(t.uid),
   uidTimestampIdx: index('history_uid_timestamp_idx').on(t.uid, t.timestamp),
 }));
 
 // Facts/Memory table
-export const facts = pgTable('facts', {
+export const facts = sqliteTable('facts', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
+  uid: text('uid').notNull(),
   botId: text('bot_id'),
   content: text('content').notNull(),
-  isSkill: boolean('is_skill').default(false),
-  timestamp: timestamp('timestamp').defaultNow().notNull(),
+  isSkill: integer('is_skill', { mode: 'boolean' }).default(false),
+  timestamp: text('timestamp').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 }, (t) => ({
   botIdIdx: index('facts_bot_id_idx').on(t.botId),
 }));
 
 // Memory Files table
-export const memoryFiles = pgTable('memory_files', {
+export const memoryFiles = sqliteTable('memory_files', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
-  name: varchar('name', { length: 255 }).notNull(),
+  uid: text('uid').notNull(),
+  name: text('name').notNull(),
   content: text('content').notNull(),
-  type: varchar('type', { length: 50 }),
+  type: text('type'),
   size: integer('size'),
-  isSkill: boolean('is_skill').default(false),
-  timestamp: timestamp('timestamp').defaultNow().notNull(),
+  isSkill: integer('is_skill', { mode: 'boolean' }).default(false),
+  timestamp: text('timestamp').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 
 // Memory URLs table
-export const memoryUrls = pgTable('memory_urls', {
+export const memoryUrls = sqliteTable('memory_urls', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
+  uid: text('uid').notNull(),
   url: text('url').notNull(),
-  title: varchar('title', { length: 255 }),
-  timestamp: timestamp('timestamp').defaultNow().notNull(),
+  title: text('title'),
+  timestamp: text('timestamp').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 
 // Settings table
-export const settings = pgTable('settings', {
-  uid: varchar('uid', { length: 255 }).primaryKey().notNull(),
+export const settings = sqliteTable('settings', {
+  uid: text('uid').primaryKey().notNull(),
   localUrl: text('local_url'),
-  useMemory: boolean('use_memory').default(true),
-  autoMemory: boolean('auto_memory').default(true),
-  sandboxMode: boolean('sandbox_mode').default(false),
+  useMemory: integer('use_memory', { mode: 'boolean' }).default(true),
+  autoMemory: integer('auto_memory', { mode: 'boolean' }).default(true),
+  sandboxMode: integer('sandbox_mode', { mode: 'boolean' }).default(false),
   historyRetentionDays: integer('history_retention_days'),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  updatedAt: text('updated_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 
-export const appSettings = pgTable('app_settings', {
-  id: varchar('id', { length: 64 }).primaryKey().notNull(),
-  telegramBotToken: text('telegram_bot_token'),
-  telegramBotEnabled: boolean('telegram_bot_enabled').default(true),
-  telegramAllowedChatIds: text('telegram_allowed_chat_ids'),
-  telegramProvider: varchar('telegram_provider', { length: 100 }),
-  telegramModel: varchar('telegram_model', { length: 255 }),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
-
-// User Settings table
-export const userSettings = pgTable('user_settings', {
-  uid: varchar('uid', { length: 255 }).primaryKey().notNull(),
-  systemPrompt: text('system_prompt'),
-  customSkills: jsonb('custom_skills'),
-  customBots: jsonb('custom_bots'),
-  conversationLabels: jsonb('conversation_labels'),
-  conversationModels: jsonb('conversation_models'),
-  pinnedConversations: jsonb('pinned_conversations'),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
-});
-
-export const agentDefinitions = pgTable('agent_definitions', {
+export const appSettings = sqliteTable('app_settings', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
-  title: varchar('title', { length: 255 }).notNull(),
+  telegramBotToken: text('telegram_bot_token'),
+  telegramBotEnabled: integer('telegram_bot_enabled', { mode: 'boolean' }).default(true),
+  telegramAllowedChatIds: text('telegram_allowed_chat_ids'),
+  telegramProvider: text('telegram_provider'),
+  telegramModel: text('telegram_model'),
+  updatedAt: text('updated_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+});
+
+// User Settings table — JSON columns stored as text in SQLite
+export const userSettings = sqliteTable('user_settings', {
+  uid: text('uid').primaryKey().notNull(),
+  systemPrompt: text('system_prompt'),
+  customSkills: text('custom_skills'),             // JSON string
+  customBots: text('custom_bots'),                 // JSON string
+  conversationLabels: text('conversation_labels'), // JSON string
+  conversationModels: text('conversation_models'), // JSON string
+  pinnedConversations: text('pinned_conversations'), // JSON string
+  updatedAt: text('updated_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+});
+
+export const agentDefinitions = sqliteTable('agent_definitions', {
+  id: text('id').primaryKey().notNull(),
+  uid: text('uid').notNull(),
+  title: text('title').notNull(),
   description: text('description').notNull(),
-  command: varchar('command', { length: 100 }).notNull(),
+  command: text('command').notNull(),
   useWhen: text('use_when').notNull(),
   boundaries: text('boundaries').notNull(),
   systemPrompt: text('system_prompt').notNull(),
   starterPrompt: text('starter_prompt').notNull(),
-  provider: varchar('provider', { length: 100 }),
-  model: varchar('model', { length: 255 }),
-  memoryMode: varchar('memory_mode', { length: 20 }).default('shared'),
-  executorType: varchar('executor_type', { length: 64 }).default('internal-llm').notNull(),
+  provider: text('provider'),
+  model: text('model'),
+  memoryMode: text('memory_mode').default('shared'),
+  executorType: text('executor_type').notNull().default('internal-llm'),
   endpoint: text('endpoint'),
-  config: jsonb('config'),
-  enabled: boolean('enabled').default(true).notNull(),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
-  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  config: text('config'),                          // JSON string
+  enabled: integer('enabled', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 }, (table) => ({
   uidCommandUnique: unique('agent_definitions_uid_command_unique').on(table.uid, table.command),
 }));
 
-// Daily Usage table
-export const dailyUsage = pgTable('daily_usage', {
+export const dailyUsage = sqliteTable('daily_usage', {
   id: text('id').primaryKey().notNull(),
-  uid: varchar('uid', { length: 255 }).notNull(),
-  date: timestamp('date').notNull(),
+  uid: text('uid').notNull(),
+  date: text('date').notNull(),
   tokens: integer('tokens').default(0),
-  modelUsage: jsonb('model_usage'),
-  createdAt: timestamp('created_at').defaultNow().notNull(),
+  modelUsage: text('model_usage').default('{}'), // JSON string
+  createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 
-// Rate limit hits table — persists auth rate-limit counters across restarts
-export const rateLimitHits = pgTable('rate_limit_hits', {
+// Rate limit hits table (SQLite-backed persistent store)
+export const rateLimitHits = sqliteTable('rate_limit_hits', {
   key: text('key').primaryKey().notNull(),
-  hits: integer('hits').default(0).notNull(),
-  resetAt: timestamp('reset_at', { withTimezone: true }).notNull(),
+  hits: integer('hits').notNull().default(0),
+  resetAt: text('reset_at').notNull(),
 });
+

@@ -11,23 +11,8 @@ jobs:
     # Use a fresh Ubuntu runner provided by GitHub
     runs-on: ubuntu-latest
 
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: botty_user
-          POSTGRES_PASSWORD: botty_pass
-          POSTGRES_DB: botty_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U botty_user -d botty_db"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     env:
-      DATABASE_URL: postgresql://botty_user:botty_pass@127.0.0.1:5432/botty_db
+      DATABASE_PATH: /tmp/botty-ci.db
       BOTTY_TEST_BASE_URL: http://127.0.0.1:5000
       LOCAL_LLM_URL: http://127.0.0.1:11434
       # Fixed CI-only secrets — not used in production

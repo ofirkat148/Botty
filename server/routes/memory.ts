@@ -171,7 +171,7 @@ router.post('/import', async (req: Request, res: Response) => {
           useMemory: incomingSettings.useMemory !== false,
           autoMemory: incomingSettings.autoMemory !== false,
           sandboxMode: incomingSettings.sandboxMode === true,
-          updatedAt: new Date(),
+          updatedAt: new Date().toISOString(),
         }).onConflictDoUpdate({
           target: settings.uid,
           set: {
@@ -179,7 +179,7 @@ router.post('/import', async (req: Request, res: Response) => {
             useMemory: incomingSettings.useMemory !== false,
             autoMemory: incomingSettings.autoMemory !== false,
             sandboxMode: incomingSettings.sandboxMode === true,
-            updatedAt: new Date(),
+            updatedAt: new Date().toISOString(),
           },
         });
       }
@@ -199,20 +199,20 @@ router.post('/import', async (req: Request, res: Response) => {
         await tx.insert(userSettings).values({
           uid,
           systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
-          customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
-          customBots: [],
-          conversationLabels: incomingLabels,
-          conversationModels: incomingModels,
-          updatedAt: new Date(),
+          customSkills: Array.isArray(incomingUserSettings.customSkills) ? JSON.stringify(incomingUserSettings.customSkills) : null,
+          customBots: null,
+          conversationLabels: incomingLabels ? JSON.stringify(incomingLabels) : null,
+          conversationModels: incomingModels ? JSON.stringify(incomingModels) : null,
+          updatedAt: new Date().toISOString(),
         }).onConflictDoUpdate({
           target: userSettings.uid,
           set: {
             systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
-            customSkills: Array.isArray(incomingUserSettings.customSkills) ? incomingUserSettings.customSkills : [],
-            customBots: [],
-            conversationLabels: incomingLabels,
-            conversationModels: incomingModels,
-            updatedAt: new Date(),
+            customSkills: Array.isArray(incomingUserSettings.customSkills) ? JSON.stringify(incomingUserSettings.customSkills) : null,
+            customBots: null,
+            conversationLabels: incomingLabels ? JSON.stringify(incomingLabels) : null,
+            conversationModels: incomingModels ? JSON.stringify(incomingModels) : null,
+            updatedAt: new Date().toISOString(),
           },
         });
       }
@@ -250,7 +250,7 @@ router.get('/facts', async (req: Request, res: Response) => {
       ? await reconcileFactsForUserScoped(uid, botId)
       : await reconcileFactsForUser(uid);
 
-    userFacts.sort((left, right) => right.timestamp.getTime() - left.timestamp.getTime());
+    userFacts.sort((left, right) => new Date(right.timestamp).getTime() - new Date(left.timestamp).getTime());
 
     res.json(userFacts);
   } catch (error) {
@@ -391,7 +391,7 @@ router.post('/files', async (req: Request, res: Response) => {
       type: type || 'text/plain',
       size: content.length,
       isSkill: isSkill || false,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     await db.insert(memoryFiles).values(newFile);
@@ -454,7 +454,7 @@ router.post('/urls', async (req: Request, res: Response) => {
       uid,
       url,
       title: title || null,
-      timestamp: new Date(),
+      timestamp: new Date().toISOString(),
     };
 
     await db.insert(memoryUrls).values(newUrl);

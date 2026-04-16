@@ -1,191 +1,232 @@
-# Botty Local OSS Runtime
+# Botty
 
-Botty now runs as a Docker-first local stack with a React frontend build, a Node/Express API, PostgreSQL, and Ollama. The stack is managed through Docker Compose, and the machine-level entrypoint is the `botty.service` systemd unit.
+A local-first AI chat assistant with a React frontend, Express/Node backend, PostgreSQL, and Ollama. Run entirely on your machine with no cloud dependency — or add API keys for Anthropic, Google Gemini, and OpenAI.
 
-## Project Structure
+---
 
-- `src/` contains the Vite React client
-- `server/` contains the Express API, database code, auth, and provider integrations
-- root config files stay at the repository root for Docker, Vite, TypeScript, and Drizzle
+## Features
 
-## Run Locally
+**Chat**
+- Multi-provider: Anthropic Claude, Google Gemini, OpenAI GPT, Ollama (local)
+- Smart auto-routing — selects model based on prompt complexity, routing mode, and available providers
+- Streaming responses (SSE) with live token-by-token display
+- Auto-scroll with scroll-lock: pauses when you scroll up, resume button appears
+- Copy button on every assistant message (1.5 s "Copied!" confirmation)
+- Message timestamps and per-conversation word count in the header
+- Conversation forking — branch from any user message into a new thread
+- Retry button on last assistant message
+- Compact summary (`/compact`) to free context window without losing thread
 
-- Docker + Docker Compose
-- systemd if you want the machine-managed boot path
-- `.env.local` for runtime configuration
+**Context & Memory**
+- Per-user fact store with search, delete, bulk-import from `.txt`/`.md`
+- File memory (PDF, images with OCR, text files)
+- URL memory (fetched and summarised on load)
+- Agent-isolated memory scopes for specialist agents
+- Automatic fact consolidation (dedup, up to 100 facts per scope)
+- Memory context truncated gracefully at 8,000 characters
 
-Fastest new-machine path after cloning the repo:
+**Routing modes**
+| Mode | Behaviour |
+|------|-----------|
+| `auto` | Classifier picks model based on prompt type |
+| `fastest` | Always uses the smallest/cheapest model |
+| `best-quality` | Always uses the largest model |
+| `local-first` | Prefers Ollama; falls back to cloud |
+
+**Agents & Skills**
+- Built-in agents (development, research, writing, etc.)
+- Custom agents with isolated memory, system prompt, and tool definitions
+- Custom skills as slash-command overlays
+- Remote HTTP agents (external endpoint, 15 s timeout, SSRF-safe URL validation)
+- Agent tool execution badge shows declared tool names
+
+**History**
+- Full conversation history with search, archive, pin, rename, fork, and export (Markdown + CSV)
+- Clear all history with confirmation
+- Per-conversation model lock — locked model shown above composer
+
+**Telegram Bot**
+- Long-polling Telegram bot with exponential backoff
+- Each Telegram chat gets its own Botty user in PostgreSQL
+- Configurable provider/model per Telegram session
+- Test-send button in Settings to verify bot credentials
+
+**Security**
+- Local JWT auth (email-based, single-user friendly)
+- JWT secret enforced at startup (≥ 16 chars)
+- API key encryption at rest with AES-256-GCM
+- Auth rate limiter (20 req / 15 min) persisted in Postgres across restarts
+- Remote agent SSRF protection (http/https only)
+- CORS wildcard warning when `PUBLIC_BASE_URL` is non-localhost
+
+**Developer experience**
+- `npm test` runs all 13 integration test suites
+- `npm run test:routing-unit` — offline unit tests for the classifier and model selector
+- `npm run dev` — Vite + `tsx` with hot-reload; `docker-compose.dev.yml` mounts server for container hot-reload
+- Prometheus metrics endpoint at `GET /api/metrics` (optional `METRICS_TOKEN` auth)
+- Structured logging via `pino` with field redaction for secrets
+- Drizzle ORM with migration baseline committed to repo
+
+**UI polish**
+- Dark / light mode with no flash on load
+- Fullscreen mode (`Alt+Enter`) — sidebar and hamburger stay accessible
+- Keyboard shortcuts: `Ctrl+N` (new chat), `Ctrl+\` (sidebar), `Ctrl+/` (focus composer), `Ctrl+?` (shortcut cheatsheet)
+- Live token estimate in composer status bar
+- Sidebar conversation search (fuzzy, up to 8 results)
+- Model catalog refresh without restart
+- Multi-file attachment (up to 6 files as chips)
+- Voice input with Web Speech API
+
+---
+
+## Quick Start
+
+Fastest path on a fresh Linux machine:
 
 ```bash
+git clone https://github.com/ofirkat148/Botty.git
+cd Botty
 bash ops/install-botty.sh
 ```
 
-That script creates `.env.local` if needed, validates the runtime config, builds the app image, installs or updates a machine-specific `botty.service`, and starts the stack.
+The installer:
+- Installs Docker and the Compose plugin (apt-based systems)
+- Creates `.env.local` from `.env.example` if missing
+- Generates `JWT_SECRET` and `KEY_ENCRYPTION_SECRET`
+- Builds the app image and installs `botty.service`
+- Waits for the health endpoint and prints status
 
-Useful installer flags:
+Then open **http://localhost:5000**.
+
+---
+
+## Manual Setup
 
 ```bash
-bash ops/install-botty.sh --no-start
-bash ops/install-botty.sh --skip-docker-install
-bash ops/install-botty.sh --user "$USER" --env-file .env.local
+cp .env.example .env.local
+# Edit .env.local — set JWT_SECRET, KEY_ENCRYPTION_SECRET, and any provider keys
+docker compose up -d
 ```
 
-If startup never reaches the health endpoint, the installer now exits non-zero after printing recent `systemctl status` output plus `docker compose logs` for `app`, `postgres`, and `ollama`.
-
-Manual path:
-
-1. Copy `.env.example` to `.env.local`
-2. Set `JWT_SECRET` and any provider keys you want Botty to use
-3. Start the full stack with `sudo systemctl restart botty.service`
-
-You can also run the stack directly with `docker compose up -d`.
-
-The app is served on `http://localhost:5000`.
-
-Current containers:
-
-- `app` runs the Express server and serves the built frontend
-- `postgres` stores Botty data
-- `ollama` serves the local LLM endpoint on `127.0.0.1:11435`
-
-Useful checks:
-
-- `systemctl status botty.service`
-- `docker compose ps`
-- `curl http://127.0.0.1:5000/api/health`
-- `curl http://127.0.0.1:11435/api/tags`
-
-Operational notes:
-
-- Restarting `botty.service` now preserves the `postgres` and `ollama` containers and only restarts the `app` container.
-- The systemd unit sets `TimeoutStartSec=0` because first boot may need time to build the app image.
-- The app now runs from a prebuilt Docker image instead of installing dependencies and rebuilding on each container start.
-- The runtime uses Docker host networking with explicit localhost binds because this host sits behind enterprise DNS and firewall controls that broke Docker bridge-network name resolution during live rollout.
-- Botty, PostgreSQL, and Ollama are all bound to `127.0.0.1` on the host; publish them another way only if you intentionally want direct network exposure.
-- Telegram may remain unavailable under enterprise egress restrictions even while the web app, database, and local LLM are healthy.
-
-After pulling new code, rebuild the app image before restarting the service:
+Or for local development (Vite + tsx, no Docker):
 
 ```bash
-docker compose build app
-sudo systemctl restart botty.service
-```
-## Quick Install & Troubleshooting
-
-- **Install:**
-```bash
-./install-botty.sh
+npm ci
+# Set environment variables in your shell or a .env.local file read by tsx
+npm run dev        # Vite on :5173, Express on :5000
 ```
 
-- **Check service and containers:**
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | ✅ | PostgreSQL connection string |
+| `JWT_SECRET` | ✅ | ≥ 16 chars; generate with `openssl rand -hex 32` |
+| `KEY_ENCRYPTION_SECRET` | ✅ | ≥ 16 chars; used for AES-256-GCM key encryption |
+| `ANTHROPIC_API_KEY` | — | Enables Claude models |
+| `GEMINI_API_KEY` | — | Enables Gemini models (free tier available) |
+| `OPENAI_API_KEY` | — | Enables GPT models |
+| `LOCAL_LLM_URL` | — | Ollama base URL (default: `http://127.0.0.1:11434`) |
+| `TELEGRAM_BOT_TOKEN` | — | Enables Telegram bot |
+| `TELEGRAM_ALLOWED_CHAT_IDS` | — | Comma-separated list of allowed Telegram chat IDs |
+| `TELEGRAM_BOT_ENABLED` | — | `true` / `false` (default: `true` when token is set) |
+| `TELEGRAM_PROVIDER` | — | Provider for Telegram sessions (default: `auto`) |
+| `TELEGRAM_MODEL` | — | Model for Telegram sessions |
+| `PUBLIC_BASE_URL` | — | Your public URL, e.g. `https://botty.example.com` |
+| `CORS_ORIGINS` | — | Comma-separated allowed origins |
+| `METRICS_TOKEN` | — | Bearer token for `/api/metrics`; unauthenticated if unset |
+| `DISABLE_RATE_LIMIT` | — | Set `true` for local dev to skip auth rate limiting |
+
+---
+
+## Architecture
+
+```
+Browser (React + Vite)
+       │  HTTP / SSE
+       ▼
+Express API (:5000)
+  ├─ /api/auth       — JWT login
+  ├─ /api/chat       — chat + streaming
+  ├─ /api/history    — CRUD + search + archive
+  ├─ /api/memory     — facts, files, URLs
+  ├─ /api/keys       — encrypted API key store
+  ├─ /api/settings   — user settings + Telegram
+  ├─ /api/usage      — token usage + trends
+  └─ /api/metrics    — Prometheus exposition
+       │
+  ┌────┴─────┐
+  │ PostgreSQL│  (Drizzle ORM, auto-migrated on start)
+  └──────────┘
+       │
+  Ollama / Cloud LLM providers
+```
+
+---
+
+## Operational Notes
+
 ```bash
+# Health check
+curl http://127.0.0.1:5000/api/health
+
+# Service status
 systemctl status botty.service
 docker compose ps
-```
 
-- **If the service failed:** rebuild the app and restart the service:
-```bash
+# After pulling new code
 docker compose build app
 sudo systemctl restart botty.service
+
+# DB backup (runs pg_dump inside the postgres container)
+bash ops/backup-db.sh --dir /var/backups/botty --keep 14
 ```
 
-- **If there are Docker credential/config issues:** inspect and back up the project `config.json` as user `<USER>`, remove `credsStore` from the Docker config, then restart the service:
+The stack uses **Docker host networking** with explicit localhost binds (`127.0.0.1:5000`, `127.0.0.1:11435`, `127.0.0.1:5432`) to reliably work behind enterprise DNS and firewall controls that break Docker bridge-network name resolution.
+
+Access Botty remotely through a reverse proxy. Sample configs:
+- [ops/Caddyfile](ops/Caddyfile)
+- [ops/nginx-botty.conf](ops/nginx-botty.conf)
+- [ops/REVERSE_PROXY.md](ops/REVERSE_PROXY.md)
+
+---
+
+## Testing
+
 ```bash
-# View the app config (as user '<USER>')
-sudo -u <USER> cat config.json
-
-# Back up Docker config
-sudo -u <USER> cp config.json /home/<USER>/.docker/config.json.bak
-
-# Remove "credsStore" from the Docker config using Python
-sudo -u <USER> python3 - <<'PY'
-import json
-p="/home/<USER>/.docker/config.json"
-d=json.load(open(p))
-d.pop("credsStore", None)
-json.dump(d, open(p, "w"), indent=2)
-PY
-
-# Restart the service after the change
-sudo systemctl restart botty.service
+npm test                    # all 13 integration suites (requires running server + DB)
+npm run test:routing-unit   # offline unit tests (no server needed)
+npm run test:security       # auth rate limit, encryption, isolation
+npm run test:provider-fallback
+npm run test:memory
+npm run test:telegram
 ```
 
-- **Final checks:**
+CI runs all suites plus browser tests (`test:ui-features`) via GitHub Actions with a live Postgres service container and a local LLM mock.
+
+---
+
+## Git Helpers (air-gapped machines)
+
 ```bash
-systemctl status botty.service
-docker compose ps
+bash ops/export-git-bundle.sh   # portable .bundle file for offline transfer
+bash ops/git-pull.sh            # fast-forward pull from origin
+bash ops/git-push.sh            # push current branch to origin
 ```
+
+---
+
+## Kubernetes
+
+Manifests are in `k8s/`. Single-replica deployment with a 2 Gi Postgres PVC.
+
+```bash
+kubectl apply -f k8s/namespace-and-ingress.yaml
+kubectl apply -f k8s/postgres.yaml
+kubectl apply -f k8s/app.yaml
 ```
 
-## Git Export
+See [k8s/DEPLOYMENT.md](k8s/DEPLOYMENT.md) for full instructions.
 
-If this machine cannot reach GitHub directly, prepare a portable Git bundle locally and push it from an approved machine or network instead.
-
-Use:
-
-- `bash ops/export-git-bundle.sh`
-
-This creates a `.bundle` file containing all refs, plus a `.sha256` file when `sha256sum` is available.
-
-## GitHub Pull/Push Helpers
-
-For normal online sync to GitHub, use:
-
-- `bash ops/git-pull.sh` to fast-forward pull the current branch from `origin`
-- `bash ops/git-push.sh` to push the current branch to `origin`
-- `bash ops/git-push.sh origin main --tags` if you also want to push tags explicitly
-
-Both scripts can take a remote name as the first argument and a branch name as the second argument.
-
-## Local Auth
-
-The app uses local email-based sign-in for single-user development. Enter any valid email in the UI and Botty will create or reuse that identity in PostgreSQL.
-
-## Providers
-
-If `ANTHROPIC_API_KEY` is set, the app will expose Anthropic in the provider list. Ollama is now containerized as part of the default stack, so local models are available through the Dockerized Ollama service by default.
-
-## External Access
-
-The live runtime uses Docker host networking, but the services themselves bind to localhost: Botty on `127.0.0.1:5000`, Ollama on `127.0.0.1:11435`, and PostgreSQL on `127.0.0.1:5432`. Reach Botty through a reverse proxy, tunnel, or another deliberate publishing step if you need remote access.
-
-- `PUBLIC_BASE_URL` can be set to your public URL, such as `https://botty.example.com`.
-- `CORS_ORIGINS` accepts a comma-separated list of allowed browser origins for external frontends.
-
-In this repository's current production-style path, Compose pins the app bind address to localhost explicitly. Treat `.env.local` as the source of public URL and auth policy, not as a way to make the container listen broadly on this host.
-
-Typical production setup is to place Botty behind Nginx, Caddy, Cloudflare Tunnel, Tailscale Funnel, or a cloud load balancer rather than exposing port `5000` directly.
-
-Sample reverse-proxy configs are included in:
-
-- [ops/Caddyfile](/home/ofirkat/Botty/ops/Caddyfile)
-- [ops/nginx-botty.conf](/home/ofirkat/Botty/ops/nginx-botty.conf)
-- [ops/REVERSE_PROXY.md](/home/ofirkat/Botty/ops/REVERSE_PROXY.md)
-
-## Telegram Bot
-
-Botty can now run as a Telegram bot using long polling.
-
-Required environment variables:
-
-- `TELEGRAM_BOT_TOKEN`
-
-Optional environment variables:
-
-- `TELEGRAM_BOT_ENABLED=true`
-- `TELEGRAM_ALLOWED_CHAT_IDS=123456789,987654321`
-- `TELEGRAM_PROVIDER=auto`
-- `TELEGRAM_MODEL=qwen2.5:3b`
-
-Behavior:
-
-- Each Telegram chat gets its own Botty user profile stored in PostgreSQL.
-- Messages are processed through the same Botty chat pipeline as the web app.
-- `/start` and `/help` show usage help.
-- `/reset` clears the current Telegram conversation context for that chat.
-- If Telegram is unreachable at startup, Botty keeps the app running and retries Telegram connection in the background.
-
-Security note:
-
-- `LOCAL_AUTH_ENABLED=true` is suitable for local or tightly controlled personal use. If you expose the Botty web app more broadly, disable local auth unless you have another trusted access layer in front of it.
-- On enterprise networks, Telegram reachability can be blocked independently of normal web access. A healthy `/api/health` response does not imply Telegram startup will succeed.

@@ -32,8 +32,8 @@ router.post('/local', async (req: Request, res: Response) => {
         email,
         displayName: displayName || email.split('@')[0],
         photoURL: null,
-        lastLogin: new Date(),
-        createdAt: new Date(),
+        lastLogin: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
       };
 
       await db.insert(users).values(user);
@@ -42,7 +42,7 @@ router.post('/local', async (req: Request, res: Response) => {
         .update(users)
         .set({
           displayName: displayName || user.displayName,
-          lastLogin: new Date(),
+          lastLogin: new Date().toISOString(),
         })
         .where(eq(users.id, user.id));
 

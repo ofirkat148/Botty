@@ -68,7 +68,7 @@ type FactRow = {
   botId?: string | null;
   content: string;
   isSkill: boolean | null;
-  timestamp: Date;
+  timestamp: string;
 };
 
 export type BotMemoryMode = 'shared' | 'isolated' | 'none';
@@ -641,7 +641,7 @@ export function consolidateFactRows(rows: FactRow[]) {
       ...row,
       content: standardizedContent,
       isSkill: Boolean(row.isSkill),
-      timestamp: row.timestamp instanceof Date ? row.timestamp : new Date(row.timestamp),
+      timestamp: typeof row.timestamp === 'string' ? row.timestamp : new Date(row.timestamp as unknown as string | Date).toISOString(),
     };
 
     let merged = false;
@@ -699,7 +699,7 @@ function sameFactSet(left: FactRow[], right: FactRow[]) {
     return false;
   }
 
-  const sortKey = (row: FactRow) => `${normalizeFactContent(row.content)}::${row.content}::${Boolean(row.isSkill)}::${row.timestamp.toISOString()}`;
+  const sortKey = (row: FactRow) => `${normalizeFactContent(row.content)}::${row.content}::${Boolean(row.isSkill)}::${row.timestamp}`;
   const leftSorted = [...left].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
   const rightSorted = [...right].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
 
@@ -707,7 +707,7 @@ function sameFactSet(left: FactRow[], right: FactRow[]) {
     const compare = rightSorted[index];
     return row.content === compare.content
       && Boolean(row.isSkill) === Boolean(compare.isSkill)
-      && row.timestamp.toISOString() === compare.timestamp.toISOString();
+      && row.timestamp === compare.timestamp;
   });
 }
 
@@ -780,7 +780,7 @@ export async function reconcileFactsForUserScoped(uid: string, botId: string) {
 
 export async function saveFactsWithConsolidation(
   uid: string,
-  incomingFacts: Array<{ content: string; isSkill?: boolean; timestamp?: Date }>,
+  incomingFacts: Array<{ content: string; isSkill?: boolean; timestamp?: Date | string }>,
   options?: { replaceExisting?: boolean; botId?: string | null },
 ) {
   const db = getDatabase();
@@ -797,7 +797,7 @@ export async function saveFactsWithConsolidation(
     botId,
     content: item.content,
     isSkill: Boolean(item.isSkill),
-    timestamp: item.timestamp || new Date(),
+    timestamp: typeof item.timestamp === 'string' ? item.timestamp : item.timestamp instanceof Date ? item.timestamp.toISOString() : new Date().toISOString(),
   }));
 
   const consolidatedRows = consolidateFactRows([
@@ -1170,16 +1170,15 @@ export async function incrementDailyUsage(uid: string, provider: string, model: 
     await db.insert(dailyUsage).values({
       id: randomUUID(),
       uid,
-      date: new Date(),
+      date: new Date().toISOString().split('T')[0],
       tokens: tokensUsed,
-      modelUsage: {
+      modelUsage: JSON.stringify({
         [key]: {
           provider,
           model,
           tokens: tokensUsed,
         },
-      },
-      createdAt: new Date(),
+      }),
     });
     return;
   }
@@ -1196,14 +1195,14 @@ export async function incrementDailyUsage(uid: string, provider: string, model: 
     .update(dailyUsage)
     .set({
       tokens: (row.tokens || 0) + tokensUsed,
-      modelUsage: {
+      modelUsage: JSON.stringify({
         ...nextModelUsage,
         [key]: {
           provider,
           model,
           tokens: currentTokens + tokensUsed,
         },
-      },
+      }),
     })
     .where(eq(dailyUsage.id, row.id));
 }
