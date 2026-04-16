@@ -87,11 +87,12 @@ test('ui can create and run a remote http agent', async () => {
 
     await page.getByRole('heading', { name: 'Chat' }).waitFor();
     await page.getByRole('button', { name: 'Send' }).click();
-    await page.getByText('Remote UI agent handled: Check the updated remote UI path end to end.').waitFor({ timeout: 15000 });
+    // SSRF protection blocks execution to private/loopback IPs — the UI must surface the error.
+    await page.locator('div.bg-red-50').waitFor({ timeout: 15000 });
+    const errorText = await page.locator('div.bg-red-50').textContent();
+    assert.match(errorText ?? '', /private or loopback/i, 'expected SSRF error displayed in chat UI');
 
-    assert.equal(requests.length, 1, 'expected one remote request from the UI flow');
-    assert.equal(requests[0].agent?.command, agentCommand, 'expected remote request agent metadata');
-    assert.equal(requests[0].systemPrompt, 'You are an updated remote UI smoke-test agent.', 'expected remote request system prompt');
+    assert.equal(requests.length, 0, 'SSRF block must prevent any outbound request to the mock server');
 
     await page.getByRole('button', { name: 'Agents' }).click();
     await updatedAgentCard.getByRole('button', { name: 'Delete agent' }).click();

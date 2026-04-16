@@ -75,13 +75,22 @@ router.get('/', async (req: Request, res: Response) => {
       .from(apiKeys)
       .where(eq(apiKeys.uid, uid));
 
-    // Decrypt keys before sending
-    const decryptedKeys = keys.map(key => ({
-      provider: key.provider,
-      key: decryptKey(key.encryptedKey),
-    }));
+    // Never send decrypted keys to the client — return only presence + masked hint
+    const safeKeys = keys.map(key => {
+      let hint = '';
+      try {
+        const plain = decryptKey(key.encryptedKey);
+        // Show first 4 chars and last 4 chars so the user can identify the key
+        hint = plain.length > 8
+          ? `${plain.slice(0, 4)}${'•'.repeat(Math.min(plain.length - 8, 20))}${plain.slice(-4)}`
+          : '•'.repeat(plain.length);
+      } catch {
+        hint = '(encrypted)';
+      }
+      return { provider: key.provider, hint };
+    });
 
-    res.json(decryptedKeys);
+    res.json(safeKeys);
   } catch (error) {
     console.error('Error fetching API keys:', error);
     res.status(500).json({ error: 'Failed to fetch API keys' });

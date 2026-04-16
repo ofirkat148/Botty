@@ -268,7 +268,9 @@ export async function getLocalModelOptions(localUrl?: string) {
 
   for (const candidateUrl of candidateUrls) {
     try {
-      const response = await fetch(`${candidateUrl.replace(/\/$/, '')}/api/tags`);
+      const response = await fetch(`${candidateUrl.replace(/\/$/, '')}/api/tags`, {
+        signal: AbortSignal.timeout(5_000),
+      });
       if (!response.ok) {
         continue;
       }
@@ -340,7 +342,9 @@ export async function getLocalProviderStatus(localUrl?: string | null): Promise<
 
   for (const candidateUrl of candidateUrls) {
     try {
-      const response = await fetch(`${candidateUrl.replace(/\/$/, '')}/api/tags`);
+      const response = await fetch(`${candidateUrl.replace(/\/$/, '')}/api/tags`, {
+        signal: AbortSignal.timeout(5_000),
+      });
       if (!response.ok) {
         continue;
       }

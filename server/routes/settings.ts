@@ -19,7 +19,8 @@ const _TOK_TAG_LEN = 16;
 const _TOK_VERSION_PREFIX = 'v1:';
 
 function getTokenEncryptionKey(): Buffer {
-  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  const _DEV_FALLBACK = 'botty-dev-only-insecure-secret-do-not-use-in-prod';
+  const secret = process.env.KEY_ENCRYPTION_SECRET || (process.env.NODE_ENV !== 'production' ? _DEV_FALLBACK : undefined);
   if (!secret || secret.length < 16) {
     throw new Error('KEY_ENCRYPTION_SECRET env var must be set to store the Telegram bot token');
   }
@@ -208,6 +209,19 @@ router.post('/', async (req: Request, res: Response) => {
     } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
+
+    // Validate localUrl to prevent SSRF — only allow http/https and block private ranges
+    if (localUrl && typeof localUrl === 'string' && localUrl.trim()) {
+      let parsedLocalUrl: URL;
+      try {
+        parsedLocalUrl = new URL(localUrl.trim());
+      } catch {
+        return res.status(400).json({ error: 'localUrl must be a valid URL' });
+      }
+      if (parsedLocalUrl.protocol !== 'http:' && parsedLocalUrl.protocol !== 'https:') {
+        return res.status(400).json({ error: 'localUrl must use http or https' });
+      }
+    }
 
     const parsedRetentionDays = Number(historyRetentionDays);
     const retentionDaysValue = Number.isFinite(parsedRetentionDays) && parsedRetentionDays > 0

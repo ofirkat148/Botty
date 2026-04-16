@@ -18,7 +18,7 @@ import metricsRoutes from './routes/metrics.js';
 import { getTelegramBotStatus, startTelegramBot } from './services/telegram.js';
 import { getLocalProviderStatus, reconcileAllFacts } from './utils/llm.js';
 import { logger } from './utils/logger.js';
-import { lt } from 'drizzle-orm';
+import { lt, sql } from 'drizzle-orm';
 import { history } from './db/schema.js';
 
 // Load environment variables
@@ -175,13 +175,50 @@ async function startServer() {
 
   // Rate limit auth endpoints — 20 requests per 15 minutes per IP.
   // Set DISABLE_RATE_LIMIT=true for local dev/test runs, or CI=true (set by GitHub Actions).
+  // Uses a PostgreSQL-backed store so the counter survives container restarts.
   const rateLimitDisabled = process.env.DISABLE_RATE_LIMIT === 'true' || process.env.CI === 'true';
+  const WINDOW_MS = 15 * 60 * 1000;
+
+  const pgRateLimitStore = {
+    async increment(key: string) {
+      const resetAt = new Date(Date.now() + WINDOW_MS);
+      const result = await getDatabase().execute(sql`
+        INSERT INTO rate_limit_hits (key, hits, reset_at)
+        VALUES (${key}, 1, ${resetAt})
+        ON CONFLICT (key) DO UPDATE
+          SET hits = CASE
+                WHEN rate_limit_hits.reset_at <= NOW() THEN 1
+                ELSE rate_limit_hits.hits + 1
+              END,
+              reset_at = CASE
+                WHEN rate_limit_hits.reset_at <= NOW() THEN ${resetAt}
+                ELSE rate_limit_hits.reset_at
+              END
+        RETURNING hits, reset_at
+      `);
+      const row = result.rows[0] as { hits: number; reset_at: string };
+      return { totalHits: Number(row.hits), resetTime: new Date(row.reset_at) };
+    },
+    async decrement(key: string) {
+      await getDatabase().execute(
+        sql`UPDATE rate_limit_hits SET hits = GREATEST(0, hits - 1) WHERE key = ${key}`,
+      );
+    },
+    async resetKey(key: string) {
+      await getDatabase().execute(sql`DELETE FROM rate_limit_hits WHERE key = ${key}`);
+    },
+    async resetAll() {
+      await getDatabase().execute(sql`DELETE FROM rate_limit_hits`);
+    },
+  };
+
   const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,
+    windowMs: WINDOW_MS,
     max: rateLimitDisabled ? 10_000 : 20,
     standardHeaders: true,
     legacyHeaders: false,
     message: { error: 'Too many authentication requests, please try again later.' },
+    store: rateLimitDisabled ? undefined : pgRateLimitStore,
   });
 
   // Authentication routes

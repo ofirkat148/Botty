@@ -377,6 +377,11 @@ router.post('/files', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Name and content are required' });
     }
 
+    const MAX_MEMORY_FILE_BYTES = 10_000_000; // 10 MB
+    if (typeof content === 'string' && content.length > MAX_MEMORY_FILE_BYTES) {
+      return res.status(413).json({ error: 'File content exceeds the 10 MB limit' });
+    }
+
     const id = randomUUID();
     const newFile = {
       id,

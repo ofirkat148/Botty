@@ -67,7 +67,8 @@ function decryptValue(value: string): string {
     // Legacy base64 migration path
     return Buffer.from(value, 'base64').toString('utf8');
   }
-  const secret = process.env.KEY_ENCRYPTION_SECRET;
+  const _DEV_FALLBACK = 'botty-dev-only-insecure-secret-do-not-use-in-prod';
+  const secret = process.env.KEY_ENCRYPTION_SECRET || (process.env.NODE_ENV !== 'production' ? _DEV_FALLBACK : undefined);
   if (!secret || secret.length < 16) {
     throw new Error('KEY_ENCRYPTION_SECRET env var must be set to decrypt the Telegram bot token');
   }
@@ -147,8 +148,15 @@ function getReconnectDelayMs() {
   return Math.min(exponentialDelay, TELEGRAM_RETRY_MAX_DELAY_MS);
 }
 
+const TELEGRAM_MAX_RECONNECT_ATTEMPTS = 48; // ~4 hours at max delay before giving up
+
 function scheduleTelegramReconnect() {
   if (reconnectTimeout || !activeConfig.enabled || !activeConfig.token) {
+    return;
+  }
+
+  if (reconnectAttemptCount >= TELEGRAM_MAX_RECONNECT_ATTEMPTS) {
+    console.error(`Telegram bot: giving up after ${TELEGRAM_MAX_RECONNECT_ATTEMPTS} reconnect attempts. Restart the server to retry.`);
     return;
   }
 

@@ -183,7 +183,8 @@ describe('UI feature tests', { concurrency: false }, () => {
   });
 
   test('POST /api/chat/compact succeeds with 4+ real messages and returns a string summary', async () => {
-    const res = await fetchJson('/api/chat/compact', {
+    // The compact endpoint streams SSE for 4+ messages; read and parse the stream directly.
+    const response = await fetch(`${baseUrl}/api/chat/compact`, {
       method: 'POST',
       headers: sharedHeaders,
       body: JSON.stringify({
@@ -196,9 +197,20 @@ describe('UI feature tests', { concurrency: false }, () => {
       }),
     });
 
-    assert.equal(res.response.status, 200);
-    assert.equal(typeof res.body.summary, 'string', 'must return a string summary');
-    // With local provider, summary may be empty if no LLM is configured — just check it doesn't error
+    assert.equal(response.status, 200, 'compact endpoint must return 200');
+
+    const rawText = await response.text();
+    // Parse SSE lines: "data: {...}"
+    const events = rawText
+      .split('\n')
+      .filter(line => line.startsWith('data:'))
+      .map(line => { try { return JSON.parse(line.slice(5).trim()); } catch { return null; } })
+      .filter(Boolean);
+
+    const doneEvent = events.find(e => e.type === 'done');
+    assert.ok(doneEvent, 'compact SSE stream must include a done event');
+    assert.equal(typeof doneEvent.summary, 'string', 'done event must carry a string summary');
+    // With local provider and no LLM key, summary may be empty — just check it doesn't error
   });
 
   // ---------------------------------------------------------------------------

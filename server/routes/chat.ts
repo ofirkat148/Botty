@@ -10,6 +10,7 @@ import {
   getSuggestedModel,
   isAbortError,
   getRuntimeSettings,
+  streamCallLLM,
 } from '../utils/llm.js';
 import { runChatForUser, streamChatForUser } from '../services/chat.js';
 
@@ -137,10 +138,10 @@ router.post('/stream', async (req: Request, res: Response) => {
   }
 });
 
-// POST /api/chat/compact — Summarize older messages into a compact context summary
-// Runs the LLM call in the background and returns immediately; the summary is
-// stored server-side and returned to the client via the completed response.
-// A hard 30 s abort prevents indefinite blocking on slow models.
+// POST /api/chat/compact — Summarize older messages into a compact context summary.
+// Responds as a Server-Sent Events stream so the LLM output is piped back as
+// it is generated rather than holding the connection open until the model finishes.
+// Events: data: {"type":"chunk","delta":"..."} and data: {"type":"done","summary":"..."}
 router.post('/compact', async (req: Request, res: Response) => {
   const uid = req.userId!;
   const rawMessages: Array<{ role: string; content: string; isCompact?: boolean }> = Array.isArray(req.body?.messages) ? req.body.messages : [];
@@ -154,8 +155,21 @@ router.post('/compact', async (req: Request, res: Response) => {
   // Cap at the most-recent 20 messages and 300 chars per message to bound LLM latency
   const cappedMessages = realMessages.slice(-20);
 
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  function send(event: Record<string, unknown>) {
+    if (!res.writableEnded) {
+      res.write(`data: ${JSON.stringify(event)}\n\n`);
+    }
+  }
+
   const abortController = new AbortController();
   const timeout = setTimeout(() => abortController.abort(), 30_000);
+  req.once('aborted', () => abortController.abort());
+  res.once('close', () => abortController.abort());
 
   try {
     const runtimeSettings = await getRuntimeSettings(uid);
@@ -165,7 +179,8 @@ router.post('/compact', async (req: Request, res: Response) => {
     const preferredOrder = ['anthropic', 'google', 'openai', 'local'] as const;
     const summaryProvider = preferredOrder.find(p => availableProviders.includes(p)) ?? null;
     if (!summaryProvider) {
-      return res.json({ summary: '' });
+      send({ type: 'done', summary: '' });
+      return res.end();
     }
 
     const defaultLocalModel = summaryProvider === 'local'
@@ -179,7 +194,8 @@ router.post('/compact', async (req: Request, res: Response) => {
       .map(m => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 300)}`)
       .join('\n\n');
 
-    const result = await callLLM({
+    let fullSummary = '';
+    await streamCallLLM({
       prompt: `Summarize the following conversation in 3-5 sentences, capturing the key topics, decisions, and context needed to continue:\n\n${conversationText}`,
       provider: summaryProvider,
       model: summaryModel,
@@ -188,17 +204,24 @@ router.post('/compact', async (req: Request, res: Response) => {
       messages: [],
       localUrl: runtimeSettings.localUrl,
       signal: abortController.signal,
+      onChunk: (delta) => {
+        fullSummary += delta;
+        send({ type: 'chunk', delta });
+      },
     });
 
-    return res.json({ summary: result.responseText.trim() });
+    send({ type: 'done', summary: fullSummary.trim() });
   } catch (error) {
-    if (isAbortError(error)) {
-      return res.json({ summary: '' });
+    if (!isAbortError(error)) {
+      console.error('Compact error:', error);
+      send({ type: 'error', error: 'Summarization failed' });
+    } else {
+      send({ type: 'error', error: 'Summarization timed out' });
     }
-    console.error('Compact error:', error);
-    return res.json({ summary: '' });
+    send({ type: 'done', summary: '' });
   } finally {
     clearTimeout(timeout);
+    if (!res.writableEnded) res.end();
   }
 });
 

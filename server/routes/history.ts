@@ -19,7 +19,7 @@ router.get('/', async (req: Request, res: Response) => {
     const uid = req.userId!;
     const rawLimit = Number(req.query.limit) || 50;
     const limit = Math.min(Math.max(1, rawLimit), 200);
-    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
     const showArchived = req.query.archived === 'true';
 
     const baseCondition = showArchived

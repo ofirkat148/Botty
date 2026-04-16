@@ -247,6 +247,22 @@ async function bootstrapSchema(pool: Pool) {
     ALTER TABLE history
     ADD COLUMN IF NOT EXISTS provider VARCHAR(100)
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rate_limit_hits (
+      key TEXT PRIMARY KEY,
+      hits INTEGER NOT NULL DEFAULT 0,
+      reset_at TIMESTAMPTZ NOT NULL
+    )
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS history_uid_idx ON history (uid)
+  `);
+
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS history_uid_timestamp_idx ON history (uid, timestamp DESC)
+  `);
 }
 
 export async function initializeDatabase() {

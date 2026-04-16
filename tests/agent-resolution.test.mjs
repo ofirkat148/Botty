@@ -105,6 +105,8 @@ test('remote http agents can be created and executed end to end', async () => {
     assert.equal(createAgent.body.item?.executorType, 'remote-http', 'expected persisted executor type');
     assert.equal(createAgent.body.item?.endpoint, endpoint, 'expected persisted remote endpoint');
 
+    // SSRF protection blocks execution to private/loopback addresses (including 127.0.0.1).
+    // The agent can be stored (CRUD) with any endpoint, but execution is blocked at chat time.
     const chatWithAgent = await fetchJson('/api/chat', {
       method: 'POST',
       headers,
@@ -116,15 +118,13 @@ test('remote http agents can be created and executed end to end', async () => {
       }),
     });
 
-    assert.equal(chatWithAgent.response.status, 200, 'expected remote agent chat to succeed');
-    assert.equal(chatWithAgent.body.provider, 'remote-http', 'expected remote executor provider marker');
-    assert.equal(chatWithAgent.body.model, 'remote-mock-v1', 'expected remote executor model marker');
-    assert.match(chatWithAgent.body.text, /Remote agent handled: Inspect this flow\./, 'expected remote response text');
-
-    assert.equal(requests.length, 1, 'expected one remote agent request');
-    assert.equal(requests[0].agent?.command, 'remote-research', 'expected agent metadata in remote request');
-    assert.equal(requests[0].systemPrompt, 'You are a remote research agent.', 'expected remote request system prompt');
-    assert.equal(requests[0].messages?.[0]?.content, 'Previous message', 'expected remote request conversation history');
+    assert.equal(chatWithAgent.response.status, 500, 'expected SSRF block when calling private-IP remote agent');
+    assert.match(
+      chatWithAgent.body.error,
+      /private or loopback/i,
+      'expected SSRF error message for private IP endpoint',
+    );
+    assert.equal(requests.length, 0, 'SSRF block must prevent any outbound request to the mock server');
 
     const updateAgent = await fetchJson(`/api/settings/functions/agents/${createAgent.body.item.id}`, {
       method: 'PUT',

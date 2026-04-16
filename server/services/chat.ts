@@ -127,6 +127,12 @@ async function runRemoteHttpAgent(params: {
   if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
     throw new Error('Remote agent endpoint must use http or https');
   }
+  // Block SSRF via private/loopback IP ranges
+  const hostname = parsedUrl.hostname;
+  const privateRangePattern = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1$|\[::1\]$|localhost$)/i;
+  if (privateRangePattern.test(hostname)) {
+    throw new Error('Remote agent endpoint must not target a private or loopback address');
+  }
 
   // Apply a hard 15-second timeout for remote agents
   const timeoutController = new AbortController();

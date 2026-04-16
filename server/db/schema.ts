@@ -35,7 +35,10 @@ export const history = pgTable('history', {
   conversationId: text('conversation_id'),
   isArchived: boolean('is_archived').default(false),
   timestamp: timestamp('timestamp').defaultNow().notNull(),
-});
+}, (t) => ({
+  uidIdx: index('history_uid_idx').on(t.uid),
+  uidTimestampIdx: index('history_uid_timestamp_idx').on(t.uid, t.timestamp),
+}));
 
 // Facts/Memory table
 export const facts = pgTable('facts', {
@@ -134,4 +137,11 @@ export const dailyUsage = pgTable('daily_usage', {
   tokens: integer('tokens').default(0),
   modelUsage: jsonb('model_usage'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
+});
+
+// Rate limit hits table — persists auth rate-limit counters across restarts
+export const rateLimitHits = pgTable('rate_limit_hits', {
+  key: text('key').primaryKey().notNull(),
+  hits: integer('hits').default(0).notNull(),
+  resetAt: timestamp('reset_at', { withTimezone: true }).notNull(),
 });

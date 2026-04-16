@@ -13,10 +13,16 @@ const router = Router();
  * Bind behind a firewall/reverse-proxy if the port is exposed publicly.
  *
  * Protect with METRICS_TOKEN env var: if set, requires ?token=<value> or
- * Authorization: Bearer <value> header.
+ * Authorization: Bearer <value> header. In production, metrics are blocked
+ * entirely if METRICS_TOKEN is not configured.
  */
 router.get('/', async (req: Request, res: Response) => {
   const metricsToken = process.env.METRICS_TOKEN?.trim();
+  if (!metricsToken && process.env.NODE_ENV === 'production') {
+    res.setHeader('WWW-Authenticate', 'Bearer');
+    res.status(401).json({ error: 'METRICS_TOKEN is not configured. Set it to enable this endpoint.' });
+    return;
+  }
   if (metricsToken) {
     const provided =
       (req.headers.authorization?.replace(/^Bearer\s+/i, '').trim()) ||

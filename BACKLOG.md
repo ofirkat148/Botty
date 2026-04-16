@@ -19,7 +19,7 @@ _Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
 
 | # | Item | Notes |
 |---|------|-------|
-| 1 | ✅ **Auth rate limiter resets on container restart** | Done: `DISABLE_RATE_LIMIT=true` env var raises limit to 10,000; also auto-raised on `CI=true`. |
+| 1 | ✅ **Auth rate limiter resets on container restart** | Done: `pgRateLimitStore` in `server/index.ts` persists hit counts in a `rate_limit_hits` Postgres table (bootstrapped on startup) so counters survive restarts. `DISABLE_RATE_LIMIT=true` / `CI=true` bypass the store entirely. |
 | 2 | ✅ **JWT expiry with no re-login prompt** | Done: `apiGet`/`apiSend` now detect 401, call `handleLogout()` and set an "session expired" error to redirect the user to login. |
 | 3 | ✅ **`historyRetentionDays` label missing `htmlFor`** | Done: Added `id="history-retention-days"` + `htmlFor` to the Settings label. |
 | 4 | ✅ **Memory context hard-truncated at 8,000 chars** | Done: `getMemoryContext` now appends `...[memory context truncated]` when the 8,000-char limit is hit. |
@@ -33,7 +33,7 @@ _Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
 | 7 | ✅ **Multi-file attachment** | Done: file input has `multiple`, `addChatFiles` processes all dropped/selected files in a loop, up to 6 files shown as chips. |
 | 8 | ✅ **Agent tool execution UI** | Done: Active agent banner now lists declared tool names as badge chips below the session description. |
 | 9 | ✅ **Conversation branching / fork** | Done: Fork button on every user message bubble — trims thread to that point, loads text into composer, new sends branch into a fresh conversation. |
-| 10 | ✅ **Streaming compact summary** | Done: `/compact` now has 30 s AbortController timeout; capped to last 20 messages × 300 chars. |
+| 10 | ✅ **Streaming compact summary** | Done: `/compact` uses SSE + `streamCallLLM` to stream chunks as they arrive; client reads the stream via `fetch` + `ReadableStream` and dispatches `COMPACT_HISTORY` on the `done` event. No more blocking connection for the LLM duration. |
 | 11 | ✅ **Per-conversation model indicator** | Done: 🔒 locked-model pill shown above the composer textarea when a conversation has a prior model. |
 
 ## P3 — Developer Experience

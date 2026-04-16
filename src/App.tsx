@@ -125,7 +125,7 @@ type MemoryFile = {
 
 type ApiKey = {
   provider: string;
-  key: string;
+  hint: string;
 };
 
 type SettingsResponse = {
@@ -1157,7 +1157,7 @@ function AppShell() {
 
     apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history')
       .then(rows => setHistory(rows))
-      .catch(() => {/* silent */});
+      .catch(err => setNotice(err instanceof Error ? err.message : 'Failed to load history'));
   }, [showArchivedHistory]);
 
   useEffect(() => {
@@ -1279,9 +1279,9 @@ function AppShell() {
         : '',
     );
     setKeyInputs({
-      anthropic: keyRows.find(item => item.provider === 'anthropic')?.key || '',
-      google: keyRows.find(item => item.provider === 'google')?.key || '',
-      openai: keyRows.find(item => item.provider === 'openai')?.key || '',
+      anthropic: '',
+      google: '',
+      openai: '',
     });
 
     if (nextProviders.length === 1 && nextProviders[0] === 'local') {
@@ -1466,7 +1466,9 @@ function AppShell() {
               throw new Error(event.error || 'Stream error');
             }
           } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message !== 'Stream error') continue;
+            // SyntaxError = malformed SSE line from JSON.parse — skip it.
+            // Any other error (e.g. stream error thrown above) must propagate.
+            if (parseErr instanceof SyntaxError) continue;
             throw parseErr;
           }
         }
@@ -1490,16 +1492,40 @@ function AppShell() {
         }
       }
 
-      // Auto-compact when conversation grows long (20+ messages)
+      // Auto-compact when conversation grows long (20+ messages).
+      // The compact endpoint streams SSE chunks; we read the stream and apply
+      // the summary when the 'done' event arrives.
       if (messages.length + 2 >= 20) {
         const nonCompact = messages.filter(m => !m.isCompact);
-        void apiSend<{ summary: string }>('/api/chat/compact', 'POST', { messages: nonCompact })
-          .then(data => {
-            if (data?.summary) {
-              dispatchChat({ type: 'COMPACT_HISTORY', summary: data.summary, keepLast: 8 });
+        void (async () => {
+          try {
+            const compactRes = await fetch('/api/chat/compact', {
+              method: 'POST',
+              headers: { ...authHeaders, 'Content-Type': 'application/json' },
+              body: JSON.stringify({ messages: nonCompact }),
+            });
+            if (!compactRes.ok || !compactRes.body) return;
+            const reader = compactRes.body.getReader();
+            const decoder = new TextDecoder();
+            let buf = '';
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buf += decoder.decode(value, { stream: true });
+              const lines = buf.split('\n');
+              buf = lines.pop() ?? '';
+              for (const line of lines) {
+                if (!line.startsWith('data:')) continue;
+                try {
+                  const event = JSON.parse(line.slice(5).trim()) as { type: string; summary?: string };
+                  if (event.type === 'done' && event.summary) {
+                    dispatchChat({ type: 'COMPACT_HISTORY', summary: event.summary, keepLast: 8 });
+                  }
+                } catch { /* ignore malformed SSE lines */ }
+              }
             }
-          })
-          .catch(() => { /* best-effort, silent */ });
+          } catch { /* best-effort, silent */ }
+        })();
       }
 
       setPendingAttachments([]);
@@ -4424,20 +4450,23 @@ function AppShell() {
                     <strong>Free options:</strong> Local (Ollama) needs no key — just a running model. Google Gemini Flash has a generous free tier (1,500 requests/day) via <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="underline">aistudio.google.com</a>.
                   </div>
                   <div className="grid gap-3 md:grid-cols-3">
-                    {['anthropic', 'google', 'openai'].map(providerName => (
+                    {['anthropic', 'google', 'openai'].map(providerName => {
+                      const saved = apiKeys.find(k => k.provider === providerName);
+                      return (
                       <div key={providerName} className={`${elevatedCardClass} flex flex-col gap-3`}>
                         <div className="text-sm font-medium capitalize mb-2">{providerName}</div>
                         <input
                           value={keyInputs[providerName] || ''}
                           onChange={event => setKeyInputs(prev => ({ ...prev, [providerName]: event.target.value }))}
-                          placeholder={`${providerName.toUpperCase()}_API_KEY`}
+                          placeholder={saved ? saved.hint : `${providerName.toUpperCase()}_API_KEY`}
                           className={textInputClass}
                         />
                         <button onClick={() => void saveKey(providerName)} className={responsivePrimaryButtonClass} disabled={savingKey === providerName}>
-                          {savingKey === providerName ? 'Saving...' : 'Save key'}
+                          {savingKey === providerName ? 'Saving...' : saved ? 'Replace key' : 'Save key'}
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </section>
 
