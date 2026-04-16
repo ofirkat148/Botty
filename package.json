@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "test": "npm run test:routing-unit && npm run test:agent-resolution && npm run test:chat-regression && npm run test:dashboard-smoke && npm run test:ui-agents && npm run test:memory && npm run test:provider-fallback && npm run test:agent-tools-maxturn && npm run test:telegram && npm run test:function-presets && npm run test:security && npm run test:history-archive && npm run test:memory-backup",
     "test:agent-resolution": "node --test tests/agent-resolution.test.mjs",
     "test:chat-regression": "node --test tests/chat-route.test.mjs",
     "test:dashboard-smoke": "node --test tests/dashboard-smoke.test.mjs",

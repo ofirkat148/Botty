@@ -3,6 +3,8 @@ import {
   Archive,
   ArchiveRestore,
   Bot,
+  Check,
+  Copy,
   Download,
   GitBranch,
   History,
@@ -447,6 +449,7 @@ function AppShell() {
   const [creatingFunction, setCreatingFunction] = useState<'skill' | 'agent' | ''>('');
   const [isExportingMemory, setIsExportingMemory] = useState(false);
   const [isImportingMemory, setIsImportingMemory] = useState(false);
+  const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
   const [pendingMemoryRestore, setPendingMemoryRestore] = useState<MemoryBackupPayload | null>(null);
   const [memoryRestorePreview, setMemoryRestorePreview] = useState<MemoryRestorePreview | null>(null);
   const [notice, setNotice] = useState('');
@@ -3114,24 +3117,39 @@ function AppShell() {
                             </button>
                           </div>
                         ) : null}
-                        {message.role === 'assistant' && formatTokenUsage(message.tokensUsed, message.provider, message.model) ? (
-                          <div className={`mt-3 text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model)}</div>
-                        ) : null}
-                        {message.role === 'assistant' && message.model && index === messages.length - 1 && !isSending ? (
-                          <div className="mt-2 flex justify-end">
-                            <button
-                              type="button"
-                              title="Retry — resend the last message"
-                              onClick={() => {
-                                const lastUser = [...messages].reverse().find(m => m.role === 'user');
-                                if (!lastUser) return;
-                                dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
-                                setPrompt(lastUser.content);
-                              }}
-                              className={`flex items-center gap-1 text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}
-                            >
-                              <RefreshCw className="w-3 h-3" /> Retry
-                            </button>
+                        {message.role === 'assistant' ? (
+                          <div className="mt-2 flex items-center justify-between gap-2">
+                            <div className={`text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model) || ''}</div>
+                            <div className="flex items-center gap-3">
+                              <button
+                                type="button"
+                                title="Copy message"
+                                onClick={() => {
+                                  navigator.clipboard.writeText(message.content);
+                                  setCopiedMessageIndex(index);
+                                  setTimeout(() => setCopiedMessageIndex(null), 1500);
+                                }}
+                                className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100 transition-opacity`}
+                              >
+                                {copiedMessageIndex === index ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                {copiedMessageIndex === index ? 'Copied!' : 'Copy'}
+                              </button>
+                              {message.model && index === messages.length - 1 && !isSending ? (
+                                <button
+                                  type="button"
+                                  title="Retry — resend the last message"
+                                  onClick={() => {
+                                    const lastUser = [...messages].reverse().find(m => m.role === 'user');
+                                    if (!lastUser) return;
+                                    dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
+                                    setPrompt(lastUser.content);
+                                  }}
+                                  className={`flex items-center gap-1 text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}
+                                >
+                                  <RefreshCw className="w-3 h-3" /> Retry
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                         ) : null}
                       </div>
