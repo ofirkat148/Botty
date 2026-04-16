@@ -439,6 +439,7 @@ function AppShell() {
   const [savingBotId, setSavingBotId] = useState('');
   const [deletingBotId, setDeletingBotId] = useState('');
   const [confirmingDeleteBotId, setConfirmingDeleteBotId] = useState('');
+  const [confirmingClearHistory, setConfirmingClearHistory] = useState(false);
   const [keyInputs, setKeyInputs] = useState<Record<string, string>>({
     anthropic: '',
     google: '',
@@ -463,6 +464,7 @@ function AppShell() {
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollLockedRef = useRef(false);
   const [showScrollResumeBtn, setShowScrollResumeBtn] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   const authHeaders = useMemo(() => ({
     'Content-Type': 'application/json',
@@ -1031,9 +1033,17 @@ function AppShell() {
         toggleFullscreenMode();
       }
 
-      // Escape exits CSS fullscreen (native Esc is handled by the browser for native fullscreen)
-      if (event.key === 'Escape' && isFullscreen && !isEditableTarget) {
-        setIsFullscreen(false);
+      // Ctrl+? or Ctrl+Shift+/ opens keyboard shortcut cheatsheet
+      if ((event.ctrlKey || event.metaKey) && (event.key === '?' || (event.shiftKey && event.key === '/')) && !isEditableTarget) {
+        event.preventDefault();
+        setShowShortcuts(value => !value);
+        return;
+      }
+
+      // Escape exits CSS fullscreen or closes shortcuts modal
+      if (event.key === 'Escape' && !isEditableTarget) {
+        if (showShortcuts) { setShowShortcuts(false); return; }
+        if (isFullscreen) setIsFullscreen(false);
       }
     }
 
@@ -2226,6 +2236,17 @@ function AppShell() {
     await activateFunctionPreset(preset);
   }
 
+  async function clearAllHistory() {
+    await apiSend('/api/history/all', 'DELETE');
+    setHistory([]);
+    setConversationLabels({});
+    setConversationModels({});
+    setPinnedConversations(new Set());
+    dispatchChat({ type: 'RESET' });
+    setConfirmingClearHistory(false);
+    void apiSend('/api/settings/user-settings', 'POST', { conversationLabels: {}, conversationModels: {}, pinnedConversations: [] });
+  }
+
   async function deleteConversation(selectedConversationId: string | null | undefined) {
     if (!selectedConversationId) {
       return;
@@ -2826,6 +2847,44 @@ function AppShell() {
             />
           ) : null}
 
+          {showShortcuts ? (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Keyboard shortcuts"
+              className="fixed inset-0 z-50 flex items-center justify-center p-4"
+              onClick={() => setShowShortcuts(false)}
+            >
+              <div className={`w-full max-w-sm rounded-[1.25rem] border p-5 shadow-xl ${isDarkMode ? 'border-white/10 bg-[#1c1f23] text-stone-100' : 'border-stone-200 bg-white text-stone-900'}`} onClick={event => event.stopPropagation()}>
+                <div className="mb-4 flex items-center justify-between">
+                  <h3 className="font-semibold">Keyboard shortcuts</h3>
+                  <button type="button" onClick={() => setShowShortcuts(false)} className="opacity-50 hover:opacity-100"><X className="w-4 h-4" /></button>
+                </div>
+                <table className="w-full text-sm">
+                  <tbody className="divide-y divide-current/10">
+                    {([
+                      ['Ctrl + N', 'New conversation'],
+                      ['Ctrl + \\', 'Toggle sidebar'],
+                      ['Ctrl + /', 'Focus composer'],
+                      ['Alt + Enter', 'Toggle fullscreen'],
+                      ['Escape', 'Close this / exit fullscreen'],
+                      ['Enter', 'Send message'],
+                      ['Shift + Enter', 'New line in composer'],
+                      ['Ctrl + Enter', 'Save settings form'],
+                      ['↑ / ↓', 'Navigate slash menu'],
+                      ['Ctrl + ?', 'Toggle this panel'],
+                    ] as [string, string][]).map(([key, label]) => (
+                      <tr key={key}>
+                        <td className="py-2 pr-4 font-mono text-xs opacity-70 whitespace-nowrap">{key}</td>
+                        <td className={`py-2 text-sm ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>{label}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
           <aside className={sidebarPanelClass}>
             <div className={`flex items-start gap-3 ${isSidebarExpanded ? 'justify-between' : 'justify-center'}`}>
               <div className={isSidebarExpanded ? '' : 'hidden'}>
@@ -2963,6 +3022,11 @@ function AppShell() {
             <button onClick={() => setIsDarkMode(value => !value)} className={sidebarCompactButtonClass} title={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'} aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
               {isDarkMode ? <SunMedium className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               <span className={sidebarTextClass}>{isDarkMode ? 'Light mode' : 'Dark mode'}</span>
+            </button>
+
+            <button type="button" onClick={() => setShowShortcuts(true)} className={sidebarCompactButtonClass} title="Keyboard shortcuts" aria-label="Keyboard shortcuts">
+              <span className="flex h-4 w-4 items-center justify-center rounded-full border text-[10px] font-bold leading-none" style={{ borderColor: 'currentColor' }}>?</span>
+              <span className={sidebarTextClass}>Shortcuts</span>
             </button>
 
             <div className={`${sidebarStatsClass} mt-auto rounded-[0.95rem] border p-3.5 text-sm ${isDarkMode ? 'border-white/8 bg-[#111417] text-stone-300' : 'border-stone-200 bg-white text-stone-700'}`}>
@@ -4234,6 +4298,18 @@ function AppShell() {
                     {showArchivedHistory ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
                     <span className="hidden sm:inline">{showArchivedHistory ? 'Active' : 'Archived'}</span>
                   </button>
+                  {!showArchivedHistory && conversations.length > 0 ? (
+                    confirmingClearHistory ? (
+                      <>
+                        <button type="button" onClick={() => void clearAllHistory()} className={`${responsiveSecondaryButtonClass} text-red-600 dark:text-red-400`}>Confirm clear</button>
+                        <button type="button" onClick={() => setConfirmingClearHistory(false)} className={responsiveSecondaryButtonClass}>Cancel</button>
+                      </>
+                    ) : (
+                      <button type="button" onClick={() => setConfirmingClearHistory(true)} className={responsiveSecondaryButtonClass} title="Clear all history">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )
+                  ) : null}
                 </div>
 
                 {conversations.filter(item =>

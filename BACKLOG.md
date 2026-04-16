@@ -67,4 +67,8 @@ _Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
 | 26 | ✅ **Message timestamps in chat** | Done: `sentAt` ISO timestamp added to `ChatMessage` type; stamped on `ADD_USER_MESSAGE` and `FINALIZE_ASSISTANT` in the reducer; rendered as `HH:MM` in the message header alongside the role label. |
 | 27 | ✅ **Message count badge on sidebar conversations** | Already present in History tab: each conversation shows `N message pairs`. No change needed. |
 | 28 | ✅ **Auto-scroll lock** | Done: `chatScrollRef` + `scrollLockedRef` detect when user scrolls up; auto-scroll pauses and a `↓ Resume scroll` pill appears at the top of the chat. Clicking it unlocks and jumps to bottom. |
-| 29 | **Keyboard shortcut cheatsheet** | A small `?` button or `Ctrl+?` reveals all keyboard shortcuts (Ctrl+N, Ctrl+\, Ctrl+/, Alt+Enter). Currently undiscoverable. |
+| 29 | ✅ **Keyboard shortcut cheatsheet** | Done: `?` button in sidebar + `Ctrl+?` toggle opens a modal listing all 10 shortcuts. Escape/backdrop click closes it. |
+| 30 | **Conversation character/word count in chat header** | Show total character or word count for the active conversation above the composer (e.g. "~1,200 words across 6 exchanges"). Useful for knowing how full the context is without opening the runtime panel. |
+| 31 | ✅ **Clear chat history button with confirmation** | Done: Trash icon button in History tab toolbar; shows `Confirm clear` / `Cancel` inline before executing. Server route `DELETE /api/history/all` wipes all history for the user. |
+| 32 | **Draft prompt auto-save on refresh** | `botty.draftPrompt` is saved to localStorage but cleared on `RESET`. Persist the draft across page refreshes even when there's no active conversation. |
+| 33 | **Fact import from text file** | In the Memory tab, allow importing a plain `.txt` or `.md` file as a batch of newline-delimited facts. Currently facts must be typed one at a time. |

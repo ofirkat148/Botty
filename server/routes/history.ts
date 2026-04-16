@@ -137,4 +137,19 @@ router.delete('/group/:conversationId', async (req: Request, res: Response) => {
   }
 });
 
+// DELETE /api/history/all - Delete all history for the authenticated user
+router.delete('/all', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const uid = req.userId!;
+
+    await db.delete(history).where(eq(history.uid, uid));
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error clearing all history:', error);
+    res.status(500).json({ error: 'Failed to clear history' });
+  }
+});
+
 export default router;
