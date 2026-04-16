@@ -393,6 +393,7 @@ function AppShell() {
   const [agentFacts, setAgentFacts] = useState<Record<string, Fact[]>>({});
   const [expandedAgentMemory, setExpandedAgentMemory] = useState<Record<string, boolean>>({});
   const factFileInputRef = useRef<HTMLInputElement | null>(null);
+  const factImportRef = useRef<HTMLInputElement | null>(null);
   const [pendingAttachments, setPendingAttachments] = useState<PendingAttachment[]>([]);
   const [isDragOverComposer, setIsDragOverComposer] = useState(false);
   const { state: newSkill, patch: patchNewSkill, reset: resetNewSkill } = useSkillFormReducer();
@@ -549,6 +550,15 @@ function AppShell() {
     if (pct >= 0.9) return { level: 'critical' as const, pct, totalUsed, limit };
     if (pct >= 0.75) return { level: 'warning' as const, pct, totalUsed, limit };
     return null;
+  }, [messages]);
+
+  const conversationStats = useMemo(() => {
+    const nonCompact = messages.filter(m => !m.isCompact);
+    if (nonCompact.length === 0) return null;
+    const allText = nonCompact.map(m => m.content).join(' ');
+    const words = allText.trim().split(/\s+/).filter(Boolean).length;
+    const exchanges = nonCompact.filter(m => m.role === 'user').length;
+    return { words, exchanges };
   }, [messages]);
 
   function getAgentExecutorType(agent: FunctionPreset | AgentDefinition): AgentExecutorType {
@@ -2354,6 +2364,25 @@ function AppShell() {
     await refreshAll();
   }
 
+  async function importFactsFromFile(fileList: FileList | null) {
+    const file = fileList?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+    if (lines.length === 0) {
+      setNotice('No lines found in the file.');
+      return;
+    }
+    let added = 0;
+    for (const line of lines) {
+      await apiSend('/api/memory/facts', 'POST', { content: line });
+      added++;
+    }
+    if (factImportRef.current) factImportRef.current.value = '';
+    setNotice(`Imported ${added} fact${added === 1 ? '' : 's'} from ${file.name}.`);
+    await refreshAll();
+  }
+
   async function deleteFact(id: string) {
     await apiSend(`/api/memory/facts/${id}`, 'DELETE');
     await refreshAll();
@@ -3073,7 +3102,7 @@ function AppShell() {
                 <div className="min-w-0">
                   <h2 className="text-xl font-semibold sm:text-2xl">{activeTabLabel}</h2>
                   <p className={`text-sm ${subtleTextClass}`}>
-                    {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
+                    {activeTab === 'chat' ? (conversationStats ? `~${conversationStats.words.toLocaleString()} words · ${conversationStats.exchanges} exchange${conversationStats.exchanges === 1 ? '' : 's'}` : 'Send prompts through Claude or any configured local provider.') : null}
                     {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
                     {activeTab === 'agents' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
                     {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
@@ -4467,7 +4496,12 @@ function AppShell() {
                     <form onSubmit={addFact} className="mb-4 flex flex-col gap-2 sm:flex-row">
                       <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
                       <button className={responsivePrimaryButtonClass}>Add</button>
+                      <button type="button" onClick={() => factImportRef.current?.click()} className={responsiveSecondaryButtonClass} title="Import facts from a .txt or .md file (one fact per line)">
+                        <Upload className="w-4 h-4" />
+                        Import
+                      </button>
                     </form>
+                    <input ref={factImportRef} type="file" accept=".txt,.md" className="hidden" onChange={event => void importFactsFromFile(event.target.files)} />
                     {facts.length > 4 ? (
                       <div className="mb-3 relative">
                         <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${subtleTextClass}`} />
