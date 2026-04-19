@@ -1489,7 +1489,12 @@ function AppShell() {
       });
 
       if (!streamRes.ok || !streamRes.body) {
-        throw new Error(`Stream request failed: ${streamRes.status}`);
+        let errMsg = `Stream request failed: ${streamRes.status}`;
+        try {
+          const errBody = await streamRes.json() as { error?: string };
+          if (errBody.error) errMsg = errBody.error;
+        } catch { /* ignore */ }
+        throw new Error(errMsg);
       }
 
       dispatchChat({ type: 'ADD_ASSISTANT_PLACEHOLDER' });

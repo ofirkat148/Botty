@@ -60,6 +60,13 @@ router.get('/export', async (req: Request, res: Response) => {
 
     if (payload.userSettings) {
       payload.userSettings.customBots = customAgents;
+      // Parse JSON string fields so the exported object is usable as-is
+      for (const key of ['conversationLabels', 'conversationModels', 'pinnedConversations'] as const) {
+        const val = (payload.userSettings as Record<string, unknown>)[key];
+        if (typeof val === 'string') {
+          try { (payload.userSettings as Record<string, unknown>)[key] = JSON.parse(val); } catch { /* leave as string */ }
+        }
+      }
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -137,86 +144,78 @@ router.post('/import', async (req: Request, res: Response) => {
       }))
       .filter(item => item.prompt && item.response);
 
-    await db.transaction(async tx => {
-      if (hasMemorySection) {
-        await tx.delete(facts).where(eq(facts.uid, uid));
-        await tx.delete(memoryFiles).where(eq(memoryFiles.uid, uid));
-        await tx.delete(memoryUrls).where(eq(memoryUrls.uid, uid));
-      }
+    // Execute sequentially — better-sqlite3 does not support async transactions
+    if (hasMemorySection) {
+      await db.delete(facts).where(eq(facts.uid, uid));
+      await db.delete(memoryFiles).where(eq(memoryFiles.uid, uid));
+      await db.delete(memoryUrls).where(eq(memoryUrls.uid, uid));
+    }
 
-      if (hasHistorySection) {
-        await tx.delete(history).where(eq(history.uid, uid));
-      }
+    if (hasHistorySection) {
+      await db.delete(history).where(eq(history.uid, uid));
+    }
 
-      if (consolidatedFactRows.length > 0) {
-        await tx.insert(facts).values(consolidatedFactRows).onConflictDoNothing();
-      }
+    if (consolidatedFactRows.length > 0) {
+      await db.insert(facts).values(consolidatedFactRows).onConflictDoNothing();
+    }
 
-      if (fileRows.length > 0) {
-        await tx.insert(memoryFiles).values(fileRows).onConflictDoNothing();
-      }
+    if (fileRows.length > 0) {
+      await db.insert(memoryFiles).values(fileRows).onConflictDoNothing();
+    }
 
-      if (urlRows.length > 0) {
-        await tx.insert(memoryUrls).values(urlRows).onConflictDoNothing();
-      }
+    if (urlRows.length > 0) {
+      await db.insert(memoryUrls).values(urlRows).onConflictDoNothing();
+    }
 
-      if (historyRows.length > 0) {
-        await tx.insert(history).values(historyRows).onConflictDoNothing();
-      }
+    if (historyRows.length > 0) {
+      await db.insert(history).values(historyRows).onConflictDoNothing();
+    }
 
-      if (incomingSettings) {
-        await tx.insert(settings).values({
-          uid,
-          localUrl: incomingSettings.localUrl ? String(incomingSettings.localUrl) : null,
-          useMemory: incomingSettings.useMemory !== false,
-          autoMemory: incomingSettings.autoMemory !== false,
-          sandboxMode: incomingSettings.sandboxMode === true,
-          updatedAt: new Date().toISOString(),
-        }).onConflictDoUpdate({
-          target: settings.uid,
-          set: {
-            localUrl: incomingSettings.localUrl ? String(incomingSettings.localUrl) : null,
-            useMemory: incomingSettings.useMemory !== false,
-            autoMemory: incomingSettings.autoMemory !== false,
-            sandboxMode: incomingSettings.sandboxMode === true,
-            updatedAt: new Date().toISOString(),
-          },
-        });
+    if (incomingSettings) {
+      const settingsValues = {
+        uid,
+        localUrl: incomingSettings.localUrl ? String(incomingSettings.localUrl) : null,
+        useMemory: incomingSettings.useMemory !== false,
+        autoMemory: incomingSettings.autoMemory !== false,
+        sandboxMode: incomingSettings.sandboxMode === true,
+        updatedAt: new Date().toISOString(),
+      };
+      const existing = await db.select().from(settings).where(eq(settings.uid, uid)).limit(1);
+      if (existing.length > 0) {
+        await db.update(settings).set(settingsValues).where(eq(settings.uid, uid));
+      } else {
+        await db.insert(settings).values(settingsValues);
       }
+    }
 
-      if (incomingUserSettings) {
-        const incomingLabels = incomingUserSettings.conversationLabels &&
-          typeof incomingUserSettings.conversationLabels === 'object' &&
-          !Array.isArray(incomingUserSettings.conversationLabels)
-          ? incomingUserSettings.conversationLabels
-          : null;
-        const incomingModels = incomingUserSettings.conversationModels &&
-          typeof incomingUserSettings.conversationModels === 'object' &&
-          !Array.isArray(incomingUserSettings.conversationModels)
-          ? incomingUserSettings.conversationModels
-          : null;
+    if (incomingUserSettings) {
+      const incomingLabels = incomingUserSettings.conversationLabels &&
+        typeof incomingUserSettings.conversationLabels === 'object' &&
+        !Array.isArray(incomingUserSettings.conversationLabels)
+        ? incomingUserSettings.conversationLabels
+        : null;
+      const incomingModels = incomingUserSettings.conversationModels &&
+        typeof incomingUserSettings.conversationModels === 'object' &&
+        !Array.isArray(incomingUserSettings.conversationModels)
+        ? incomingUserSettings.conversationModels
+        : null;
 
-        await tx.insert(userSettings).values({
-          uid,
-          systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
-          customSkills: Array.isArray(incomingUserSettings.customSkills) ? JSON.stringify(incomingUserSettings.customSkills) : null,
-          customBots: null,
-          conversationLabels: incomingLabels ? JSON.stringify(incomingLabels) : null,
-          conversationModels: incomingModels ? JSON.stringify(incomingModels) : null,
-          updatedAt: new Date().toISOString(),
-        }).onConflictDoUpdate({
-          target: userSettings.uid,
-          set: {
-            systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
-            customSkills: Array.isArray(incomingUserSettings.customSkills) ? JSON.stringify(incomingUserSettings.customSkills) : null,
-            customBots: null,
-            conversationLabels: incomingLabels ? JSON.stringify(incomingLabels) : null,
-            conversationModels: incomingModels ? JSON.stringify(incomingModels) : null,
-            updatedAt: new Date().toISOString(),
-          },
-        });
+      const userSettingsValues = {
+        uid,
+        systemPrompt: incomingUserSettings.systemPrompt ? String(incomingUserSettings.systemPrompt) : null,
+        customSkills: Array.isArray(incomingUserSettings.customSkills) ? JSON.stringify(incomingUserSettings.customSkills) : null,
+        customBots: null,
+        conversationLabels: incomingLabels ? JSON.stringify(incomingLabels) : null,
+        conversationModels: incomingModels ? JSON.stringify(incomingModels) : null,
+        updatedAt: new Date().toISOString(),
+      };
+      const existingUS = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+      if (existingUS.length > 0) {
+        await db.update(userSettings).set(userSettingsValues).where(eq(userSettings.uid, uid));
+      } else {
+        await db.insert(userSettings).values(userSettingsValues);
       }
-    });
+    }
 
     if (incomingUserSettings) {
       await replaceCustomAgentsForUser(uid, incomingUserSettings.customBots);

@@ -118,6 +118,11 @@ function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | '
   };
 }
 
+function tryParseJson(value: unknown): unknown {
+  if (typeof value !== 'string') return value ?? null;
+  try { return JSON.parse(value); } catch { return value; }
+}
+
 function readStoredFunctionPresets(value: unknown, expectedKind: 'skill' | 'agent') {
   if (!Array.isArray(value)) {
     return [] as StoredFunctionPreset[];
@@ -398,9 +403,13 @@ router.get('/user-settings', async (req: Request, res: Response) => {
     }
 
     const customAgents = await listCustomAgentsForUser(uid);
+    const row = userSettingsData[0];
     res.json({
-      ...userSettingsData[0],
-      customSkills: readStoredFunctionPresets(userSettingsData[0]?.customSkills, 'skill'),
+      ...row,
+      customSkills: readStoredFunctionPresets(row?.customSkills, 'skill'),
+      conversationLabels: tryParseJson(row?.conversationLabels),
+      conversationModels: tryParseJson(row?.conversationModels),
+      pinnedConversations: tryParseJson(row?.pinnedConversations),
       customBots: customAgents,
     });
   } catch (error) {
@@ -421,30 +430,36 @@ router.post('/user-settings', async (req: Request, res: Response) => {
 
     const { systemPrompt, conversationLabels, conversationModels, pinnedConversations } = req.body;
     const nextSystemPrompt = 'systemPrompt' in req.body ? (systemPrompt || null) : (current?.systemPrompt ?? null);
-    const nextLabels = 'conversationLabels' in req.body ? (conversationLabels || null) : (current?.conversationLabels ?? null);
-    const nextModels = 'conversationModels' in req.body ? (conversationModels || null) : (current?.conversationModels ?? null);
+    const rawLabels = 'conversationLabels' in req.body ? (conversationLabels ?? null) : (current?.conversationLabels ?? null);
+    const rawModels = 'conversationModels' in req.body ? (conversationModels ?? null) : (current?.conversationModels ?? null);
     const nextPinned = 'pinnedConversations' in req.body ? (Array.isArray(pinnedConversations) ? pinnedConversations : null) : (current?.pinnedConversations ?? null);
+    const nextLabels = rawLabels !== null && typeof rawLabels === 'object' ? JSON.stringify(rawLabels) : rawLabels;
+    const nextModels = rawModels !== null && typeof rawModels === 'object' ? JSON.stringify(rawModels) : rawModels;
+    const nextPinnedStr = Array.isArray(nextPinned) ? JSON.stringify(nextPinned) : nextPinned;
 
-    await db
-      .insert(userSettings)
-      .values({
-        uid,
-        systemPrompt: nextSystemPrompt,
-        conversationLabels: nextLabels,
-        conversationModels: nextModels,
-        pinnedConversations: Array.isArray(nextPinned) ? JSON.stringify(nextPinned) : nextPinned,
-        updatedAt: new Date().toISOString(),
-      })
-      .onConflictDoUpdate({
-        target: userSettings.uid,
-        set: {
+    if (current) {
+      await db
+        .update(userSettings)
+        .set({
           systemPrompt: nextSystemPrompt,
           conversationLabels: nextLabels,
           conversationModels: nextModels,
-          pinnedConversations: Array.isArray(nextPinned) ? JSON.stringify(nextPinned) : nextPinned,
+          pinnedConversations: nextPinnedStr,
           updatedAt: new Date().toISOString(),
-        },
-      });
+        })
+        .where(eq(userSettings.uid, uid));
+    } else {
+      await db
+        .insert(userSettings)
+        .values({
+          uid,
+          systemPrompt: nextSystemPrompt,
+          conversationLabels: nextLabels,
+          conversationModels: nextModels,
+          pinnedConversations: nextPinnedStr,
+          updatedAt: new Date().toISOString(),
+        });
+    }
 
     res.json({ success: true });
   } catch (error) {

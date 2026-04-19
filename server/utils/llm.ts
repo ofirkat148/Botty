@@ -726,13 +726,10 @@ export async function reconcileFactsForUser(uid: string) {
   const consolidatedRows = consolidateFactRows(factRows);
 
   if (!sameFactSet(factRows, consolidatedRows)) {
-    await db.transaction(async tx => {
-      await tx.delete(facts).where(buildFactScopeFilter(uid, null));
-
-      if (consolidatedRows.length > 0) {
-        await tx.insert(facts).values(consolidatedRows);
-      }
-    });
+    await db.delete(facts).where(buildFactScopeFilter(uid, null));
+    if (consolidatedRows.length > 0) {
+      await db.insert(facts).values(consolidatedRows);
+    }
   }
 
   return consolidatedRows;
@@ -766,13 +763,10 @@ export async function reconcileFactsForUserScoped(uid: string, botId: string) {
   const consolidatedRows = consolidateFactRows(factRows);
 
   if (!sameFactSet(factRows, consolidatedRows)) {
-    await db.transaction(async tx => {
-      await tx.delete(facts).where(buildFactScopeFilter(uid, botId));
-
-      if (consolidatedRows.length > 0) {
-        await tx.insert(facts).values(consolidatedRows);
-      }
-    });
+    await db.delete(facts).where(buildFactScopeFilter(uid, botId));
+    if (consolidatedRows.length > 0) {
+      await db.insert(facts).values(consolidatedRows);
+    }
   }
 
   return consolidatedRows;
@@ -812,13 +806,10 @@ export async function saveFactsWithConsolidation(
     ...candidateRows,
   ]);
 
-  await db.transaction(async tx => {
-    await tx.delete(facts).where(buildFactScopeFilter(uid, botId));
-
-    if (consolidatedRows.length > 0) {
-      await tx.insert(facts).values(consolidatedRows);
-    }
-  });
+  await db.delete(facts).where(buildFactScopeFilter(uid, botId));
+  if (consolidatedRows.length > 0) {
+    await db.insert(facts).values(consolidatedRows);
+  }
 
   return consolidatedRows.map(item => item.content);
 }

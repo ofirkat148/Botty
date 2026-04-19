@@ -1,14 +1,17 @@
 import jwt from 'jsonwebtoken';
 
-const _jwtSecret = process.env.JWT_SECRET;
-if (!_jwtSecret || _jwtSecret.trim().length < 16) {
-  throw new Error(
-    'JWT_SECRET environment variable must be set and at least 16 characters long. ' +
-    'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"'
-  );
-}
-const JWT_SECRET = _jwtSecret.trim();
 const TOKEN_EXPIRY = '24h';
+
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET;
+  if (!secret || secret.trim().length < 16) {
+    throw new Error(
+      'JWT_SECRET environment variable must be set and at least 16 characters long. ' +
+      'Generate one with: node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"'
+    );
+  }
+  return secret.trim();
+}
 
 export interface TokenPayload {
   sub: string; // User ID
@@ -23,14 +26,14 @@ export function signToken(userId: string, email: string): string {
     email,
   };
 
-  return jwt.sign(payload, JWT_SECRET, {
+  return jwt.sign(payload, getJwtSecret(), {
     expiresIn: TOKEN_EXPIRY,
   });
 }
 
 export function verifyToken(token: string): TokenPayload {
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as TokenPayload;
+    const decoded = jwt.verify(token, getJwtSecret()) as TokenPayload;
     return decoded;
   } catch (error) {
     throw new Error('Invalid or expired token');
