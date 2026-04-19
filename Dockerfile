@@ -14,7 +14,6 @@ COPY package*.json ./
 
 # Single npm ci — install ALL deps (including devDeps like vite/tsx needed for build)
 RUN --mount=type=secret,id=botty_resolv_conf,target=/etc/resolv.conf,required=false \
-    --mount=type=cache,target=/root/.npm \
     NODE_ENV=development npm ci
 
 COPY . .
