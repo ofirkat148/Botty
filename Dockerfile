@@ -12,10 +12,10 @@ RUN npm config set fetch-timeout 120000 && \
 
 COPY package*.json ./
 
-# Single npm ci — avoids parallel installs that cause network contention
+# Single npm ci — install ALL deps (including devDeps like vite/tsx needed for build)
 RUN --mount=type=secret,id=botty_resolv_conf,target=/etc/resolv.conf,required=false \
     --mount=type=cache,target=/root/.npm \
-    npm ci
+    NODE_ENV=development npm ci
 
 COPY . .
 
