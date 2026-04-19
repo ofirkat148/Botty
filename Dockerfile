@@ -12,16 +12,33 @@ RUN npm config set fetch-timeout 120000 && \
 
 COPY package*.json ./
 
-# Single npm ci — install ALL deps (including devDeps like vite/tsx needed for build)
+# Install production deps only — this is the lightweight fast install
 RUN --mount=type=secret,id=botty_resolv_conf,target=/etc/resolv.conf,required=false \
-    NODE_ENV=development npm ci
+    npm ci --omit=dev
+
+# Install ONLY the devDeps needed for the Vite build (skips playwright/tesseract/pdfjs)
+# tailwind-merge, clsx, lucide-react etc. are already installed as prod deps
+RUN --mount=type=secret,id=botty_resolv_conf,target=/etc/resolv.conf,required=false \
+    npm install --no-save \
+        vite \
+        @vitejs/plugin-react \
+        "@tailwindcss/vite" \
+        tailwindcss \
+        typescript \
+        tsx \
+        "@types/node" \
+        "@types/express" \
+        "@types/jsonwebtoken" \
+        "@types/pg" \
+        "@types/better-sqlite3" \
+        "@types/express-rate-limit"
 
 COPY . .
 
 # Build the Vite frontend
 RUN npm run build
 
-# Prune devDependencies in-place (no network needed — pure file deletion)
+# Remove the build-only devDeps before copying to runtime (prune back to prod-only)
 RUN npm prune --omit=dev
 
 # ── Stage 2: Runtime (Debian slim, ~300 MB vs ~1.5 GB) ───────────────────────
