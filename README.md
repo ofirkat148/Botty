@@ -105,6 +105,7 @@ Then open **http://localhost:5000**.
 ```bash
 cp .env.example .env.local
 # Edit .env.local — set JWT_SECRET, KEY_ENCRYPTION_SECRET, and any provider keys
+docker compose pull    # pulls ghcr.io/ofirkat148/botty:main (built by CI)
 docker compose up -d
 ```
 
@@ -177,7 +178,9 @@ systemctl status botty.service
 docker compose ps
 
 # After pulling new code
-docker compose build app
+docker compose pull app   # pulls latest image from GHCR (no local build needed)
+docker compose up -d app
+# or simply restart the systemd service:
 sudo systemctl restart botty.service
 
 # DB backup (copies the SQLite file; safe while running thanks to WAL mode)
