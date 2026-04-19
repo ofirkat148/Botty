@@ -1,12 +1,6 @@
 services:
   app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      network: host
-      secrets:
-        - botty_resolv_conf
-    image: botty-app:local
+    image: ghcr.io/ofirkat148/botty:main
     restart: unless-stopped
     network_mode: host
     depends_on:
