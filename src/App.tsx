@@ -118,6 +118,76 @@ function ArtifactBlock({ lang, code, isDark }: { lang: string; code: string; isD
 
 const MAX_RECENT_SLASH_ITEMS = 4;
 
+// ---------------------------------------------------------------------------
+// Project color utilities
+// ---------------------------------------------------------------------------
+const PROJECT_COLOR_PRESETS = ['stone', 'red', 'amber', 'green', 'blue', 'violet', 'pink', 'cyan'] as const;
+type ProjectColor = typeof PROJECT_COLOR_PRESETS[number];
+
+const PROJECT_DOT_CLASSES: Record<string, string> = {
+  stone: 'bg-stone-400',
+  red: 'bg-red-400',
+  amber: 'bg-amber-400',
+  green: 'bg-green-400',
+  blue: 'bg-blue-400',
+  violet: 'bg-violet-400',
+  pink: 'bg-pink-400',
+  cyan: 'bg-cyan-400',
+};
+
+const PROJECT_ACTIVE_PILL_DARK: Record<string, string> = {
+  stone: 'bg-stone-500/20 text-stone-200 ring-1 ring-stone-400/40',
+  red: 'bg-red-500/20 text-red-300 ring-1 ring-red-500/40',
+  amber: 'bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40',
+  green: 'bg-green-500/20 text-green-300 ring-1 ring-green-500/40',
+  blue: 'bg-blue-500/20 text-blue-300 ring-1 ring-blue-500/40',
+  violet: 'bg-violet-500/20 text-violet-300 ring-1 ring-violet-500/40',
+  pink: 'bg-pink-500/20 text-pink-300 ring-1 ring-pink-500/40',
+  cyan: 'bg-cyan-500/20 text-cyan-300 ring-1 ring-cyan-500/40',
+};
+const PROJECT_ACTIVE_PILL_LIGHT: Record<string, string> = {
+  stone: 'bg-stone-200 text-stone-800 ring-1 ring-stone-400',
+  red: 'bg-red-100 text-red-800 ring-1 ring-red-300',
+  amber: 'bg-amber-100 text-amber-800 ring-1 ring-amber-300',
+  green: 'bg-green-100 text-green-800 ring-1 ring-green-300',
+  blue: 'bg-blue-100 text-blue-800 ring-1 ring-blue-300',
+  violet: 'bg-violet-100 text-violet-800 ring-1 ring-violet-300',
+  pink: 'bg-pink-100 text-pink-800 ring-1 ring-pink-300',
+  cyan: 'bg-cyan-100 text-cyan-800 ring-1 ring-cyan-300',
+};
+const PROJECT_BADGE_TEXT_DARK: Record<string, string> = {
+  stone: 'text-stone-400',
+  red: 'text-red-400',
+  amber: 'text-amber-400',
+  green: 'text-green-400',
+  blue: 'text-blue-400',
+  violet: 'text-violet-400',
+  pink: 'text-pink-400',
+  cyan: 'text-cyan-400',
+};
+const PROJECT_BADGE_TEXT_LIGHT: Record<string, string> = {
+  stone: 'text-stone-600',
+  red: 'text-red-700',
+  amber: 'text-amber-700',
+  green: 'text-green-700',
+  blue: 'text-blue-700',
+  violet: 'text-violet-700',
+  pink: 'text-pink-700',
+  cyan: 'text-cyan-700',
+};
+
+function getProjectActivePill(color: string | null | undefined, dark: boolean) {
+  const c = (color || 'stone') as ProjectColor;
+  return (dark ? PROJECT_ACTIVE_PILL_DARK : PROJECT_ACTIVE_PILL_LIGHT)[c] ?? (dark ? PROJECT_ACTIVE_PILL_DARK.stone : PROJECT_ACTIVE_PILL_LIGHT.stone);
+}
+function getProjectDotClass(color: string | null | undefined) {
+  return PROJECT_DOT_CLASSES[(color || 'stone') as ProjectColor] ?? PROJECT_DOT_CLASSES.stone;
+}
+function getProjectBadgeClass(color: string | null | undefined, dark: boolean) {
+  const c = (color || 'stone') as ProjectColor;
+  return (dark ? PROJECT_BADGE_TEXT_DARK : PROJECT_BADGE_TEXT_LIGHT)[c] ?? (dark ? PROJECT_BADGE_TEXT_DARK.stone : PROJECT_BADGE_TEXT_LIGHT.stone);
+}
+
 type User = {
   id: string;
   uid: string;
@@ -374,6 +444,8 @@ function AppShell() {
   const [newProjectName, setNewProjectName] = useState('');
   const [editingProjectId, setEditingProjectId] = useState('');
   const [editingProject, setEditingProject] = useState<Partial<Project>>({});
+  const [newProjectColor, setNewProjectColor] = useState<string>('stone');
+  const [newProjectSystemPrompt, setNewProjectSystemPrompt] = useState('');
   const [assigningConvId, setAssigningConvId] = useState('');
   const [factsSearch, setFactsSearch] = useState('');
   const [sidebarSearch, setSidebarSearch] = useState('');
@@ -2422,9 +2494,15 @@ function AppShell() {
   async function createProject() {
     const name = newProjectName.trim();
     if (!name) return;
-    const proj = await apiSend<Project>('/api/projects', 'POST', { name });
+    const proj = await apiSend<Project>('/api/projects', 'POST', {
+      name,
+      color: newProjectColor,
+      systemPrompt: newProjectSystemPrompt.trim() || null,
+    });
     setProjects(prev => [proj, ...prev]);
     setNewProjectName('');
+    setNewProjectColor('stone');
+    setNewProjectSystemPrompt('');
     setCreatingProject(false);
   }
 
@@ -4525,16 +4603,32 @@ function AppShell() {
                     </button>
                   </div>
                   {creatingProject ? (
-                    <form onSubmit={event => { event.preventDefault(); void createProject(); }} className="mt-3 flex gap-2">
+                    <form onSubmit={event => { event.preventDefault(); void createProject(); }} className="mt-3 flex flex-col gap-2">
                       <input
                         autoFocus
                         value={newProjectName}
                         onChange={event => setNewProjectName(event.target.value)}
                         placeholder="Project name…"
-                        className={`flex-1 text-sm ${inputClass}`}
+                        className={`text-sm ${inputClass}`}
                       />
-                      <button type="submit" className={responsivePrimaryButtonClass}>Create</button>
-                      <button type="button" onClick={() => { setCreatingProject(false); setNewProjectName(''); }} className={responsiveSecondaryButtonClass}>Cancel</button>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-xs ${subtleTextClass}`}>Color</span>
+                        {PROJECT_COLOR_PRESETS.map(c => (
+                          <button key={c} type="button" title={c} onClick={() => setNewProjectColor(c)}
+                            className={`w-4 h-4 rounded-full transition-all ${getProjectDotClass(c)} ${newProjectColor === c ? 'ring-2 ring-offset-1 ring-offset-transparent scale-125' : 'opacity-60 hover:opacity-100'}`} />
+                        ))}
+                      </div>
+                      <textarea
+                        value={newProjectSystemPrompt}
+                        onChange={event => setNewProjectSystemPrompt(event.target.value)}
+                        placeholder="System prompt for this project (optional)…"
+                        rows={2}
+                        className={`text-sm resize-none ${inputClass}`}
+                      />
+                      <div className="flex gap-2">
+                        <button type="submit" className={responsivePrimaryButtonClass}>Create</button>
+                        <button type="button" onClick={() => { setCreatingProject(false); setNewProjectName(''); setNewProjectColor('stone'); setNewProjectSystemPrompt(''); }} className={responsiveSecondaryButtonClass}>Cancel</button>
+                      </div>
                     </form>
                   ) : null}
                   {projects.length === 0 && !creatingProject ? (
@@ -4553,26 +4647,43 @@ function AppShell() {
                       {projects.map(proj => (
                         <div key={proj.id} className="flex items-center gap-1">
                           {editingProjectId === proj.id ? (
-                            <form onSubmit={event => { event.preventDefault(); void updateProject(proj.id, editingProject); }} className="flex gap-1">
+                            <form onSubmit={event => { event.preventDefault(); void updateProject(proj.id, editingProject); }} className="w-full flex flex-col gap-2 mt-1">
                               <input
                                 autoFocus
                                 value={editingProject.name ?? proj.name}
                                 onChange={event => setEditingProject(p => ({ ...p, name: event.target.value }))}
-                                className={`text-sm rounded-full px-3 py-1.5 ${inputClass}`}
+                                className={`text-sm ${inputClass}`}
                               />
-                              <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
-                              <button type="button" onClick={() => { setEditingProjectId(''); setEditingProject({}); }} className={responsiveSecondaryButtonClass}>Cancel</button>
+                              <div className="flex items-center gap-2">
+                                <span className={`text-xs ${subtleTextClass}`}>Color</span>
+                                {PROJECT_COLOR_PRESETS.map(c => (
+                                  <button key={c} type="button" title={c} onClick={() => setEditingProject(p => ({ ...p, color: c }))}
+                                    className={`w-4 h-4 rounded-full transition-all ${getProjectDotClass(c)} ${(editingProject.color ?? proj.color) === c ? 'ring-2 ring-offset-1 ring-offset-transparent scale-125' : 'opacity-60 hover:opacity-100'}`} />
+                                ))}
+                              </div>
+                              <textarea
+                                value={editingProject.systemPrompt ?? proj.systemPrompt ?? ''}
+                                onChange={event => setEditingProject(p => ({ ...p, systemPrompt: event.target.value }))}
+                                placeholder="System prompt for this project (optional)…"
+                                rows={3}
+                                className={`text-sm resize-none ${inputClass}`}
+                              />
+                              <div className="flex gap-2">
+                                <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
+                                <button type="button" onClick={() => { setEditingProjectId(''); setEditingProject({}); }} className={responsiveSecondaryButtonClass}>Cancel</button>
+                              </div>
                             </form>
                           ) : (
                             <>
                               <button
                                 type="button"
                                 onClick={() => setActiveProjectFilter(id => id === proj.id ? null : proj.id)}
-                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${activeProjectFilter === proj.id ? (isDarkMode ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40' : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300') : (isDarkMode ? 'bg-white/8 text-stone-200 hover:bg-white/14' : 'bg-stone-100 text-stone-700 hover:bg-stone-200')}`}
+                                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${activeProjectFilter === proj.id ? getProjectActivePill(proj.color, isDarkMode) : (isDarkMode ? 'bg-white/8 text-stone-200 hover:bg-white/14' : 'bg-stone-100 text-stone-700 hover:bg-stone-200')}`}
                               >
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${getProjectDotClass(proj.color)}`} />
                                 {proj.name}
                               </button>
-                              <button type="button" onClick={() => { setEditingProjectId(proj.id); setEditingProject({ name: proj.name }); }} className={`rounded-full p-1 ${subtleTextClass} hover:opacity-80`} title="Rename project"><Pencil className="w-3 h-3" /></button>
+                              <button type="button" onClick={() => { setEditingProjectId(proj.id); setEditingProject({ name: proj.name, color: proj.color, systemPrompt: proj.systemPrompt }); }} className={`rounded-full p-1 ${subtleTextClass} hover:opacity-80`} title="Edit project"><Pencil className="w-3 h-3" /></button>
                               <button type="button" onClick={() => void deleteProject(proj.id)} className={`rounded-full p-1 ${subtleTextClass} hover:text-red-500`} title="Delete project"><Trash2 className="w-3 h-3" /></button>
                             </>
                           )}
@@ -4621,13 +4732,15 @@ function AppShell() {
                         <span>{(() => { const t = item.items.reduce((s, e) => s + (e.tokensUsed || 0), 0); return t > 0 ? `${t.toLocaleString()} tokens total` : 'Tokens: unknown'; })()}</span>
                         <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
                         <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
-                        {(() => { const pid = item.items.find(e => e.projectId)?.projectId; const proj = pid ? projects.find(p => p.id === pid) : null; return proj ? <span className={`font-medium ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>{proj.name}</span> : null; })()}
+                        {(() => { const pid = item.items.find(e => e.projectId)?.projectId; const proj = pid ? projects.find(p => p.id === pid) : null; return proj ? <span className={`flex items-center gap-1 font-medium ${getProjectBadgeClass(proj.color, isDarkMode)}`}><span className={`w-1.5 h-1.5 rounded-full ${getProjectDotClass(proj.color)}`} />{proj.name}</span> : null; })()}
                       </div>
                       {assigningConvId === item.id && projects.length > 0 ? (
                         <div className={`mt-2 flex flex-wrap gap-2`}>
                           <span className={`text-xs ${subtleTextClass}`}>Move to:</span>
                           {projects.map(proj => (
-                            <button key={proj.id} type="button" onClick={() => void assignConversationToProject(item.id, proj.id)} className={`rounded-full px-2.5 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14 text-stone-200' : 'bg-stone-100 hover:bg-stone-200 text-stone-700'}`}>{proj.name}</button>
+                            <button key={proj.id} type="button" onClick={() => void assignConversationToProject(item.id, proj.id)} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14 text-stone-200' : 'bg-stone-100 hover:bg-stone-200 text-stone-700'}`}>
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${getProjectDotClass(proj.color)}`} />{proj.name}
+                            </button>
                           ))}
                           {item.items.some(e => e.projectId) ? <button type="button" onClick={() => void assignConversationToProject(item.id, null)} className={`rounded-full px-2.5 py-1 text-xs text-red-500`}>Remove from project</button> : null}
                           <button type="button" onClick={() => setAssigningConvId('')} className={`rounded-full px-2.5 py-1 text-xs ${subtleTextClass}`}>Cancel</button>

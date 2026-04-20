@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
-import { eq, count } from 'drizzle-orm';
+import { eq, and, count } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
-import { history } from '../db/schema.js';
+import { history, projects } from '../db/schema.js';
 import {
   BotMemoryMode,
   buildChatSystemPrompt,
@@ -25,6 +25,27 @@ import {
 import { webSearch, formatSearchContext } from '../utils/search.js';
 import { resolveAgentForUser } from '../utils/agents.js';
 import type { AgentDefinition, ToolDefinition } from '../../shared/agentDefinitions.js';
+
+/** Look up the system prompt of the project a conversation belongs to (if any). */
+async function resolveProjectSystemPrompt(uid: string, conversationId: string): Promise<string> {
+  if (!conversationId) return '';
+  try {
+    const db = getDatabase();
+    const [row] = await db
+      .select({ projectId: history.projectId })
+      .from(history)
+      .where(and(eq(history.uid, uid), eq(history.conversationId, conversationId)))
+      .limit(1);
+    if (!row?.projectId) return '';
+    const [proj] = await db
+      .select({ systemPrompt: projects.systemPrompt })
+      .from(projects)
+      .where(and(eq(projects.uid, uid), eq(projects.id, row.projectId)));
+    return proj?.systemPrompt || '';
+  } catch {
+    return '';
+  }
+}
 
 function buildToolCatalogSection(tools: ToolDefinition[]): string {
   if (tools.length === 0) return '';
@@ -275,8 +296,11 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   const toolCatalogSection = activeAgent?.tools?.length
     ? buildToolCatalogSection(activeAgent.tools)
     : '';
+  const projectSystemPrompt = !activeAgent && incomingConversationId
+    ? await resolveProjectSystemPrompt(uid, incomingConversationId)
+    : '';
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: [activeAgent?.systemPrompt || runtimeSettings.systemPrompt, toolCatalogSection].filter(Boolean).join('\n\n'),
+    systemPrompt: [activeAgent?.systemPrompt || projectSystemPrompt || runtimeSettings.systemPrompt, toolCatalogSection].filter(Boolean).join('\n\n'),
     memoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
@@ -506,8 +530,11 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
         memoryMode,
       })
     : '';
+  const projectSystemPromptStream = !activeAgent && incomingConversationId
+    ? await resolveProjectSystemPrompt(uid, incomingConversationId)
+    : '';
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: activeAgent?.systemPrompt || runtimeSettings.systemPrompt,
+    systemPrompt: activeAgent?.systemPrompt || projectSystemPromptStream || runtimeSettings.systemPrompt,
     memoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
