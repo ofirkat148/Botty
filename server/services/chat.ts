@@ -23,6 +23,7 @@ import {
   shouldRetryWithAnotherProvider,
 } from '../utils/llm.js';
 import { webSearch, formatSearchContext } from '../utils/search.js';
+import { resolveAgentForUser } from '../utils/agents.js';
 import type { AgentDefinition, ToolDefinition } from '../../shared/agentDefinitions.js';
 
 function buildToolCatalogSection(tools: ToolDefinition[]): string {

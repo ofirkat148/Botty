@@ -55,7 +55,7 @@ function MessageContent({ text }: { text: string }) {
         part.type === 'text' ? (
           <span key={i} className="whitespace-pre-wrap">{part.content}</span>
         ) : (
-          <ArtifactPreview key={i} lang={part.lang} code={part.content} />
+          <ArtifactPreview key={i} lang={part.lang} code={part.code} />
         )
       )}
     </>
