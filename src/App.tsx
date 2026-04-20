@@ -64,6 +64,56 @@ import {
   parseAttachmentFile,
   terminateOcrWorker,
 } from './utils/chatAttachments';
+import { parseArtifacts, hasArtifacts } from './utils/artifacts';
+
+// ---------------------------------------------------------------------------
+// ArtifactBlock — sandboxed iframe preview of HTML/TSX/SVG code blocks
+// ---------------------------------------------------------------------------
+function ArtifactBlock({ lang, code, isDark }: { lang: string; code: string; isDark: boolean }) {
+  const [shown, setShown] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const iframeContent = lang === 'svg'
+    ? `<!doctype html><html><head><meta charset="utf-8"><style>body{margin:0;display:flex;align-items:center;justify-content:center;min-height:100vh;background:${isDark ? '#1a1d20' : '#fff'}}</style></head><body>${code}</body></html>`
+    : /<!doctype html/i.test(code)
+      ? code
+      : `<!doctype html><html><head><meta charset="utf-8"><style>body{font-family:system-ui,sans-serif;margin:16px;background:${isDark ? '#1a1d20' : '#fff'};color:${isDark ? '#e7e5e4' : '#171717'}}</style></head><body>${code}</body></html>`;
+
+  return (
+    <div className={`mt-3 rounded-xl border overflow-hidden ${isDark ? 'border-white/10' : 'border-stone-200'}`}>
+      <div className={`flex items-center justify-between gap-2 px-3 py-2 text-xs ${isDark ? 'bg-white/5 text-stone-400' : 'bg-stone-100 text-stone-500'}`}>
+        <span className="font-mono uppercase tracking-widest">{lang}</span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            className="opacity-60 hover:opacity-100 transition-opacity"
+          >
+            {copied ? '✓ Copied' : 'Copy'}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShown(v => !v)}
+            className="opacity-60 hover:opacity-100 transition-opacity font-medium"
+          >
+            {shown ? 'Hide preview' : 'Show preview'}
+          </button>
+        </div>
+      </div>
+      <pre className={`overflow-x-auto p-3 text-xs leading-5 font-mono ${isDark ? 'bg-[#0f1113] text-stone-300' : 'bg-stone-50 text-stone-800'}`}><code>{code}</code></pre>
+      {shown ? (
+        <iframe
+          title={`artifact-${lang}`}
+          sandbox="allow-scripts"
+          srcDoc={iframeContent}
+          className="w-full border-t"
+          style={{ height: '340px', background: isDark ? '#1a1d20' : '#fff', borderColor: isDark ? 'rgba(255,255,255,0.08)' : '#e7e5e4' }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 const MAX_RECENT_SLASH_ITEMS = 4;
 
 type User = {
@@ -3312,7 +3362,16 @@ function AppShell() {
                             </span>
                           ) : null}
                         </div>
-                        <div className="whitespace-pre-wrap text-[15px] leading-6 sm:leading-7">{message.content}</div>
+                        <div className="text-[15px] leading-6 sm:leading-7">
+                          {message.role === 'assistant' && hasArtifacts(message.content)
+                            ? parseArtifacts(message.content).map((seg, si) =>
+                                seg.type === 'text'
+                                  ? <span key={si} className="whitespace-pre-wrap">{seg.content}</span>
+                                  : <ArtifactBlock key={si} lang={seg.lang} code={seg.code} isDark={isDarkMode} />
+                              )
+                            : <span className="whitespace-pre-wrap">{message.content}</span>
+                          }
+                        </div>
                         {message.role === 'user' && !isSending ? (
                           <div className="mt-2 flex justify-start">
                             <button
