@@ -106,6 +106,12 @@ jobs:
       - name: Run memory backup round-trip tests
         run: npm run test:memory-backup
 
+      - name: Run shares tests
+        run: npm run test:shares
+
+      - name: Run projects tests
+        run: npm run test:projects
+
       - name: Run UI features tests (browser)
         run: npm run test:ui-features
 
