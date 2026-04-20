@@ -335,6 +335,12 @@ router.get('/telegram-status', async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/settings/search-status — whether TAVILY_API_KEY is configured
+router.get('/search-status', (_req: Request, res: Response) => {
+  const configured = !!(process.env.TAVILY_API_KEY?.trim());
+  res.json({ configured });
+});
+
 // POST /api/settings/telegram-test — Send a test message to configured Telegram chat IDs
 router.post('/telegram-test', async (req: Request, res: Response) => {
   try {
