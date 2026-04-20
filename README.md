@@ -317,15 +317,17 @@ Express API (:5000)
 # Health check
 curl http://127.0.0.1:5000/api/health
 
-# Service status
-systemctl status botty.service
+# Container status
 docker compose ps
+
+# Start / stop / logs
+docker compose up -d
+docker compose down
+docker compose logs -f app
 
 # After pulling new code
 docker compose pull app   # pulls latest image from GHCR (no local build needed)
-docker compose up -d app
-# or simply restart the systemd service:
-sudo systemctl restart botty.service
+docker compose up -d
 
 # DB backup (copies the SQLite file; safe while running thanks to WAL mode)
 bash ops/backup-db.sh --dir /var/backups/botty --keep 14
