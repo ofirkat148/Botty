@@ -58,6 +58,7 @@ router.post('/', async (req: Request, res: Response) => {
       incomingConversationId: String(req.body?.conversationId || '').trim(),
       activeAgentId: typeof req.body?.activeAgentId === 'string' ? req.body.activeAgentId.trim() : '',
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
+      webSearch: req.body?.webSearch === true,
       signal: abortController.signal,
     });
 
@@ -109,6 +110,7 @@ router.post('/stream', async (req: Request, res: Response) => {
       incomingConversationId: String(req.body?.conversationId || '').trim(),
       activeAgentId: typeof req.body?.activeAgentId === 'string' ? req.body.activeAgentId.trim() : '',
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
+      webSearch: req.body?.webSearch === true,
       signal: abortController.signal,
       onChunk: (delta) => send({ type: 'chunk', delta }),
     });

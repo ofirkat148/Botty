@@ -7,6 +7,7 @@ import {
   Copy,
   Download,
   GitBranch,
+  Globe,
   History,
   KeyRound,
   Layers,
@@ -399,6 +400,7 @@ function AppShell() {
   const [useMemory, setUseMemory] = useState(true);
   const [autoMemory, setAutoMemory] = useState(true);
   const [sandboxMode, setSandboxMode] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [historyRetentionDays, setHistoryRetentionDays] = useState('');
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramBotEnabled, setTelegramBotEnabled] = useState(true);
@@ -1549,6 +1551,7 @@ function AppShell() {
         type: item.type,
       })),
       activeAgentId: activeBotPreset?.id || null,
+      webSearch: webSearchEnabled,
     };
 
     try {
@@ -3689,11 +3692,20 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {activePresetId ? `Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.{prompt.trim().length > 0 ? ` · ~${Math.max(1, Math.round(prompt.trim().length / 4)).toLocaleString()} tokens` : ''}</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {webSearchEnabled ? 'Web search: on. ' : ''}{activePresetId ? `Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.{prompt.trim().length > 0 ? ` · ~${Math.max(1, Math.round(prompt.trim().length / 4)).toLocaleString()} tokens` : ''}</p>
                       <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
                         <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
                           <Upload className="w-4 h-4" />
                           Add files
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setWebSearchEnabled(v => !v)}
+                          title={webSearchEnabled ? 'Web search on — click to disable' : 'Enable web search (requires TAVILY_API_KEY)'}
+                          className={`${secondaryButtonClass}${webSearchEnabled ? (isDarkMode ? ' bg-blue-500/15 text-blue-300 border-blue-500/30' : ' bg-blue-100 text-blue-700 border-blue-300') : ''}`}
+                        >
+                          <Globe className="w-4 h-4" />
+                          {webSearchEnabled ? 'Search on' : 'Search'}
                         </button>
                         <button type="button" onClick={toggleVoiceInput} className={`${secondaryButtonClass}${isListening ? ' mic-listening' : ''}`}>
                           {isListening ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}

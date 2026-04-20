@@ -22,7 +22,7 @@ import {
   learnFactsFromConversation,
   shouldRetryWithAnotherProvider,
 } from '../utils/llm.js';
-import { resolveAgentForUser } from '../utils/agents.js';
+import { webSearch, formatSearchContext } from '../utils/search.js';
 import type { AgentDefinition, ToolDefinition } from '../../shared/agentDefinitions.js';
 
 function buildToolCatalogSection(tools: ToolDefinition[]): string {
@@ -58,6 +58,7 @@ export type RunChatForUserInput = {
   incomingConversationId?: string | null;
   activeAgentId?: string | null;
   attachments?: ChatAttachment[];
+  webSearch?: boolean;
   signal?: AbortSignal;
 };
 
@@ -216,12 +217,30 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   const incomingConversationId = String(input.incomingConversationId || '').trim();
   const activeAgentId = String(input.activeAgentId || '').trim();
   const attachments = normalizeChatAttachments(input.attachments);
+  const useWebSearch = input.webSearch === true;
 
   if (!prompt && attachments.length === 0) {
     throw new Error('Prompt is required');
   }
 
-  const promptForModel = buildPromptWithAttachments(prompt, attachments);
+  // Inject web search context if requested
+  let searchContext = '';
+  if (useWebSearch && prompt) {
+    try {
+      const tavilyKey = process.env.TAVILY_API_KEY?.trim();
+      if (tavilyKey) {
+        const searchResult = await webSearch(prompt, tavilyKey, { maxResults: 5, signal: input.signal });
+        searchContext = formatSearchContext(searchResult);
+      }
+    } catch (err) {
+      console.warn('Web search failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  const promptForModel = buildPromptWithAttachments(
+    searchContext ? `${searchContext}\n\nUser question: ${prompt}` : prompt,
+    attachments
+  );
   const activeAgent = activeAgentId ? await resolveAgentForUser(uid, activeAgentId) : null;
 
   if (activeAgentId && !activeAgent) {
@@ -434,12 +453,30 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   const incomingConversationId = String(input.incomingConversationId || '').trim();
   const activeAgentId = String(input.activeAgentId || '').trim();
   const attachments = normalizeChatAttachments(input.attachments);
+  const useWebSearch = input.webSearch === true;
 
   if (!prompt && attachments.length === 0) {
     throw new Error('Prompt is required');
   }
 
-  const promptForModel = buildPromptWithAttachments(prompt, attachments);
+  // Inject web search context if requested
+  let searchContext = '';
+  if (useWebSearch && prompt) {
+    try {
+      const tavilyKey = process.env.TAVILY_API_KEY?.trim();
+      if (tavilyKey) {
+        const searchResult = await webSearch(prompt, tavilyKey, { maxResults: 5, signal: input.signal });
+        searchContext = formatSearchContext(searchResult);
+      }
+    } catch (err) {
+      console.warn('Web search failed (stream):', err instanceof Error ? err.message : err);
+    }
+  }
+
+  const promptForModel = buildPromptWithAttachments(
+    searchContext ? `${searchContext}\n\nUser question: ${prompt}` : prompt,
+    attachments
+  );
   const activeAgent = activeAgentId ? await resolveAgentForUser(uid, activeAgentId) : null;
 
   if (activeAgentId && !activeAgent) {
