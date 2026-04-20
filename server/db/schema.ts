@@ -34,6 +34,7 @@ export const history = sqliteTable('history', {
   tokensUsed: integer('tokens_used'),
   status: text('status').default('completed'),
   conversationId: text('conversation_id'),
+  projectId: text('project_id'),
   isArchived: integer('is_archived', { mode: 'boolean' }).default(false),
   timestamp: text('timestamp').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 }, (t) => ({
@@ -138,6 +139,20 @@ export const dailyUsage = sqliteTable('daily_usage', {
   modelUsage: text('model_usage').default('{}'), // JSON string
   createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
+
+// Projects table
+export const projects = sqliteTable('projects', {
+  id: text('id').primaryKey().notNull(),
+  uid: text('uid').notNull(),
+  name: text('name').notNull(),
+  description: text('description'),
+  systemPrompt: text('system_prompt'),
+  color: text('color').default('stone'),
+  createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  updatedAt: text('updated_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+}, (t) => ({
+  uidIdx: index('projects_uid_idx').on(t.uid),
+}));
 
 // Rate limit hits table (SQLite-backed persistent store)
 export const rateLimitHits = sqliteTable('rate_limit_hits', {

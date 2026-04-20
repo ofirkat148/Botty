@@ -99,8 +99,19 @@ type HistoryEntry = {
   model: string;
   tokensUsed?: number | null;
   conversationId?: string | null;
+  projectId?: string | null;
   isArchived?: boolean | null;
   timestamp: string;
+};
+
+type Project = {
+  id: string;
+  name: string;
+  description?: string | null;
+  systemPrompt?: string | null;
+  color?: string | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 type Fact = {
@@ -305,6 +316,13 @@ function AppShell() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectFilter, setActiveProjectFilter] = useState<string | null>(null);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState('');
+  const [editingProjectId, setEditingProjectId] = useState('');
+  const [editingProject, setEditingProject] = useState<Partial<Project>>({});
+  const [assigningConvId, setAssigningConvId] = useState('');
   const [factsSearch, setFactsSearch] = useState('');
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [sidebarSearchFocused, setSidebarSearchFocused] = useState(false);
@@ -1185,6 +1203,9 @@ function AppShell() {
     apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history')
       .then(rows => setHistory(rows))
       .catch(err => setNotice(err instanceof Error ? err.message : 'Failed to load history'));
+    apiGet<Project[]>('/api/projects')
+      .then(rows => setProjects(rows))
+      .catch(() => {});
   }, [showArchivedHistory]);
 
   useEffect(() => {
@@ -2310,6 +2331,35 @@ function AppShell() {
   async function unarchiveConversation(selectedConversationId: string) {
     await apiSend(`/api/history/group/${selectedConversationId}/unarchive`, 'PATCH');
     await refreshAll();
+  }
+
+  async function createProject() {
+    const name = newProjectName.trim();
+    if (!name) return;
+    const proj = await apiSend<Project>('/api/projects', 'POST', { name });
+    setProjects(prev => [proj, ...prev]);
+    setNewProjectName('');
+    setCreatingProject(false);
+  }
+
+  async function updateProject(id: string, patch: Partial<Project>) {
+    const updated = await apiSend<Project>(`/api/projects/${id}`, 'PUT', patch);
+    setProjects(prev => prev.map(p => p.id === id ? updated : p));
+    setEditingProjectId('');
+    setEditingProject({});
+  }
+
+  async function deleteProject(id: string) {
+    await apiSend(`/api/projects/${id}`, 'DELETE');
+    setProjects(prev => prev.filter(p => p.id !== id));
+    if (activeProjectFilter === id) setActiveProjectFilter(null);
+    setHistory(prev => prev.map(h => h.projectId === id ? { ...h, projectId: null } : h));
+  }
+
+  async function assignConversationToProject(convId: string, projectId: string | null) {
+    await apiSend(`/api/projects/assign/${convId}`, 'PUT', { projectId });
+    setHistory(prev => prev.map(h => h.conversationId === convId ? { ...h, projectId } : h));
+    setAssigningConvId('');
   }
 
   async function saveConversationLabel(id: string, label: string) {
@@ -4361,12 +4411,80 @@ function AppShell() {
                   ) : null}
                 </div>
 
+                {/* Projects panel */}
+                <section className={sectionCardClass}>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="font-medium">Projects</h3>
+                    <button type="button" onClick={() => setCreatingProject(v => !v)} className={responsiveSecondaryButtonClass}>
+                      <Plus className="w-4 h-4" />
+                      New project
+                    </button>
+                  </div>
+                  {creatingProject ? (
+                    <form onSubmit={event => { event.preventDefault(); void createProject(); }} className="mt-3 flex gap-2">
+                      <input
+                        autoFocus
+                        value={newProjectName}
+                        onChange={event => setNewProjectName(event.target.value)}
+                        placeholder="Project name…"
+                        className={`flex-1 text-sm ${inputClass}`}
+                      />
+                      <button type="submit" className={responsivePrimaryButtonClass}>Create</button>
+                      <button type="button" onClick={() => { setCreatingProject(false); setNewProjectName(''); }} className={responsiveSecondaryButtonClass}>Cancel</button>
+                    </form>
+                  ) : null}
+                  {projects.length === 0 && !creatingProject ? (
+                    <p className={`mt-2 text-sm ${subtleTextClass}`}>No projects yet. Group conversations into named folders with a shared system prompt.</p>
+                  ) : (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {activeProjectFilter ? (
+                        <button
+                          type="button"
+                          onClick={() => setActiveProjectFilter(null)}
+                          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${isDarkMode ? 'bg-white/10 text-stone-200' : 'bg-stone-200 text-stone-700'}`}
+                        >
+                          <X className="w-3 h-3" /> All conversations
+                        </button>
+                      ) : null}
+                      {projects.map(proj => (
+                        <div key={proj.id} className="flex items-center gap-1">
+                          {editingProjectId === proj.id ? (
+                            <form onSubmit={event => { event.preventDefault(); void updateProject(proj.id, editingProject); }} className="flex gap-1">
+                              <input
+                                autoFocus
+                                value={editingProject.name ?? proj.name}
+                                onChange={event => setEditingProject(p => ({ ...p, name: event.target.value }))}
+                                className={`text-sm rounded-full px-3 py-1.5 ${inputClass}`}
+                              />
+                              <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
+                              <button type="button" onClick={() => { setEditingProjectId(''); setEditingProject({}); }} className={responsiveSecondaryButtonClass}>Cancel</button>
+                            </form>
+                          ) : (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => setActiveProjectFilter(id => id === proj.id ? null : proj.id)}
+                                className={`rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${activeProjectFilter === proj.id ? (isDarkMode ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40' : 'bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300') : (isDarkMode ? 'bg-white/8 text-stone-200 hover:bg-white/14' : 'bg-stone-100 text-stone-700 hover:bg-stone-200')}`}
+                              >
+                                {proj.name}
+                              </button>
+                              <button type="button" onClick={() => { setEditingProjectId(proj.id); setEditingProject({ name: proj.name }); }} className={`rounded-full p-1 ${subtleTextClass} hover:opacity-80`} title="Rename project"><Pencil className="w-3 h-3" /></button>
+                              <button type="button" onClick={() => void deleteProject(proj.id)} className={`rounded-full p-1 ${subtleTextClass} hover:text-red-500`} title="Delete project"><Trash2 className="w-3 h-3" /></button>
+                            </>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
+
                 {conversations.filter(item =>
                   !historySearch.trim() || item.items.some(entry =>
                     entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
                     entry.response.toLowerCase().includes(historySearch.toLowerCase())
                   ) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())
-                ).sort((a, b) => {
+                ).filter(item => !activeProjectFilter || item.items.some(e => e.projectId === activeProjectFilter))
+                .sort((a, b) => {
                   const aPinned = pinnedConversations.has(a.id) ? 0 : 1;
                   const bPinned = pinnedConversations.has(b.id) ? 0 : 1;
                   return aPinned - bPinned;
@@ -4399,11 +4517,23 @@ function AppShell() {
                         <span>{(() => { const t = item.items.reduce((s, e) => s + (e.tokensUsed || 0), 0); return t > 0 ? `${t.toLocaleString()} tokens total` : 'Tokens: unknown'; })()}</span>
                         <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
                         <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
+                        {(() => { const pid = item.items.find(e => e.projectId)?.projectId; const proj = pid ? projects.find(p => p.id === pid) : null; return proj ? <span className={`font-medium ${isDarkMode ? 'text-emerald-400' : 'text-emerald-700'}`}>{proj.name}</span> : null; })()}
                       </div>
+                      {assigningConvId === item.id && projects.length > 0 ? (
+                        <div className={`mt-2 flex flex-wrap gap-2`}>
+                          <span className={`text-xs ${subtleTextClass}`}>Move to:</span>
+                          {projects.map(proj => (
+                            <button key={proj.id} type="button" onClick={() => void assignConversationToProject(item.id, proj.id)} className={`rounded-full px-2.5 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14 text-stone-200' : 'bg-stone-100 hover:bg-stone-200 text-stone-700'}`}>{proj.name}</button>
+                          ))}
+                          {item.items.some(e => e.projectId) ? <button type="button" onClick={() => void assignConversationToProject(item.id, null)} className={`rounded-full px-2.5 py-1 text-xs text-red-500`}>Remove from project</button> : null}
+                          <button type="button" onClick={() => setAssigningConvId('')} className={`rounded-full px-2.5 py-1 text-xs ${subtleTextClass}`}>Cancel</button>
+                        </div>
+                      ) : null}
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
                       {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
                       {!showArchivedHistory ? <button onClick={() => void togglePinConversation(item.id)} className={`${responsiveSecondaryButtonClass} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`} title={pinnedConversations.has(item.id) ? 'Unpin conversation' : 'Pin conversation'}><Pin className="w-4 h-4" /></button> : null}
+                      {!showArchivedHistory && projects.length > 0 ? <button type="button" onClick={() => setAssigningConvId(id => id === item.id ? '' : item.id)} className={responsiveSecondaryButtonClass} title="Assign to project"><Layers className="w-4 h-4" /></button> : null}
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass} title="Export as Markdown">
                         <Download className="w-4 h-4" />

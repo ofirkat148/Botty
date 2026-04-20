@@ -12,7 +12,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // GET /api/history - Get chat history for the current user
-// Query params: ?q=search+term&limit=50&archived=true
+// Query params: ?q=search+term&limit=50&archived=true&projectId=xxx
 router.get('/', async (req: Request, res: Response) => {
   try {
     const db = getDatabase();
@@ -21,10 +21,15 @@ router.get('/', async (req: Request, res: Response) => {
     const limit = Math.min(Math.max(1, rawLimit), 200);
     const q = typeof req.query.q === 'string' ? req.query.q.trim().slice(0, 200) : '';
     const showArchived = req.query.archived === 'true';
+    const projectId = typeof req.query.projectId === 'string' ? req.query.projectId.trim() : '';
 
-    const baseCondition = showArchived
+    let baseCondition = showArchived
       ? and(eq(history.uid, uid), eq(history.isArchived, true))
       : and(eq(history.uid, uid), ne(history.isArchived, true));
+
+    if (projectId) {
+      baseCondition = and(baseCondition, eq(history.projectId, projectId));
+    }
 
     const whereCondition = q
       ? and(baseCondition, or(like(history.prompt, `%${q}%`), like(history.response, `%${q}%`)))

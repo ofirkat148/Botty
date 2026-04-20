@@ -168,6 +168,26 @@ function bootstrapSchema(sqlite: Database.Database) {
       reset_at TEXT NOT NULL
     )
   `);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      uid TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      system_prompt TEXT,
+      color TEXT DEFAULT 'stone',
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )
+  `);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS projects_uid_idx ON projects (uid)`);
+
+  // Migrate: add project_id to history if missing
+  const historyColumns = sqlite.prepare(`PRAGMA table_info(history)`).all() as Array<{ name: string }>;
+  if (!historyColumns.some(c => c.name === 'project_id')) {
+    sqlite.exec(`ALTER TABLE history ADD COLUMN project_id TEXT`);
+  }
 }
 
 export function initializeDatabase() {
