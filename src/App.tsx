@@ -694,6 +694,16 @@ function AppShell() {
       keywords: ['open tab', 'navigate', tab.label.toLowerCase()],
       category: 'command' as const,
     })),
+    {
+      id: 'command-imagine',
+      command: 'imagine',
+      title: 'Generate Image',
+      description: 'Generate an image with DALL-E 3. Type your description after /imagine.',
+      detail: 'Requires an OpenAI API key. Uses DALL-E 3 at 1024×1024.',
+      badge: 'DALL-E 3',
+      keywords: ['image', 'dalle', 'generate', 'draw', 'picture', 'art'],
+      category: 'command' as const,
+    },
   ], [activePresetTitle, activeTab, facts.length, history.length, memoryFiles.length, messages.length, sandboxMode]);
   const activeBotPreset = useMemo(() => activePreset?.kind === 'agent' ? activePreset as AgentDefinition : null, [activePreset]);
 
@@ -1620,6 +1630,35 @@ function AppShell() {
   async function sendPrompt() {
     const text = prompt.trim();
     if ((!text && pendingAttachments.length === 0) || isSending) {
+      return;
+    }
+
+    // /imagine <description> — generate image via DALL-E 3
+    const imagineMatch = text.match(/^\/imagine\s+(.+)/is);
+    if (imagineMatch) {
+      const imagePrompt = imagineMatch[1].trim();
+      const displayPrompt = `/imagine ${imagePrompt}`;
+      dispatchChat({ type: 'ADD_USER_MESSAGE', content: displayPrompt });
+      setPrompt('');
+      dispatchChat({ type: 'SET_SENDING', value: true });
+      dispatchChat({ type: 'ADD_ASSISTANT_PLACEHOLDER' });
+      try {
+        const res = await fetch('/api/chat/generate-image', {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ prompt: imagePrompt }),
+        });
+        const data = await res.json() as { b64?: string; revisedPrompt?: string; error?: string };
+        if (!res.ok || data.error) throw new Error(data.error || 'Image generation failed');
+        const imgContent = `![generated](data:image/png;base64,${data.b64})${data.revisedPrompt ? `\n\n*Revised prompt: ${data.revisedPrompt}*` : ''}`;
+        dispatchChat({ type: 'FINALIZE_ASSISTANT', content: imgContent, model: 'dall-e-3', provider: 'openai', routingMode: null, tokensUsed: 0, conversationId: conversationId || '' });
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Image generation failed';
+        dispatchChat({ type: 'FINALIZE_ASSISTANT', content: `Error: ${msg}`, model: 'dall-e-3', provider: 'openai', routingMode: null, tokensUsed: 0, conversationId: conversationId || '' });
+      } finally {
+        dispatchChat({ type: 'SET_SENDING', value: false });
+        setPendingAttachments([]);
+      }
       return;
     }
 
@@ -3556,7 +3595,16 @@ function AppShell() {
                           ) : null}
                         </div>
                         <div className="text-[15px] leading-6 sm:leading-7">
-                          {message.role === 'assistant' && hasArtifacts(message.content)
+                          {message.role === 'assistant' && /!\[generated\]\(data:image\/[^)]+\)/.test(message.content)
+                            ? (() => {
+                                const parts = message.content.split(/(!\[generated\]\(data:image\/[^)]+\))/);
+                                return parts.map((part, pi) => {
+                                  const m = part.match(/^!\[generated\]\((data:image\/[^)]+)\)$/);
+                                  if (m) return <img key={pi} src={m[1]} alt="Generated" className="max-w-full rounded-lg mt-2 mb-2" />;
+                                  return <span key={pi} className="whitespace-pre-wrap">{part}</span>;
+                                });
+                              })()
+                            : message.role === 'assistant' && hasArtifacts(message.content)
                             ? parseArtifacts(message.content).map((seg, si) =>
                                 seg.type === 'text'
                                   ? <span key={si} className="whitespace-pre-wrap">{seg.content}</span>

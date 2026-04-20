@@ -227,4 +227,46 @@ router.post('/compact', async (req: Request, res: Response) => {
   }
 });
 
+router.post('/generate-image', async (req: Request, res: Response) => {
+  try {
+    const { prompt, model = 'dall-e-3', size = '1024x1024', quality = 'standard' } = req.body as {
+      prompt: string;
+      model?: string;
+      size?: string;
+      quality?: string;
+    };
+    if (!prompt || typeof prompt !== 'string' || prompt.trim().length === 0) {
+      res.status(400).json({ error: 'prompt is required' });
+      return;
+    }
+    const apiKey = await getProviderApiKey(req.userId!, 'openai');
+    if (!apiKey) {
+      res.status(400).json({ error: 'OpenAI API key not configured' });
+      return;
+    }
+    const response = await fetch('https://api.openai.com/v1/images/generations', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model, prompt: prompt.trim(), n: 1, size, quality, response_format: 'b64_json' }),
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      let msg = `OpenAI image generation failed: ${response.status}`;
+      try { msg = (JSON.parse(body) as { error?: { message?: string } }).error?.message || msg; } catch { /* ignore */ }
+      res.status(response.status).json({ error: msg });
+      return;
+    }
+    const data = await response.json() as { data: Array<{ b64_json: string; revised_prompt?: string }> };
+    const b64 = data.data[0]?.b64_json;
+    if (!b64) {
+      res.status(500).json({ error: 'No image returned from OpenAI' });
+      return;
+    }
+    res.json({ b64, revisedPrompt: data.data[0]?.revised_prompt });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'Image generation failed';
+    res.status(500).json({ error: msg });
+  }
+});
+
 export default router;
