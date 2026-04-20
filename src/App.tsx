@@ -295,6 +295,7 @@ function AppShell() {
   const setIsSending = (value: boolean) => dispatchChat({ type: 'SET_SENDING', value });
   const setChatError = (msg: string) => msg ? dispatchChat({ type: 'SET_ERROR', message: msg }) : dispatchChat({ type: 'CLEAR_ERROR' });
   const [isListening, setIsListening] = useState(false);
+  const [interimTranscript, setInterimTranscript] = useState('');
   const [availableProviders, setAvailableProviders] = useState<string[]>([]);
   const [defaultLocalModel, setDefaultLocalModel] = useState(DEFAULT_MODELS.local);
   const [modelCatalog, setModelCatalog] = useState<Record<string, string[]>>(DEFAULT_MODEL_CATALOG);
@@ -1694,25 +1695,35 @@ function AppShell() {
     const recognition = new Recognition();
     recognition.lang = 'en-US';
     recognition.continuous = false;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
 
     recognition.onresult = (event: any) => {
-      const transcript = Array.from(event.results || [])
-        .map((result: any) => result?.[0]?.transcript || '')
-        .join(' ')
-        .trim();
-
-      if (transcript) {
-        setPrompt(current => current.trim() ? `${current.trim()} ${transcript}` : transcript);
+      let finalTranscript = '';
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const result = event.results[i];
+        if (result.isFinal) {
+          finalTranscript += result[0].transcript;
+        } else {
+          interim += result[0].transcript;
+        }
+      }
+      if (finalTranscript.trim()) {
+        setPrompt(current => current.trim() ? `${current.trim()} ${finalTranscript.trim()}` : finalTranscript.trim());
+        setInterimTranscript('');
+      } else if (interim) {
+        setInterimTranscript(interim);
       }
     };
 
     recognition.onerror = () => {
       setIsListening(false);
+      setInterimTranscript('');
     };
 
     recognition.onend = () => {
       setIsListening(false);
+      setInterimTranscript('');
       speechRecognitionRef.current = null;
     };
 
@@ -3403,6 +3414,10 @@ function AppShell() {
                       className={textareaClass}
                     />
 
+                    {interimTranscript ? (
+                      <p className={`mt-1 px-1 text-xs italic ${subtleTextClass}`}>{interimTranscript}…</p>
+                    ) : null}
+
                     <input
                       ref={attachmentInputRef}
                       type="file"
@@ -3571,9 +3586,9 @@ function AppShell() {
                           <Upload className="w-4 h-4" />
                           Add files
                         </button>
-                        <button type="button" onClick={toggleVoiceInput} className={secondaryButtonClass}>
+                        <button type="button" onClick={toggleVoiceInput} className={`${secondaryButtonClass}${isListening ? ' mic-listening' : ''}`}>
                           {isListening ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                          {isListening ? 'Stop voice' : 'Voice'}
+                          {isListening ? 'Stop' : 'Voice'}
                         </button>
                         {isSending ? (
                           <button type="button" onClick={stopCurrentResponse} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 px-4 py-2.5 text-white sm:w-auto">

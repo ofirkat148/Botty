@@ -24,6 +24,9 @@
     @apply bg-[var(--color-bg)] text-[var(--color-ink)] font-sans;
     margin: 0;
     letter-spacing: -0.01em;
+    /* honour iPhone notch / home-bar */
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   #root {
@@ -33,6 +36,15 @@
   * {
     box-sizing: border-box;
   }
+}
+
+/* mic pulse while listening */
+@keyframes mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+.mic-listening {
+  animation: mic-pulse 1.2s ease-in-out infinite;
 }
 
 .chat-bubble-user {
