@@ -5052,24 +5052,6 @@ function AppShell() {
                 </section>
 
                 <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Globe className="w-4 h-4" />
-                    <h3 className="font-medium">Web search</h3>
-                  </div>
-                  <p className={`mb-3 text-sm ${subtleTextClass}`}>
-                    Botty can search the web before answering when the Search toggle is on in the composer.
-                    Powered by <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" className="underline">Tavily</a> — free tier: 1,000 searches/month.
-                    Get a key at <a href="https://app.tavily.com" target="_blank" rel="noopener noreferrer" className="underline">app.tavily.com</a>.
-                    Add it as <code className="font-mono text-xs">TAVILY_API_KEY</code> in your <code className="font-mono text-xs">.env.local</code> and restart the container.
-                  </p>
-                  <div className={`rounded-[0.9rem] border px-4 py-3 text-sm ${process.env.TAVILY_API_KEY ? (isDarkMode ? 'border-emerald-400/20 bg-emerald-500/8 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800') : (isDarkMode ? 'border-white/8 text-stone-400' : 'border-stone-200 text-stone-500')}`}>
-                    Status: <strong>{typeof window !== 'undefined' ? (webSearchEnabled ? 'enabled by toggle' : 'toggle is off') : ''}</strong>
-                    {' — '}key is configured server-side via environment variable (not stored in DB).
-                    Use the <Globe className="inline w-3.5 h-3.5 mx-0.5 -mt-0.5" /> Search button in the composer to enable per-message.
-                  </div>
-                </section>
-
-                <section className={sectionCardClass}>
                   <div className="flex items-start justify-between gap-3 mb-3">
                     <div>
                       <h3 className="font-medium">Provider readiness</h3>
