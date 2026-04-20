@@ -8,6 +8,8 @@ A local-first AI chat assistant with a React frontend, Express/Node backend, SQL
 
 **Chat**
 - Multi-provider: Anthropic Claude, Google Gemini, OpenAI GPT, Ollama (local)
+- Vision input — attach images (JPG/PNG/GIF/WebP) for Claude, GPT-4o, and Gemini vision models
+- Image generation — `/imagine <description>` generates via DALL-E 3 inline in chat
 - Smart auto-routing — selects model based on prompt complexity, routing mode, and available providers
 - Streaming responses (SSE) with live token-by-token display
 - Auto-scroll with scroll-lock: pauses when you scroll up, resume button appears
@@ -21,6 +23,7 @@ A local-first AI chat assistant with a React frontend, Express/Node backend, SQL
 - Per-user fact store with search, delete, bulk-import from `.txt`/`.md`
 - File memory (PDF, images with OCR, text files)
 - URL memory (fetched and summarised on load)
+- **RAG documents** — upload text files; auto-chunked and embedded via OpenAI, retrieved by cosine similarity at query time
 - Agent-isolated memory scopes for specialist agents
 - Automatic fact consolidation (dedup, up to 100 facts per scope)
 - Memory context truncated gracefully at 8,000 characters
@@ -143,7 +146,11 @@ Type your message in the composer at the bottom and press **Enter** (or click Se
 | Fullscreen mode | `Alt+Enter` |
 | All shortcuts | `Ctrl+?` |
 
-**Attach files** — click the paperclip or drag files onto the composer. Supports PDFs (text extracted), images (OCR), and plain text/markdown (up to 6 files).
+**Attach files** — click the paperclip or drag files onto the composer. Supports PDFs (text extracted), images (vision or OCR), and plain text/markdown (up to 6 files).
+
+**Image input (vision)** — attach a `.jpg`, `.png`, `.gif`, or `.webp` image and type a question. Botty sends the image as base64 to Claude, GPT-4o, or Gemini vision APIs. No OCR required — the model sees the image directly.
+
+**Image generation** — type `/imagine <description>` in the composer and Botty calls DALL-E 3, returning the generated image inline in the chat. Requires an OpenAI API key.
 
 **Voice input** — click the mic button, speak, and release. Interim transcription appears as you talk. Requires browser microphone permission.
 
@@ -173,6 +180,7 @@ Botty automatically extracts and stores facts from your conversations (if Auto-m
 - **Facts** — view, search, and delete individual facts; bulk-import from `.txt` or `.md`
 - **Files** — upload documents that Botty reads as background context in every conversation
 - **URLs** — paste a URL; Botty fetches and summarises the page and recalls it as context
+- **Documents (RAG)** — upload `.txt`, `.md`, `.csv`, or `.json` files; Botty chunks them, embeds with `text-embedding-3-small`, and retrieves relevant passages via cosine similarity at query time. Requires an OpenAI API key.
 
 Memory is scoped per-user. Agents can have isolated or shared memory depending on their configuration.
 
@@ -232,11 +240,13 @@ Shared links expose only the prompt/response pairs — no user data, memory, or 
 | Section | What you can configure |
 |---------|------------------------|
 | **Provider keys** | Enter Anthropic, Google, OpenAI keys — stored AES-256-GCM encrypted in SQLite |
-| **Web search** | View Tavily key status (key lives in `.env.local`) |
+| **Web search** | Enter a Tavily API key to enable on-demand web search in the composer |
+| **Ollama models** | List, pull, and delete Ollama models without leaving the UI |
 | **Provider readiness** | See which providers are configured and reachable |
 | **Runtime settings** | Local LLM URL, memory on/off, auto-memory, sandbox mode, history retention |
 | **Agents** | Create, edit, and delete custom agents |
 | **Skills** | Create custom slash-command skill overlays |
+| **Ollama models** | List installed models, pull new ones by name, and delete unused models |
 | **Telegram** | Enter bot token and allowed chat IDs; test with the send button |
 | **Memory backup** | Download a full backup JSON or restore from one |
 | **Danger zone** | Clear all conversations; delete account |
@@ -297,6 +307,7 @@ Express API (:5000)
   ├─ /api/chat       — chat + streaming
   ├─ /api/history    — CRUD + search + archive
   ├─ /api/memory     — facts, files, URLs
+  ├─ /api/rag        — document upload, embedding, and retrieval
   ├─ /api/keys       — encrypted API key store
   ├─ /api/settings   — user settings + Telegram
   ├─ /api/usage      — token usage + trends
