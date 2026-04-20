@@ -445,8 +445,6 @@ function AppShell() {
   const [ollamaPullLog, setOllamaPullLog] = useState('');
   const [ollamaPulling, setOllamaPulling] = useState(false);
   const [ollamaDeleting, setOllamaDeleting] = useState('');
-  const [showSkillAdvanced, setShowSkillAdvanced] = useState(false);
-  const [showAgentAdvanced, setShowAgentAdvanced] = useState(false);
 
   type RagDocument = { name: string; chunks: number; createdAt: string };
   const [ragDocuments, setRagDocuments] = useState<RagDocument[]>([]);
@@ -4055,24 +4053,14 @@ function AppShell() {
                       <textarea value={newSkillSystemPrompt} onChange={event => patchNewSkill({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this skill" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <button type="button" onClick={() => setShowSkillAdvanced(v => !v)} className={`text-xs ${subtleTextClass} flex items-center gap-1 hover:opacity-100 opacity-60`}>
-                        <ChevronRight className={`w-3 h-3 transition-transform ${showSkillAdvanced ? 'rotate-90' : ''}`} />
-                        Advanced
-                      </button>
+                      <input value={newSkillUseWhen} onChange={event => patchNewSkill({ useWhen: event.target.value })} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
                     </div>
-                    {showSkillAdvanced ? (
-                      <>
-                        <div className="md:col-span-2">
-                          <input value={newSkillUseWhen} onChange={event => patchNewSkill({ useWhen: event.target.value })} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
-                        </div>
-                        <div className="md:col-span-2">
-                          <textarea value={newSkillBoundaries} onChange={event => patchNewSkill({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, should not take over the whole session" className={textareaClass} />
-                        </div>
-                        <div className="md:col-span-2">
-                          <textarea value={newSkillStarterPrompt} onChange={event => patchNewSkill({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
-                        </div>
-                      </>
-                    ) : null}
+                    <div className="md:col-span-2">
+                      <textarea value={newSkillBoundaries} onChange={event => patchNewSkill({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, should not take over the whole session" className={textareaClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newSkillStarterPrompt} onChange={event => patchNewSkill({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
+                    </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'skill'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'skill' ? 'Adding...' : 'Add skill'}
@@ -4151,7 +4139,7 @@ function AppShell() {
                     <input value={newBotTitle} onChange={event => patchNewBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
                     <input value={newBotCommand} onChange={event => patchNewBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
                     <div className="md:col-span-2">
-                      <input value={newBotDescription} onChange={event => patchNewBot({ description: event.target.value })} placeholder="Short description, e.g. reviews code and architecture for security risk" className={textInputClass} />
+                      <input value={newBotDescription} onChange={event => patchNewBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                     </div>
                     <select value={newBotExecutorType} onChange={event => patchNewBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                       <option value="internal-llm">Internal Botty agent</option>
@@ -4220,14 +4208,7 @@ function AppShell() {
                         )) : null}
                       </select>
                     </div>
-                    <div className="md:col-span-2">
-                      <button type="button" onClick={() => setShowAgentAdvanced(v => !v)} className={`text-xs ${subtleTextClass} flex items-center gap-1 hover:opacity-100 opacity-60`}>
-                        <ChevronRight className={`w-3 h-3 transition-transform ${showAgentAdvanced ? 'rotate-90' : ''}`} />
-                        Advanced
-                      </button>
-                    </div>
-                    {showAgentAdvanced ? (
-                      <>
+                    <>
                         <div className="md:col-span-2">
                           <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
                         </div>
@@ -4279,8 +4260,7 @@ function AppShell() {
                         <div className="md:col-span-2">
                           <textarea value={newBotBoundaries} onChange={event => patchNewBot({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
                         </div>
-                      </>
-                    ) : null}
+                    </>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
