@@ -158,8 +158,10 @@ export async function parseAttachmentFile(file: File, options?: { onOcrProgress?
   }
 
   if (isImageFile(file)) {
+    // Send raw base64 for vision-capable models; OCR is no longer used.
+    const dataUrl = await readFileAsDataUrl(file);
     return {
-      content: await extractImageText(file, options?.onOcrProgress),
+      content: dataUrl,
       source: 'image' as const,
       type: file.type || 'image/*',
     } satisfies ParsedAttachment;

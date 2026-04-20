@@ -1272,8 +1272,9 @@ export async function callLLM(params: {
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
   localUrl?: string;
   signal?: AbortSignal;
+  visionImages?: Array<{ name: string; mimeType: string; data: string }>;
 }) {
-  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl, signal } = params;
+  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl, signal, visionImages = [] } = params;
   let responseText = '';
   let tokensUsed = 0;
 
@@ -1281,11 +1282,20 @@ export async function callLLM(params: {
 
   if (provider === 'anthropic') {
     try {
-      const payloadMessages = messages.map(message => ({
+      const payloadMessages: any[] = messages.map(message => ({
         role: message.role,
         content: message.content,
       }));
-      payloadMessages.push({ role: 'user', content: prompt });
+      if (visionImages.length > 0) {
+        const userContent: any[] = visionImages.map(img => ({
+          type: 'image',
+          source: { type: 'base64', media_type: img.mimeType, data: img.data },
+        }));
+        userContent.push({ type: 'text', text: prompt });
+        payloadMessages.push({ role: 'user', content: userContent });
+      } else {
+        payloadMessages.push({ role: 'user', content: prompt });
+      }
 
       const response = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -1327,11 +1337,11 @@ export async function callLLM(params: {
         role: message.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: message.content }],
       }));
-
-      contents.push({
-        role: 'user',
-        parts: [{ text: prompt }],
-      });
+      const lastParts: any[] = visionImages.map(img => ({
+        inlineData: { mimeType: img.mimeType, data: img.data },
+      }));
+      lastParts.push({ text: prompt });
+      contents.push({ role: 'user', parts: lastParts });
 
       const result = await client.models.generateContent({
         model,
@@ -1350,6 +1360,12 @@ export async function callLLM(params: {
     }
   } else if (provider === 'openai') {
     try {
+      const lastUserContent: any = visionImages.length > 0
+        ? [
+            ...visionImages.map(img => ({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.data}` } })),
+            { type: 'text', text: prompt },
+          ]
+        : prompt;
       const response = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
         headers: {
@@ -1362,7 +1378,7 @@ export async function callLLM(params: {
           messages: [
             { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
             ...messages,
-            { role: 'user', content: prompt },
+            { role: 'user', content: lastUserContent },
           ],
         }),
       });
@@ -1477,9 +1493,10 @@ export async function streamCallLLM(params: {
   messages?: Array<{ role: 'user' | 'assistant'; content: string }>;
   localUrl?: string;
   signal?: AbortSignal;
+  visionImages?: Array<{ name: string; mimeType: string; data: string }>;
   onChunk: (delta: string) => void;
 }): Promise<{ tokensUsed: number }> {
-  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl, signal, onChunk } = params;
+  const { prompt, provider, model, apiKey, systemPrompt, messages = [], localUrl, signal, visionImages = [], onChunk } = params;
   throwIfAborted(signal);
 
   // Helper: consume an OpenAI-compatible SSE stream
@@ -1518,10 +1535,17 @@ export async function streamCallLLM(params: {
   }
 
   if (provider === 'anthropic') {
-    const payloadMessages = [
-      ...messages.map(m => ({ role: m.role, content: m.content })),
-      { role: 'user' as const, content: prompt },
-    ];
+    const payloadMessages: any[] = messages.map(m => ({ role: m.role, content: m.content }));
+    if (visionImages.length > 0) {
+      const userContent: any[] = visionImages.map(img => ({
+        type: 'image',
+        source: { type: 'base64', media_type: img.mimeType, data: img.data },
+      }));
+      userContent.push({ type: 'text', text: prompt });
+      payloadMessages.push({ role: 'user', content: userContent });
+    } else {
+      payloadMessages.push({ role: 'user' as const, content: prompt });
+    }
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -1585,6 +1609,12 @@ export async function streamCallLLM(params: {
     return { tokensUsed };
 
   } else if (provider === 'openai') {
+    const lastUserContent: any = visionImages.length > 0
+      ? [
+          ...visionImages.map(img => ({ type: 'image_url', image_url: { url: `data:${img.mimeType};base64,${img.data}` } })),
+          { type: 'text', text: prompt },
+        ]
+      : prompt;
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -1599,7 +1629,7 @@ export async function streamCallLLM(params: {
         messages: [
           { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
           ...messages,
-          { role: 'user', content: prompt },
+          { role: 'user', content: lastUserContent },
         ],
       }),
     });
@@ -1670,7 +1700,11 @@ export async function streamCallLLM(params: {
         role: message.role === 'assistant' ? 'model' : 'user',
         parts: [{ text: message.content }],
       }));
-      contents.push({ role: 'user', parts: [{ text: prompt }] });
+      const lastParts: any[] = visionImages.map(img => ({
+        inlineData: { mimeType: img.mimeType, data: img.data },
+      }));
+      lastParts.push({ text: prompt });
+      contents.push({ role: 'user', parts: lastParts });
 
       const stream = await client.models.generateContentStream({
         model,

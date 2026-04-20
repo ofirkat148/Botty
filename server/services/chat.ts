@@ -109,13 +109,29 @@ function normalizeChatAttachments(value: unknown) {
     .slice(0, 6);
 }
 
+function isVisionAttachment(a: ChatAttachment) {
+  return typeof a.content === 'string' && a.content.startsWith('data:image/');
+}
+
+function extractVisionImages(attachments: ChatAttachment[]): Array<{ name: string; mimeType: string; data: string }> {
+  return attachments
+    .filter(isVisionAttachment)
+    .map(a => {
+      const dataUrl = a.content;
+      const mimeType = dataUrl.slice(5, dataUrl.indexOf(';'));
+      const data = dataUrl.slice(dataUrl.indexOf(',') + 1);
+      return { name: a.name, mimeType, data };
+    });
+}
+
 function buildPromptWithAttachments(prompt: string, attachments: ChatAttachment[]) {
-  if (attachments.length === 0) {
-    return prompt;
+  const textAttachments = attachments.filter(a => !isVisionAttachment(a));
+  if (textAttachments.length === 0) {
+    return prompt.trim() || 'Please analyze the attached image(s).';
   }
 
   const basePrompt = prompt.trim() || 'Please analyze the attached files.';
-  const attachmentBlock = attachments
+  const attachmentBlock = textAttachments
     .map((attachment, index) => {
       const typeLine = attachment.type ? `Type: ${attachment.type}` : 'Type: unknown';
       return [`[ATTACHMENT ${index + 1}] ${attachment.name}`, typeLine, attachment.content].join('\n');
@@ -370,6 +386,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
           messages,
           localUrl: runtimeSettings.localUrl,
           signal: input.signal,
+          visionImages: visionImages.length > 0 ? visionImages : undefined,
         });
 
         responseText = result.responseText;
@@ -586,6 +603,7 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
           messages,
           localUrl: runtimeSettings.localUrl,
           signal: input.signal,
+          visionImages: visionImages.length > 0 ? visionImages : undefined,
           onChunk: (delta) => {
             accumulated += delta;
             input.onChunk(delta);

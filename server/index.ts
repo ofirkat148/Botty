@@ -98,7 +98,7 @@ app.use(cors({
   },
   credentials: false,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '20mb' }));
 if (existsSync(distDir)) {
   app.use(express.static(distDir));
 }
