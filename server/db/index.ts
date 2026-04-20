@@ -188,6 +188,21 @@ function bootstrapSchema(sqlite: Database.Database) {
   if (!historyColumns.some(c => c.name === 'project_id')) {
     sqlite.exec(`ALTER TABLE history ADD COLUMN project_id TEXT`);
   }
+
+  // Conversation shares
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS conversation_shares (
+      id TEXT PRIMARY KEY NOT NULL,
+      uid TEXT NOT NULL,
+      conversation_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      title TEXT,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+      expires_at TEXT
+    )
+  `);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS shares_token_idx ON conversation_shares (token)`);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS shares_uid_idx ON conversation_shares (uid)`);
 }
 
 export function initializeDatabase() {

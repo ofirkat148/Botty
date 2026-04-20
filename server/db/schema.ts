@@ -161,3 +161,17 @@ export const rateLimitHits = sqliteTable('rate_limit_hits', {
   resetAt: text('reset_at').notNull(),
 });
 
+// Conversation shares — read-only public share links
+export const conversationShares = sqliteTable('conversation_shares', {
+  id: text('id').primaryKey().notNull(),
+  uid: text('uid').notNull(),           // owner
+  conversationId: text('conversation_id').notNull(),
+  token: text('token').notNull().unique(),
+  title: text('title'),                 // optional display title
+  createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+  expiresAt: text('expires_at'),        // null = no expiry
+}, (t) => ({
+  tokenIdx: index('shares_token_idx').on(t.token),
+  uidIdx: index('shares_uid_idx').on(t.uid),
+}));
+

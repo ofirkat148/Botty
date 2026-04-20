@@ -29,6 +29,7 @@ import {
   Search,
   Send,
   Settings,
+  Share2,
   Sparkles,
   Square,
   SunMedium,
@@ -402,6 +403,10 @@ function AppShell() {
   const [sandboxMode, setSandboxMode] = useState(false);
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
   const [tavilyConfigured, setTavilyConfigured] = useState(false);
+  // Sharing state
+  const [sharingConvId, setSharingConvId] = useState('');
+  const [shareLink, setShareLink] = useState('');
+  const [shareLoading, setShareLoading] = useState(false);
   const [historyRetentionDays, setHistoryRetentionDays] = useState('');
   const [telegramBotToken, setTelegramBotToken] = useState('');
   const [telegramBotEnabled, setTelegramBotEnabled] = useState(true);
@@ -2388,6 +2393,30 @@ function AppShell() {
   async function unarchiveConversation(selectedConversationId: string) {
     await apiSend(`/api/history/group/${selectedConversationId}/unarchive`, 'PATCH');
     await refreshAll();
+  }
+
+  async function shareConversation(convId: string) {
+    if (shareLoading) return;
+    setShareLoading(true);
+    setSharingConvId(convId);
+    setShareLink('');
+    try {
+      const res = await apiSend<{ token: string }>(`/api/shares/${convId}`, 'POST', {});
+      const origin = window.location.origin;
+      setShareLink(`${origin}/share/${res.token}`);
+    } catch {
+      setShareLink('error');
+    } finally {
+      setShareLoading(false);
+    }
+  }
+
+  async function revokeShare(convId: string) {
+    await apiSend(`/api/shares/${convId}`, 'DELETE');
+    if (sharingConvId === convId) {
+      setSharingConvId('');
+      setShareLink('');
+    }
   }
 
   async function createProject() {
@@ -4608,6 +4637,7 @@ function AppShell() {
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
                       {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
                       {!showArchivedHistory ? <button onClick={() => void togglePinConversation(item.id)} className={`${responsiveSecondaryButtonClass} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`} title={pinnedConversations.has(item.id) ? 'Unpin conversation' : 'Pin conversation'}><Pin className="w-4 h-4" /></button> : null}
+                      {!showArchivedHistory ? <button onClick={() => void shareConversation(item.id)} className={`${responsiveSecondaryButtonClass} ${sharingConvId === item.id && shareLink ? (isDarkMode ? 'text-sky-300' : 'text-sky-600') : ''}`} title="Share read-only link"><Share2 className="w-4 h-4" /></button> : null}
                       {!showArchivedHistory && projects.length > 0 ? <button type="button" onClick={() => setAssigningConvId(id => id === item.id ? '' : item.id)} className={responsiveSecondaryButtonClass} title="Assign to project"><Layers className="w-4 h-4" /></button> : null}
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass} title="Export as Markdown">
@@ -4629,6 +4659,20 @@ function AppShell() {
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </div>
+                    {sharingConvId === item.id && shareLink ? (
+                      <div className={`mt-2 rounded-xl border px-3 py-2.5 text-sm flex items-center gap-2 ${isDarkMode ? 'border-sky-400/20 bg-sky-500/8' : 'border-sky-200 bg-sky-50'}`}>
+                        {shareLink === 'error' ? (
+                          <span className="text-red-500">Failed to create share link.</span>
+                        ) : (
+                          <>
+                            <a href={shareLink} target="_blank" rel="noopener noreferrer" className={`flex-1 truncate font-mono text-xs ${isDarkMode ? 'text-sky-300' : 'text-sky-700'}`}>{shareLink}</a>
+                            <button onClick={() => void navigator.clipboard.writeText(shareLink)} className={`shrink-0 rounded-lg px-2 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14' : 'bg-stone-100 hover:bg-stone-200'}`} title="Copy link"><Copy className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => void revokeShare(item.id)} className={`shrink-0 rounded-lg px-2 py-1 text-xs text-red-500`} title="Revoke share">Revoke</button>
+                            <button onClick={() => { setSharingConvId(''); setShareLink(''); }} className={`shrink-0 ${subtleTextClass}`} title="Dismiss"><X className="w-3.5 h-3.5" /></button>
+                          </>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
                 ))}
                 {conversations.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
@@ -4913,9 +4957,9 @@ function AppShell() {
                 </section>
 
                 <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <KeyRound className="w-4 h-4" />
-                    <h3 className="font-medium">Provider readiness</h3>
+                  <div className="flex items-start justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="font-medium">Provider readiness</h3>
                       <p className={`mt-1 text-sm ${subtleTextClass}`}>See which providers are ready for auto route, which are missing keys, and whether the local endpoint is reachable.</p>
                     </div>
                     <div className={`text-xs ${subtleTextClass}`}>
