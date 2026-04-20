@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import { eq, and, count } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
-import { history, projects } from '../db/schema.js';
+import { history, projects, ragDocuments } from '../db/schema.js';
 import {
   BotMemoryMode,
   buildChatSystemPrompt,
@@ -57,6 +57,55 @@ function buildToolCatalogSection(tools: ToolDefinition[]): string {
     }
   });
   return lines.join('\n');
+}
+
+/** Retrieve top-k RAG chunks for a query using cosine similarity (no external vector DB). */
+async function retrieveRagContext(uid: string, query: string, apiKey: string): Promise<string> {
+  try {
+    const db = getDatabase();
+    const rows = await db.select({
+      name: ragDocuments.name,
+      chunkText: ragDocuments.chunkText,
+      embedding: ragDocuments.embedding,
+    }).from(ragDocuments).where(eq(ragDocuments.uid, uid));
+    if (rows.length === 0) return '';
+
+    // Embed the query
+    const embedRes = await fetch('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({ model: 'text-embedding-3-small', input: [query] }),
+    });
+    if (!embedRes.ok) return '';
+    const embedData = await embedRes.json() as { data: Array<{ embedding: number[] }> };
+    const qVec = embedData.data[0].embedding;
+
+    // Cosine similarity
+    function cosine(a: number[], b: number[]): number {
+      let dot = 0, na = 0, nb = 0;
+      for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+      return dot / (Math.sqrt(na) * Math.sqrt(nb) || 1);
+    }
+
+    const scored = rows.map(row => ({
+      name: row.name,
+      text: row.chunkText,
+      score: cosine(qVec, JSON.parse(row.embedding) as number[]),
+    })).sort((a, b) => b.score - a.score).slice(0, 4);
+
+    // Only include chunks above a relevance threshold
+    const relevant = scored.filter(c => c.score > 0.3);
+    if (relevant.length === 0) return '';
+
+    const lines = ['[RETRIEVED DOCUMENT CONTEXT]', 'The following excerpts from your uploaded documents are relevant to this query:'];
+    relevant.forEach((c, i) => {
+      lines.push(`\n[${i + 1}] From "${c.name}":\n${c.text}`);
+    });
+    lines.push('\nUse the above context to inform your answer when relevant.');
+    return lines.join('\n');
+  } catch {
+    return '';
+  }
 }
 
 type ChatMessage = {
@@ -315,9 +364,15 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   const projectSystemPrompt = !activeAgent && incomingConversationId
     ? await resolveProjectSystemPrompt(uid, incomingConversationId)
     : '';
+  // RAG: retrieve relevant document chunks if the user has uploaded docs and OpenAI key is available
+  const openaiKey = await getProviderApiKey(uid, 'openai').catch(() => '');
+  const ragContext = prompt && openaiKey
+    ? await retrieveRagContext(uid, prompt, openaiKey)
+    : '';
+  const fullMemoryContext = [memoryContext, ragContext].filter(Boolean).join('\n\n');
   const systemPrompt = buildChatSystemPrompt({
     systemPrompt: [activeAgent?.systemPrompt || projectSystemPrompt || runtimeSettings.systemPrompt, toolCatalogSection].filter(Boolean).join('\n\n'),
-    memoryContext,
+    memoryContext: fullMemoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
 
@@ -550,9 +605,15 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   const projectSystemPromptStream = !activeAgent && incomingConversationId
     ? await resolveProjectSystemPrompt(uid, incomingConversationId)
     : '';
+  // RAG: retrieve relevant document chunks if the user has uploaded docs and OpenAI key is available
+  const openaiKeyStream = await getProviderApiKey(uid, 'openai').catch(() => '');
+  const ragContextStream = prompt && openaiKeyStream
+    ? await retrieveRagContext(uid, prompt, openaiKeyStream)
+    : '';
+  const fullMemoryContextStream = [memoryContext, ragContextStream].filter(Boolean).join('\n\n');
   const systemPrompt = buildChatSystemPrompt({
     systemPrompt: activeAgent?.systemPrompt || projectSystemPromptStream || runtimeSettings.systemPrompt,
-    memoryContext,
+    memoryContext: fullMemoryContextStream,
     sandboxMode: runtimeSettings.sandboxMode,
   });
 

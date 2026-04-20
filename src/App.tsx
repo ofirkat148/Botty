@@ -448,6 +448,13 @@ function AppShell() {
   const [showSkillAdvanced, setShowSkillAdvanced] = useState(false);
   const [showAgentAdvanced, setShowAgentAdvanced] = useState(false);
 
+  type RagDocument = { name: string; chunks: number; createdAt: string };
+  const [ragDocuments, setRagDocuments] = useState<RagDocument[]>([]);
+  const [ragUploading, setRagUploading] = useState(false);
+  const [ragUploadError, setRagUploadError] = useState('');
+  const [ragDeleting, setRagDeleting] = useState('');
+  const ragFileInputRef = useRef<HTMLInputElement>(null);
+
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
@@ -1450,7 +1457,7 @@ function AppShell() {
   }
 
   async function refreshAll() {
-    const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData, agentCountsData] = await Promise.all([
+    const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData, agentCountsData, ragDocsData] = await Promise.all([
       apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history'),
       apiGet<Fact[]>('/api/memory/facts'),
       apiGet<MemoryFile[]>('/api/memory/files'),
@@ -1462,6 +1469,7 @@ function AppShell() {
       apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null; pinnedConversations?: string[] | null }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
       apiGet<{ total: number; counts: Record<string, number> }>('/api/memory/facts/agent-counts'),
+      apiGet<{ documents: RagDocument[] }>('/api/rag/documents').catch(() => ({ documents: [] })),
     ]);
 
     setHistory(historyRows);
@@ -1469,6 +1477,7 @@ function AppShell() {
     setMemoryFiles(fileRows);
     setMemoryUrls(urlRows);
     setAgentFactCounts(agentCountsData || { total: 0, counts: {} });
+    setRagDocuments(ragDocsData.documents || []);
     setCustomSkills(functionsData.skills || []);
     setCustomAgents(functionsData.agents || []);
     setApiKeys(keyRows);
@@ -2762,6 +2771,38 @@ function AppShell() {
     await refreshAll();
   }
 
+  async function uploadRagDocument(file: File) {
+    setRagUploading(true);
+    setRagUploadError('');
+    try {
+      const text = await file.text();
+      if (!text.trim()) { setRagUploadError('File has no text content.'); return; }
+      const res = await fetch('/api/rag/documents', {
+        method: 'POST',
+        headers: { ...authHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: file.name, text }),
+      });
+      const data = await res.json() as { ok?: boolean; chunks?: number; error?: string };
+      if (!res.ok || data.error) { setRagUploadError(data.error || 'Upload failed'); return; }
+      await refreshAll();
+    } catch (err) {
+      setRagUploadError(err instanceof Error ? err.message : 'Upload failed');
+    } finally {
+      setRagUploading(false);
+      if (ragFileInputRef.current) ragFileInputRef.current.value = '';
+    }
+  }
+
+  async function deleteRagDocument(name: string) {
+    setRagDeleting(name);
+    try {
+      await apiSend(`/api/rag/documents/${encodeURIComponent(name)}`, 'DELETE');
+      await refreshAll();
+    } finally {
+      setRagDeleting('');
+    }
+  }
+
   async function loadOllamaModels() {
     setOllamaModelsLoading(true);
     setOllamaModelsError('');
@@ -3437,8 +3478,8 @@ function AppShell() {
             </button>
           </aside>
 
-          <main className={`${shellPanelClass} flex min-h-[calc(100dvh-1.5rem)] flex-col ${isFullscreen ? 'h-dvh min-h-0 overflow-hidden lg:h-[calc(100dvh-2rem)]' : activeTab === 'chat' ? 'overflow-hidden' : ''}`}>
-            <div className={`mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between ${isFullscreen ? 'shrink-0' : ''}`}>
+          <main className={`${shellPanelClass} flex min-h-[calc(100dvh-1.5rem)] flex-col lg:h-[calc(100dvh-2rem)] lg:min-h-0 lg:overflow-hidden ${isFullscreen ? 'h-dvh min-h-0 overflow-hidden lg:h-[calc(100dvh-2rem)]' : activeTab === 'chat' ? 'overflow-hidden' : ''}`}>
+            <div className={`mb-5 shrink-0 flex flex-col gap-3 md:flex-row md:items-center md:justify-between`}>
               <div className="flex min-w-0 items-start gap-3">
                 <button
                   type="button"
@@ -3480,11 +3521,11 @@ function AppShell() {
               </div>
             </div>
 
-            {notice ? <div className={noticeClass}>{notice}</div> : null}
+            {notice ? <div className={`shrink-0 ${noticeClass}`}>{notice}</div> : null}
 
             {activeTab === 'chat' ? (
               <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1 overflow-hidden' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
-                <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh]'}`}>
+                <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh] lg:min-h-0'}`}>
                   {activePreset ? (
                     <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
                       activePreset.kind === 'skill'
@@ -3983,7 +4024,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'skills' ? (
-              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
+              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Skills</h3>
@@ -4078,7 +4119,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'agents' ? (
-              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
+              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
                 <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Agents</h3>
@@ -4529,7 +4570,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'history' ? (
-              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
+              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
                 <section className={sectionCardClass}>
                   <div className="flex flex-col gap-4">
                     <div>
@@ -4860,7 +4901,45 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'memory' ? (
-              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
+              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
+                <section className={sectionCardClass}>
+                  <div className="flex items-center justify-between gap-3 mb-3">
+                    <div>
+                      <h3 className="font-medium">Documents (RAG)</h3>
+                      <p className={`text-sm ${subtleTextClass} mt-1`}>Upload text files to be retrieved and injected into chat context automatically. Requires an OpenAI key.</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <input ref={ragFileInputRef} type="file" accept=".txt,.md,.csv,.json" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadRagDocument(f); }} />
+                      <button onClick={() => ragFileInputRef.current?.click()} disabled={ragUploading} className={responsivePrimaryButtonClass}>
+                        <Upload className="w-4 h-4" />
+                        {ragUploading ? 'Uploading...' : 'Upload file'}
+                      </button>
+                    </div>
+                  </div>
+                  {ragUploadError ? <p className={`text-sm mb-3 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>{ragUploadError}</p> : null}
+                  {ragDocuments.length > 0 ? (
+                    <div className="flex flex-col gap-2">
+                      {ragDocuments.map(doc => (
+                        <div key={doc.name} className={`${elevatedCardClass} flex items-center justify-between gap-3`}>
+                          <div className="min-w-0">
+                            <div className="text-sm font-medium truncate">{doc.name}</div>
+                            <div className={`text-xs ${subtleTextClass}`}>{doc.chunks} chunk{doc.chunks === 1 ? '' : 's'} · {new Date(doc.createdAt).toLocaleDateString()}</div>
+                          </div>
+                          <button
+                            onClick={() => void deleteRagDocument(doc.name)}
+                            disabled={ragDeleting === doc.name}
+                            className={`shrink-0 ${secondaryButtonClass}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className={`text-sm ${subtleTextClass}`}>No documents uploaded yet. Upload .txt, .md, .csv, or .json files.</p>
+                  )}
+                </section>
+
                 <div className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
                   <div>
                     <h3 className="font-medium">Memory backup</h3>
@@ -5068,7 +5147,7 @@ function AppShell() {
             ) : null}
 
             {activeTab === 'settings' ? (
-              <div className={`space-y-4 ${isFullscreen ? 'flex-1 overflow-auto min-h-0 pb-4' : ''}`}>
+              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
                 <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
                     <KeyRound className="w-4 h-4" />

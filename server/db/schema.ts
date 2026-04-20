@@ -161,6 +161,19 @@ export const rateLimitHits = sqliteTable('rate_limit_hits', {
   resetAt: text('reset_at').notNull(),
 });
 
+// RAG documents — uploaded files chunked and embedded for retrieval
+export const ragDocuments = sqliteTable('rag_documents', {
+  id: text('id').primaryKey().notNull(),
+  uid: text('uid').notNull(),
+  name: text('name').notNull(),
+  chunkIndex: integer('chunk_index').notNull().default(0),
+  chunkText: text('chunk_text').notNull(),
+  embedding: text('embedding').notNull(), // JSON float array
+  createdAt: text('created_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
+}, (t) => ({
+  uidIdx: index('rag_documents_uid_idx').on(t.uid),
+}));
+
 // Conversation shares — read-only public share links
 export const conversationShares = sqliteTable('conversation_shares', {
   id: text('id').primaryKey().notNull(),

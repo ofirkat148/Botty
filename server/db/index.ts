@@ -203,6 +203,19 @@ function bootstrapSchema(sqlite: Database.Database) {
   `);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS shares_token_idx ON conversation_shares (token)`);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS shares_uid_idx ON conversation_shares (uid)`);
+
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS rag_documents (
+      id TEXT PRIMARY KEY,
+      uid TEXT NOT NULL,
+      name TEXT NOT NULL,
+      chunk_index INTEGER NOT NULL DEFAULT 0,
+      chunk_text TEXT NOT NULL,
+      embedding TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )
+  `);
+  sqlite.exec(`CREATE INDEX IF NOT EXISTS rag_documents_uid_idx ON rag_documents (uid)`);
 }
 
 export function initializeDatabase() {
