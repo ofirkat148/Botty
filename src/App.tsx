@@ -435,6 +435,16 @@ function AppShell() {
   const [providerStatuses, setProviderStatuses] = useState<ProviderStatus[]>([]);
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
 
+  // Ollama model management
+  type OllamaModel = { name: string; size: number; details?: { parameter_size?: string; family?: string } };
+  const [ollamaModels, setOllamaModels] = useState<OllamaModel[]>([]);
+  const [ollamaModelsLoading, setOllamaModelsLoading] = useState(false);
+  const [ollamaModelsError, setOllamaModelsError] = useState('');
+  const [ollamaPullName, setOllamaPullName] = useState('');
+  const [ollamaPullLog, setOllamaPullLog] = useState('');
+  const [ollamaPulling, setOllamaPulling] = useState(false);
+  const [ollamaDeleting, setOllamaDeleting] = useState('');
+
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
@@ -1347,6 +1357,7 @@ function AppShell() {
     apiGet<{ configured: boolean }>('/api/settings/search-status')
       .then(r => setTavilyConfigured(r.configured))
       .catch(() => {});
+    void loadOllamaModels();
   }, [user, activeTab]);
 
   useEffect(() => {
@@ -2707,6 +2718,74 @@ function AppShell() {
   async function deleteUrl(id: string) {
     await apiSend(`/api/memory/urls/${id}`, 'DELETE');
     await refreshAll();
+  }
+
+  async function loadOllamaModels() {
+    setOllamaModelsLoading(true);
+    setOllamaModelsError('');
+    try {
+      type OllamaModel = { name: string; size: number; details?: { parameter_size?: string; family?: string } };
+      const data = await apiGet<{ models: OllamaModel[] }>('/api/settings/ollama-models');
+      setOllamaModels(data.models || []);
+    } catch (err) {
+      setOllamaModelsError(err instanceof Error ? err.message : 'Cannot reach Ollama');
+    } finally {
+      setOllamaModelsLoading(false);
+    }
+  }
+
+  async function pullOllamaModel() {
+    const name = ollamaPullName.trim();
+    if (!name) return;
+    setOllamaPulling(true);
+    setOllamaPullLog('Starting pull…');
+    try {
+      const response = await fetch('/api/settings/ollama-pull', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${localStorage.getItem('botty.token') || ''}` },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok || !response.body) {
+        setOllamaPullLog(`Error: ${response.status}`);
+        return;
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let lastStatus = '';
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value, { stream: true });
+        for (const line of chunk.split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const json = JSON.parse(line) as { status?: string; completed?: number; total?: number };
+            const pct = json.total ? ` (${Math.round((json.completed || 0) / json.total * 100)}%)` : '';
+            lastStatus = (json.status || '') + pct;
+          } catch { /* skip malformed */ }
+        }
+        setOllamaPullLog(lastStatus);
+      }
+      setOllamaPullLog('Done!');
+      setOllamaPullName('');
+      await loadOllamaModels();
+    } catch (err) {
+      setOllamaPullLog(err instanceof Error ? err.message : 'Pull failed');
+    } finally {
+      setOllamaPulling(false);
+    }
+  }
+
+  async function deleteOllamaModel(name: string) {
+    setOllamaDeleting(name);
+    try {
+      await apiSend(`/api/settings/ollama-models/${encodeURIComponent(name)}`, 'DELETE');
+      await loadOllamaModels();
+    } catch (err) {
+      setNotice(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setOllamaDeleting('');
+    }
   }
 
   async function saveKey(providerName: string) {
@@ -5059,6 +5138,70 @@ function AppShell() {
                       ? <>Key configured. Use the <Globe className="inline w-3.5 h-3.5 mx-0.5 -mt-0.5" /> Search button in the composer to enable per-message.</>
                       : <>No key saved. Enter your Tavily key above.</>
                     }
+                  </div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <MemoryStick className="w-4 h-4" />
+                      <h3 className="font-medium">Local models (Ollama)</h3>
+                    </div>
+                    <button onClick={() => void loadOllamaModels()} className={`${secondaryButtonClass} flex items-center gap-1.5`} disabled={ollamaModelsLoading}>
+                      <RefreshCw className={`w-3.5 h-3.5 ${ollamaModelsLoading ? 'animate-spin' : ''}`} />
+                      {ollamaModelsLoading ? 'Loading…' : 'Refresh'}
+                    </button>
+                  </div>
+
+                  {ollamaModelsError ? (
+                    <div className={`mb-3 rounded-[0.9rem] border px-4 py-3 text-sm ${isDarkMode ? 'border-red-400/20 bg-red-500/8 text-red-300' : 'border-red-200 bg-red-50 text-red-700'}`}>
+                      {ollamaModelsError}
+                    </div>
+                  ) : null}
+
+                  {ollamaModels.length > 0 ? (
+                    <div className="grid gap-2 mb-4">
+                      {ollamaModels.map(m => (
+                        <div key={m.name} className={`${elevatedCardClass} flex items-center justify-between gap-3`}>
+                          <div>
+                            <div className="text-sm font-medium font-mono">{m.name}</div>
+                            <div className={`text-xs mt-0.5 ${subtleTextClass}`}>
+                              {m.details?.parameter_size ?? ''}{m.details?.family ? ` · ${m.details.family}` : ''}{m.size ? ` · ${(m.size / 1e9).toFixed(1)} GB` : ''}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => void deleteOllamaModel(m.name)}
+                            disabled={ollamaDeleting === m.name}
+                            className={`${subtleTextClass} hover:text-red-600 disabled:opacity-40`}
+                            title="Delete model"
+                          >
+                            {ollamaDeleting === m.name ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : !ollamaModelsLoading && !ollamaModelsError ? (
+                    <div className={`mb-4 text-sm ${subtleTextClass}`}>No models installed. Pull one below.</div>
+                  ) : null}
+
+                  <div className={`${elevatedCardClass} flex flex-col gap-3`}>
+                    <div className="text-sm font-medium">Pull a model</div>
+                    <div className="flex gap-2">
+                      <input
+                        value={ollamaPullName}
+                        onChange={e => setOllamaPullName(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && !ollamaPulling) void pullOllamaModel(); }}
+                        placeholder="e.g. llama3.2:3b or nomic-embed-text"
+                        className={`${textInputClass} flex-1`}
+                        disabled={ollamaPulling}
+                      />
+                      <button onClick={() => void pullOllamaModel()} className={responsivePrimaryButtonClass} disabled={ollamaPulling || !ollamaPullName.trim()}>
+                        {ollamaPulling ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                      </button>
+                    </div>
+                    {ollamaPullLog ? (
+                      <div className={`text-xs font-mono ${subtleTextClass}`}>{ollamaPullLog}</div>
+                    ) : null}
                   </div>
                 </section>
 

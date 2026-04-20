@@ -8,7 +8,7 @@ import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.j
 import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
 import { isAgentExecutorType } from '../../shared/agentDefinitions.js';
 import { createCustomAgentForUser, deleteCustomAgentForUser, getCustomAgentForUser, listCustomAgentsForUser } from '../utils/agents.js';
-import { getProviderApiKey } from '../utils/llm.js';
+import { getProviderApiKey, getRuntimeSettings } from '../utils/llm.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -343,6 +343,86 @@ router.get('/search-status', async (req: Request, res: Response) => {
     res.json({ configured: !!key });
   } catch {
     res.json({ configured: false });
+  }
+});
+
+// ── Ollama model management ───────────────────────────────────────────────────
+
+async function getOllamaBaseUrl(uid: string): Promise<string> {
+  const runtimeSettings = await getRuntimeSettings(uid);
+  return runtimeSettings.localUrl || 'http://127.0.0.1:11434';
+}
+
+// GET /api/settings/ollama-models — list locally available Ollama models
+router.get('/ollama-models', async (req: Request, res: Response) => {
+  try {
+    const base = await getOllamaBaseUrl(req.userId!);
+    const response = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) {
+      return res.status(502).json({ error: `Ollama returned ${response.status}` });
+    }
+    const data = await response.json() as { models: unknown[] };
+    res.json({ models: data.models || [] });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Cannot reach Ollama' });
+  }
+});
+
+// POST /api/settings/ollama-pull — stream pull progress for a model
+router.post('/ollama-pull', async (req: Request, res: Response) => {
+  const { name } = req.body as { name?: string };
+  if (!name || typeof name !== 'string' || !/^[\w.:/\-]+$/.test(name.trim())) {
+    return res.status(400).json({ error: 'Invalid model name' });
+  }
+  try {
+    const base = await getOllamaBaseUrl(req.userId!);
+    const upstream = await fetch(`${base}/api/pull`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), stream: true }),
+      signal: AbortSignal.timeout(600_000),
+    });
+    if (!upstream.ok) {
+      return res.status(502).json({ error: `Ollama returned ${upstream.status}` });
+    }
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Transfer-Encoding', 'chunked');
+    const reader = upstream.body!.getReader();
+    const push = async () => {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) { res.end(); break; }
+        res.write(Buffer.from(value));
+      }
+    };
+    await push();
+  } catch (err) {
+    if (!res.headersSent) {
+      res.status(502).json({ error: err instanceof Error ? err.message : 'Pull failed' });
+    }
+  }
+});
+
+// DELETE /api/settings/ollama-models/:name — delete an Ollama model
+router.delete('/ollama-models/:name', async (req: Request, res: Response) => {
+  const name = decodeURIComponent(req.params.name || '');
+  if (!name || !/^[\w.:/\-]+$/.test(name)) {
+    return res.status(400).json({ error: 'Invalid model name' });
+  }
+  try {
+    const base = await getOllamaBaseUrl(req.userId!);
+    const response = await fetch(`${base}/api/delete`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) {
+      return res.status(502).json({ error: `Ollama returned ${response.status}` });
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(502).json({ error: err instanceof Error ? err.message : 'Delete failed' });
   }
 });
 
