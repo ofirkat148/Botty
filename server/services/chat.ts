@@ -395,6 +395,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   let provider = '';
   let model = '';
   let apiKey = '';
+  const visionImages = extractVisionImages(attachments);
 
   if (maxTurnsReached) {
     responseText = `[Agent task complete — ${activeAgent!.title} has reached its ${activeAgent!.maxTurns}-turn limit for this conversation. Start a new chat to continue with this agent.]`;
@@ -623,6 +624,7 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   let provider = '';
   let model = '';
   let apiKey = '';
+  const visionImages = extractVisionImages(attachments);
 
   if (activeAgent?.executorType === 'remote-http') {
     // Remote HTTP agents don't support streaming — run normally and deliver as single chunk
