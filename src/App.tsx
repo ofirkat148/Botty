@@ -4492,6 +4492,7 @@ function AppShell() {
                                 <div className={`text-xs ${subtleTextClass} flex flex-wrap gap-x-3 gap-y-1`}>
                                   {item.provider ? <span>{formatProviderLabel(item.provider)}{item.model ? ` · ${formatModelDisplay(item.model, item.provider)}` : ''}</span> : null}
                                   <span>Memory: {item.memoryMode || 'shared'}</span>
+                                  <span>Executor: {getAgentExecutorLabel(item)}</span>
                                   {getAgentEndpoint(item) ? <span className="truncate max-w-[200px]">Endpoint: {getAgentEndpoint(item)}</span> : null}
                                 </div>
                                 {isConfirmingDelete ? (
