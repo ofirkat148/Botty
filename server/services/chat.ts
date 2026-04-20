@@ -249,7 +249,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   let searchContext = '';
   if (useWebSearch && prompt) {
     try {
-      const tavilyKey = process.env.TAVILY_API_KEY?.trim();
+      const tavilyKey = await getProviderApiKey(uid, 'tavily');
       if (tavilyKey) {
         const searchResult = await webSearch(prompt, tavilyKey, { maxResults: 5, signal: input.signal });
         searchContext = formatSearchContext(searchResult);
@@ -488,7 +488,7 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   let searchContext = '';
   if (useWebSearch && prompt) {
     try {
-      const tavilyKey = process.env.TAVILY_API_KEY?.trim();
+      const tavilyKey = await getProviderApiKey(uid, 'tavily');
       if (tavilyKey) {
         const searchResult = await webSearch(prompt, tavilyKey, { maxResults: 5, signal: input.signal });
         searchContext = formatSearchContext(searchResult);

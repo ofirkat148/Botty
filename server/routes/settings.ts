@@ -8,6 +8,7 @@ import { getTelegramBotStatus, refreshTelegramBot } from '../services/telegram.j
 import { normalizeSlashCommand, RESERVED_SLASH_COMMANDS } from '../../shared/functionPresets.js';
 import { isAgentExecutorType } from '../../shared/agentDefinitions.js';
 import { createCustomAgentForUser, deleteCustomAgentForUser, getCustomAgentForUser, listCustomAgentsForUser } from '../utils/agents.js';
+import { getProviderApiKey } from '../utils/llm.js';
 
 const router = Router();
 router.use(authMiddleware);
@@ -335,10 +336,14 @@ router.get('/telegram-status', async (req: Request, res: Response) => {
   }
 });
 
-// GET /api/settings/search-status — whether TAVILY_API_KEY is configured
-router.get('/search-status', (_req: Request, res: Response) => {
-  const configured = !!(process.env.TAVILY_API_KEY?.trim());
-  res.json({ configured });
+// GET /api/settings/search-status — whether a Tavily API key is configured (DB or env)
+router.get('/search-status', async (req: Request, res: Response) => {
+  try {
+    const key = await getProviderApiKey(req.userId!, 'tavily');
+    res.json({ configured: !!key });
+  } catch {
+    res.json({ configured: false });
+  }
 });
 
 // POST /api/settings/telegram-test — Send a test message to configured Telegram chat IDs
