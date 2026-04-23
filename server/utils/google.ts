@@ -321,20 +321,20 @@ function formatEventTime(dt?: string, d?: string, timeZone = 'UTC'): string {
   return '?';
 }
 
-/** Start of today (midnight) expressed as an ISO string in the given IANA timezone. */
+/** Start of today (midnight) expressed as an RFC 3339 UTC string for the given IANA timezone. */
 function startOfTodayInTz(timeZone: string): string {
   try {
-    // Get today's date components in the target timezone
     const now = new Date();
-    const parts = new Intl.DateTimeFormat('en-CA', {
-      timeZone,
-      year: 'numeric', month: '2-digit', day: '2-digit',
-    }).formatToParts(now);
-    const y = parts.find(p => p.type === 'year')?.value ?? String(now.getFullYear());
-    const m = parts.find(p => p.type === 'month')?.value ?? String(now.getMonth() + 1).padStart(2, '0');
-    const d = parts.find(p => p.type === 'day')?.value ?? String(now.getDate()).padStart(2, '0');
-    // Construct midnight in that timezone as a UTC instant
-    return new Date(`${y}-${m}-${d}T00:00:00`).toLocaleString('sv-SE', { timeZone }).replace(' ', 'T') + ':00';
+    // Get today's calendar date in the user's timezone (en-CA gives 'YYYY-MM-DD')
+    const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone }).format(now);
+    // Sample noon UTC on that date to compute the UTC offset without DST edge cases
+    const noonUTC = new Date(`${dateStr}T12:00:00Z`);
+    const timeInTz = noonUTC.toLocaleString('en-US', {
+      timeZone, hour: '2-digit', minute: '2-digit', hour12: false,
+    });
+    const [h, min] = timeInTz.split(':').map(Number);
+    // Midnight in TZ = noon UTC minus (hours + minutes that noon UTC appears to be in that TZ)
+    return new Date(noonUTC.getTime() - (h * 60 + min) * 60_000).toISOString();
   } catch {
     const now = new Date();
     now.setUTCHours(0, 0, 0, 0);
