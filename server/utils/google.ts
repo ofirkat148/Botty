@@ -286,7 +286,7 @@ export async function sendGmail(accessToken: string, to: string, subject: string
 
 // ─── Context builder for chat service ────────────────────────────────────────
 
-const CALENDAR_KEYWORDS = /\b(calendar|schedule|event|meeting|appointment|today|tomorrow|week|upcoming|agenda|busy|free|slot|remind)\b/i;
+const CALENDAR_KEYWORDS = /\b(calendar|schedule|event|meeting|appointment|today|tomorrow|week|upcoming|agenda|busy|free|slot|remind|day|morning|afternoon|evening|plans|planning)\b/i;
 const EMAIL_KEYWORDS = /\b(email|mail|gmail|inbox|message|send|compose|reply|wrote|received|unread)\b/i;
 
 /** Fetch the user's primary calendar timezone string (e.g. 'Asia/Jerusalem'). */
@@ -402,5 +402,15 @@ export async function buildGoogleContext(uid: string, prompt: string): Promise<s
   }
 
   if (parts.length === 1) return ''; // Only had the header line
-  return parts.join('\n');
+
+  // Wrap with explicit instructions so small models don't ignore the data
+  const dataBlock = parts.join('\n');
+  return [
+    '=== REAL-TIME DATA FROM YOUR GOOGLE ACCOUNT ===',
+    'The following data was fetched live from the user\'s Google account seconds ago.',
+    'You MUST use this data to answer. Do NOT say you lack calendar or email access.',
+    dataBlock,
+    '=== END OF REAL-TIME DATA ===',
+    'Now answer the user\'s question using the data above.',
+  ].join('\n');
 }
