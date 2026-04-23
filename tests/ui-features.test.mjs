@@ -372,22 +372,31 @@ describe('UI feature tests', { concurrency: false }, () => {
       await page.getByRole('button', { name: 'History' }).click();
       await page.getByRole('heading', { name: 'History' }).waitFor({ timeout: 8000 });
 
-      // Conversation should appear — hover to reveal action row
-      const entryText = page.getByText('Pin test conversation prompt');
-      await entryText.waitFor({ timeout: 8000 });
-      await entryText.hover();
+      // Conversation should appear
+      await page.getByText('Pin test conversation prompt').waitFor({ timeout: 8000 });
 
-      // Pin button is always rendered (not hover-only), use title attribute
-      // click() auto-waits for visibility — mirrors the working rename pattern
-      await page.locator('[title="Pin conversation"]').first().click();
+      // Navigate via XPath from the text node to its ancestor row div, then find the
+      // "More actions" button inside that same row — avoids matching other conversations
+      const moreActionsInRow = page.getByText('Pin test conversation prompt', { exact: false })
+        .locator('xpath=ancestor::div[contains(@class,"p-4")]//button[@title="More actions"]')
+        .first();
 
-      // After pinning, button title should change to "Unpin conversation"
-      await page.locator('[title="Unpin conversation"]').first().waitFor({ timeout: 8000 });
+      // Open the "More actions" dropdown and click Pin (exact match avoids the
+      // conversation title button whose accessible name also contains "Pin")
+      await moreActionsInRow.click();
+      await page.getByRole('button', { name: /^Pin$/ }).first().click();
+
+      // After the optimistic state update the row gets data-pinned="true"
+      await page.locator('[data-pinned="true"]')
+        .filter({ hasText: 'Pin test conversation prompt' })
+        .waitFor({ timeout: 8000 });
 
       // Reload and confirm the pin persisted
       await page.reload({ waitUntil: 'networkidle' });
       await page.getByRole('button', { name: 'History' }).click();
-      await page.locator('[title="Unpin conversation"]').first().waitFor({ timeout: 8000 });
+      await page.locator('[data-pinned="true"]')
+        .filter({ hasText: 'Pin test conversation prompt' })
+        .waitFor({ timeout: 8000 });
     } finally {
       await browser?.close();
     }
@@ -411,9 +420,10 @@ describe('UI feature tests', { concurrency: false }, () => {
       await page.getByRole('button', { name: 'History' }).click();
       await page.getByText('CSV export test prompt').waitFor({ timeout: 8000 });
 
-      // Both export buttons are rendered via title attributes (icon-only buttons)
+      // Markdown export is a direct button; CSV export is in the dropdown
       await page.locator('[title="Export as Markdown"]').first().waitFor({ timeout: 8000 });
-      await page.locator('[title="Export as CSV"]').first().waitFor({ timeout: 8000 });
+      await page.locator('[title="More actions"]').first().click();
+      await page.getByRole('button', { name: 'Export CSV' }).first().waitFor({ timeout: 8000 });
     } finally {
       await browser?.close();
     }
@@ -437,8 +447,9 @@ describe('UI feature tests', { concurrency: false }, () => {
       await page.getByRole('button', { name: 'History' }).click();
       await page.getByText('Rename me please').waitFor({ timeout: 8000 });
 
-      // Click the Rename (pencil) button
-      await page.getByTitle('Rename conversation').first().click();
+      // Open the "More actions" dropdown and click Rename
+      await page.locator('[title="More actions"]').first().click();
+      await page.getByRole('button', { name: 'Rename' }).first().click();
 
       // Fill in the new label
       const input = page.getByPlaceholder('Rename this conversation…');

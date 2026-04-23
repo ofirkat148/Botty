@@ -21,6 +21,7 @@ import {
   Maximize2,
   Menu,
   MemoryStick,
+  MoreHorizontal,
   Mic,
   Minimize2,
   MessageSquare,
@@ -476,6 +477,7 @@ function AppShell() {
   const [newProjectColor, setNewProjectColor] = useState<string>('stone');
   const [newProjectSystemPrompt, setNewProjectSystemPrompt] = useState('');
   const [assigningConvId, setAssigningConvId] = useState('');
+  const [openConvMenuId, setOpenConvMenuId] = useState('');
   const [factsSearch, setFactsSearch] = useState('');
   const [sidebarSearch, setSidebarSearch] = useState('');
   const [sidebarSearchFocused, setSidebarSearchFocused] = useState(false);
@@ -4845,7 +4847,7 @@ function AppShell() {
                   const bPinned = pinnedConversations.has(b.id) ? 0 : 1;
                   return aPinned - bPinned;
                 }).map(item => (
-                  <div key={item.id} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between ${pinnedConversations.has(item.id) ? (isDarkMode ? 'ring-1 ring-amber-400/30' : 'ring-1 ring-amber-400/60') : ''}`}>
+                  <div key={item.id} data-pinned={pinnedConversations.has(item.id) ? 'true' : undefined} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between ${pinnedConversations.has(item.id) ? (isDarkMode ? 'ring-1 ring-amber-400/30' : 'ring-1 ring-amber-400/60') : ''}`}>
                     <div className="min-w-0 flex-1">
                       {editingLabelId === item.id ? (
                         <form onSubmit={event => { event.preventDefault(); void saveConversationLabel(item.id, labelDraft); }} className="mb-2 flex gap-2">
@@ -4889,26 +4891,56 @@ function AppShell() {
                       ) : null}
                     </div>
                     <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
-                      {!showArchivedHistory ? <button onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className={responsiveSecondaryButtonClass} title="Rename conversation"><Pencil className="w-4 h-4" /></button> : null}
-                      {!showArchivedHistory ? <button onClick={() => void togglePinConversation(item.id)} className={`${responsiveSecondaryButtonClass} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`} title={pinnedConversations.has(item.id) ? 'Unpin conversation' : 'Pin conversation'}><Pin className="w-4 h-4" /></button> : null}
-                      {!showArchivedHistory ? <button onClick={() => void shareConversation(item.id)} className={`${responsiveSecondaryButtonClass} ${sharingConvId === item.id && shareLink ? (isDarkMode ? 'text-sky-300' : 'text-sky-600') : ''}`} title="Share read-only link"><Share2 className="w-4 h-4" /></button> : null}
-                      {!showArchivedHistory && projects.length > 0 ? <button type="button" onClick={() => setAssigningConvId(id => id === item.id ? '' : item.id)} className={responsiveSecondaryButtonClass} title="Assign to project"><Layers className="w-4 h-4" /></button> : null}
                       <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
                       <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass} title="Export as Markdown">
                         <Download className="w-4 h-4" />
                       </button>
-                      <button onClick={() => exportConversationCSV(item)} className={responsiveSecondaryButtonClass} title="Export as CSV">
-                        <span className="text-xs font-medium">CSV</span>
-                      </button>
-                      {showArchivedHistory ? (
-                        <button onClick={() => void unarchiveConversation(item.id)} className={responsiveSecondaryButtonClass} title="Restore conversation">
-                          <ArchiveRestore className="w-4 h-4" />
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={() => setOpenConvMenuId(id => id === item.id ? '' : item.id)}
+                          className={responsiveSecondaryButtonClass}
+                          title="More actions"
+                        >
+                          <MoreHorizontal className="w-4 h-4" />
                         </button>
-                      ) : (
-                        <button onClick={() => void archiveConversation(item.id)} className={responsiveSecondaryButtonClass} title="Archive conversation">
-                          <Archive className="w-4 h-4" />
-                        </button>
-                      )}
+                        {openConvMenuId === item.id ? (
+                          <div className={`absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border py-1 shadow-lg ${isDarkMode ? 'border-white/10 bg-stone-900 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
+                            {!showArchivedHistory ? (
+                              <button type="button" onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                <Pencil className="w-3.5 h-3.5" /> Rename
+                              </button>
+                            ) : null}
+                            {!showArchivedHistory ? (
+                              <button type="button" onClick={() => { void togglePinConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`}>
+                                <Pin className="w-3.5 h-3.5" /> {pinnedConversations.has(item.id) ? 'Unpin' : 'Pin'}
+                              </button>
+                            ) : null}
+                            {!showArchivedHistory ? (
+                              <button type="button" onClick={() => { void shareConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                <Share2 className="w-3.5 h-3.5" /> Share
+                              </button>
+                            ) : null}
+                            {!showArchivedHistory && projects.length > 0 ? (
+                              <button type="button" onClick={() => { setAssigningConvId(id => id === item.id ? '' : item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                <Layers className="w-3.5 h-3.5" /> Assign project
+                              </button>
+                            ) : null}
+                            <button type="button" onClick={() => { exportConversationCSV(item); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                              <span className="w-3.5 text-xs font-medium">CSV</span> Export CSV
+                            </button>
+                            {showArchivedHistory ? (
+                              <button type="button" onClick={() => { void unarchiveConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                              </button>
+                            ) : (
+                              <button type="button" onClick={() => { void archiveConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                <Archive className="w-3.5 h-3.5" /> Archive
+                              </button>
+                            )}
+                          </div>
+                        ) : null}
+                      </div>
                       <button onClick={() => void deleteConversation(item.id)} className={responsiveDestructiveButtonClass}>
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -5120,7 +5152,7 @@ function AppShell() {
                   <section className={sectionCardClass}>
                     <div className="mb-3 flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="font-medium">Fact files</h3>
+                        <h3 className="font-medium">Files</h3>
                         <p className={`mt-1 text-sm ${subtleTextClass}`}>Upload text, PDF, or image files. Botty extracts text and includes it alongside your saved facts.</p>
                       </div>
                       <span className={`text-xs ${subtleTextClass}`}>{memoryFiles.length} stored</span>
@@ -5569,49 +5601,6 @@ function AppShell() {
                       />
                     </div>
 
-                    <div>
-                      <label htmlFor="telegram-provider" className={sectionLabelClass}>Telegram provider</label>
-                      <select id="telegram-provider" value={getProviderSelectValue(telegramProvider)} onChange={event => {
-                        const nextProvider = event.target.value;
-                        if (nextProvider === 'auto') {
-                          setTelegramProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
-                          setTelegramModel('');
-                          return;
-                        }
-
-                        setTelegramProvider(nextProvider);
-                        setTelegramModel('');
-                      }} className={textInputClass}>
-                        {PROVIDERS.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label htmlFor="telegram-model" className={sectionLabelClass}>Telegram model override</label>
-                      <select
-                        id="telegram-model"
-                        value={isAutoRouteProvider(telegramProvider) ? telegramProvider : telegramModel}
-                        onChange={event => {
-                          if (isAutoRouteProvider(telegramProvider)) {
-                            setTelegramProvider(event.target.value);
-                            return;
-                          }
-
-                          setTelegramModel(event.target.value);
-                        }}
-                        className={textInputClass}
-                      >
-                        {isAutoRouteProvider(telegramProvider)
-                          ? AUTO_ROUTE_OPTIONS.map(option => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))
-                          : getSelectableModels(telegramProvider, telegramModel, true).map(option => (
-                              <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, telegramProvider)}</option>
-                            ))}
-                      </select>
-                    </div>
                   </div>
 
                   <label className={`flex items-start gap-3 rounded-[1rem] ${elevatedCardClass} text-sm sm:items-center`}>

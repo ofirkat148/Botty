@@ -349,11 +349,9 @@ function startOfTodayInTz(timeZone: string): string {
 export async function buildGoogleContext(uid: string, prompt: string): Promise<string> {
   const wantsCalendar = CALENDAR_KEYWORDS.test(prompt);
   const wantsEmail = EMAIL_KEYWORDS.test(prompt);
-  console.log(`[google-ctx] prompt="${prompt.slice(0, 80)}" wantsCalendar=${wantsCalendar} wantsEmail=${wantsEmail}`);
   if (!wantsCalendar && !wantsEmail) return '';
 
   const accessToken = await getValidGoogleAccessToken(uid);
-  console.log(`[google-ctx] accessToken=${accessToken ? 'ok' : 'missing'}`);
   if (!accessToken) return '';
 
   // Resolve user's timezone from their primary calendar
@@ -384,7 +382,6 @@ export async function buildGoogleContext(uid: string, prompt: string): Promise<s
       }
     } catch (err) {
       parts.push(`Google Calendar: Failed to fetch (${err instanceof Error ? err.message : 'error'})`);
-      console.log(`[google-ctx] calendar fetch error:`, err);
     }
   }
 
@@ -405,7 +402,6 @@ export async function buildGoogleContext(uid: string, prompt: string): Promise<s
   }
 
   if (parts.length === 1) return ''; // Only had the header line
-  console.log(`[google-ctx] injecting context, parts=${parts.length}, preview="${parts[1]?.slice(0, 100)}"`);
 
   // Wrap with explicit instructions so small models don't ignore the data
   const dataBlock = parts.join('\n');
