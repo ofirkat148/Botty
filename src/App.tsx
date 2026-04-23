@@ -4,6 +4,7 @@ import {
   ArchiveRestore,
   Bookmark,
   Bot,
+  Calendar,
   Check,
   ChevronRight,
   Copy,
@@ -13,7 +14,10 @@ import {
   History,
   KeyRound,
   Layers,
+  Link,
+  Link2Off,
   LogOut,
+  Mail,
   Maximize2,
   Menu,
   MemoryStick,
@@ -482,6 +486,12 @@ function AppShell() {
   const [showTemplatesMenu, setShowTemplatesMenu] = useState(false);
   const [newTemplateTitle, setNewTemplateTitle] = useState('');
   const [newTemplateText, setNewTemplateText] = useState('');
+  // Google integration
+  const [googleCredentialsSaving, setGoogleCredentialsSaving] = useState(false);
+  const [googleClientIdInput, setGoogleClientIdInput] = useState('');
+  const [googleClientSecretInput, setGoogleClientSecretInput] = useState('');
+  const [googleStatus, setGoogleStatus] = useState<{ credentialsConfigured: boolean; connected: boolean; email: string | null } | null>(null);
+  const [googleNotice, setGoogleNotice] = useState('');
   const [editingLabelId, setEditingLabelId] = useState('');
   const [labelDraft, setLabelDraft] = useState('');
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -1383,11 +1393,33 @@ function AppShell() {
     }
 
     void refreshTelegramStatus();
+    void loadGoogleStatus();
     apiGet<{ configured: boolean }>('/api/settings/search-status')
       .then(r => setTavilyConfigured(r.configured))
       .catch(() => {});
     void loadOllamaModels();
   }, [user, activeTab]);
+
+  // Handle OAuth redirects (Google callback adds ?google=connected or ?google=error)
+  useEffect(() => {
+    if (!user) return;
+    const params = new URLSearchParams(window.location.search);
+    const googleResult = params.get('google');
+    if (googleResult) {
+      // Strip the query param without a full page reload
+      const cleanUrl = window.location.pathname;
+      window.history.replaceState({}, '', cleanUrl);
+      if (googleResult === 'connected') {
+        setActiveTab('settings');
+        void loadGoogleStatus();
+        setGoogleNotice('Google account connected successfully!');
+      } else {
+        const reason = params.get('reason') || 'unknown';
+        setActiveTab('settings');
+        setGoogleNotice(`Google connection failed: ${reason}`);
+      }
+    }
+  }, [user]);
 
   useEffect(() => {
     setSelectedSlashIndex(0);
@@ -1508,6 +1540,8 @@ function AppShell() {
     setPinnedConversations(new Set(Array.isArray(userSettingsData.pinnedConversations) ? userSettingsData.pinnedConversations : []));
     setConversationModels(userSettingsData.conversationModels || {});
     setPromptTemplates(Array.isArray(userSettingsData.promptTemplates) ? userSettingsData.promptTemplates : []);
+    // Load Google integration status
+    void loadGoogleStatus();
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     const nextModelCatalog = {
@@ -2659,6 +2693,54 @@ function AppShell() {
     setShowTemplatesMenu(false);
     setTimeout(() => composerTextareaRef.current?.focus(), 50);
   }
+
+  // ── Google integration ──────────────────────────────────────────────────
+
+  async function loadGoogleStatus() {
+    try {
+      const data = await apiGet<{ credentialsConfigured: boolean; connected: boolean; email: string | null }>('/api/google/status');
+      setGoogleStatus(data);
+    } catch { /* non-fatal */ }
+  }
+
+  async function saveGoogleCredentials() {
+    if (!googleClientIdInput.trim() || !googleClientSecretInput.trim()) return;
+    setGoogleCredentialsSaving(true);
+    setGoogleNotice('');
+    try {
+      await apiSend('/api/google/credentials', 'POST', {
+        clientId: googleClientIdInput.trim(),
+        clientSecret: googleClientSecretInput.trim(),
+      });
+      setGoogleClientIdInput('');
+      setGoogleClientSecretInput('');
+      await loadGoogleStatus();
+      setGoogleNotice('Credentials saved. Click "Connect Google account" to authorise.');
+    } catch (err) {
+      setGoogleNotice(err instanceof Error ? err.message : 'Failed to save credentials');
+    } finally {
+      setGoogleCredentialsSaving(false);
+    }
+  }
+
+  function startGoogleOAuth() {
+    // Open in a new tab — Google callback will redirect to /?google=connected
+    window.open('/api/google/auth', '_blank', 'noopener');
+    setGoogleNotice('Authorisation opened in a new tab. Return here after approving access.');
+  }
+
+  async function disconnectGoogle() {
+    setGoogleNotice('');
+    try {
+      await apiSend('/api/google/disconnect', 'DELETE');
+      await loadGoogleStatus();
+      setGoogleNotice('Google account disconnected.');
+    } catch (err) {
+      setGoogleNotice(err instanceof Error ? err.message : 'Failed to disconnect');
+    }
+  }
+
+  // ── end Google integration ──────────────────────────────────────────────
 
   function exportConversation(conv: { id: string; items: HistoryEntry[] }) {
     const sorted = [...conv.items].sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime());
@@ -5328,6 +5410,107 @@ function AppShell() {
                     <textarea id="system-prompt" value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={textareaClass} />
                   </div>
 
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Globe className="w-4 h-4" />
+                    <h3 className="font-medium">Google integration</h3>
+                  </div>
+                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Connect your Google account to give Botty access to Calendar and Gmail. Create an OAuth 2.0 Client ID at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="underline">console.cloud.google.com</a>, enable the Calendar and Gmail APIs, and add <code className="font-mono text-xs">{window.location.origin}/api/google/callback</code> as an authorised redirect URI.</p>
+
+                  {googleNotice ? (
+                    <div className={`mb-3 px-3 py-2 rounded-lg text-sm ${googleNotice.includes('success') || googleNotice.includes('saved') ? (isDarkMode ? 'bg-emerald-500/10 border border-emerald-400/30 text-emerald-200' : 'bg-emerald-50 border border-emerald-200 text-emerald-800') : (isDarkMode ? 'bg-amber-500/10 border border-amber-400/30 text-amber-200' : 'bg-amber-50 border border-amber-200 text-amber-800')}`}>
+                      {googleNotice}
+                    </div>
+                  ) : null}
+
+                  {/* Connection status */}
+                  <div className={`${elevatedCardClass} flex items-center justify-between gap-3 mb-3`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      {googleStatus?.connected ? (
+                        <Link className="w-4 h-4 text-emerald-500 shrink-0" />
+                      ) : (
+                        <Link2Off className={`w-4 h-4 shrink-0 ${subtleTextClass}`} />
+                      )}
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium">
+                          {googleStatus?.connected ? 'Connected' : googleStatus?.credentialsConfigured ? 'Not connected' : 'Not configured'}
+                        </div>
+                        {googleStatus?.email ? (
+                          <div className={`text-xs truncate ${subtleTextClass}`}>{googleStatus.email}</div>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      {googleStatus?.credentialsConfigured && !googleStatus.connected ? (
+                        <button type="button" onClick={startGoogleOAuth} className={responsivePrimaryButtonClass}>
+                          <Link className="w-4 h-4" />
+                          Connect
+                        </button>
+                      ) : null}
+                      {googleStatus?.connected ? (
+                        <>
+                          <button type="button" onClick={startGoogleOAuth} className={responsiveSecondaryButtonClass} title="Re-authorise to refresh permissions">
+                            <RefreshCw className="w-4 h-4" />
+                            Re-authorise
+                          </button>
+                          <button type="button" onClick={() => void disconnectGoogle()} className={`${responsiveSecondaryButtonClass} text-red-500 hover:text-red-600`}>
+                            <Link2Off className="w-4 h-4" />
+                            Disconnect
+                          </button>
+                        </>
+                      ) : null}
+                      <button type="button" onClick={() => void loadGoogleStatus()} className={responsiveSecondaryButtonClass} title="Refresh status">
+                        <RefreshCw className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Credentials input (always visible so user can update them) */}
+                  <div className={`${elevatedCardClass} space-y-3`}>
+                    <div className="text-sm font-medium">{googleStatus?.credentialsConfigured ? 'Update OAuth credentials' : 'Enter OAuth credentials'}</div>
+                    <div>
+                      <label className={`block text-xs mb-1 ${subtleTextClass}`}>Client ID</label>
+                      <input
+                        type="text"
+                        value={googleClientIdInput}
+                        onChange={e => setGoogleClientIdInput(e.target.value)}
+                        placeholder="123456789-abc...apps.googleusercontent.com"
+                        className={textInputClass}
+                        autoComplete="off"
+                      />
+                    </div>
+                    <div>
+                      <label className={`block text-xs mb-1 ${subtleTextClass}`}>Client Secret</label>
+                      <input
+                        type="password"
+                        value={googleClientSecretInput}
+                        onChange={e => setGoogleClientSecretInput(e.target.value)}
+                        placeholder="GOCSPX-..."
+                        className={textInputClass}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void saveGoogleCredentials()}
+                      disabled={!googleClientIdInput.trim() || !googleClientSecretInput.trim() || googleCredentialsSaving}
+                      className={responsivePrimaryButtonClass}
+                    >
+                      {googleCredentialsSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                      Save credentials
+                    </button>
+                  </div>
+
+                  {/* Feature list */}
+                  {googleStatus?.connected ? (
+                    <div className={`mt-3 px-3 py-2 rounded-lg text-xs ${subtleTextClass} space-y-1`}>
+                      <div className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> List and create Google Calendar events</div>
+                      <div className="flex items-center gap-2"><Mail className="w-3.5 h-3.5" /> Read and send Gmail messages</div>
+                      <div className="opacity-70 mt-1">Ask the AI assistant to "show my calendar events" or "send an email to …" and it will use these tools.</div>
+                    </div>
+                  ) : null}
                 </section>
 
                 <section className={sectionCardClass}>
