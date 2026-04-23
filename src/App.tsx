@@ -3564,22 +3564,7 @@ function AppShell() {
               <span className={sidebarTextClass}>Shortcuts</span>
             </button>
 
-            <div className={`${sidebarStatsClass} mt-auto rounded-[0.95rem] border p-3.5 text-sm ${isDarkMode ? 'border-white/8 bg-[#111417] text-stone-300' : 'border-stone-200 bg-white text-stone-700'}`}>
-              <p>Providers: {availableProviders.length ? availableProviders.join(', ') : 'none configured'}</p>
-              <p className="mt-2">Tokens today: {dailyTokens.toLocaleString()}</p>
-              {dailyModelUsage.length > 0 ? (
-                <div className="mt-3 space-y-2">
-                  <p className="text-xs uppercase tracking-[0.2em] opacity-60">By model</p>
-                  {dailyModelUsage.map(entry => (
-                    <div key={entry.key} className="flex items-start justify-between gap-3 text-xs">
-                      <span className="pr-3 opacity-90">{[formatProviderLabel(entry.provider || undefined), entry.model].filter(Boolean).join(' · ')}</span>
-                      <span className="whitespace-nowrap opacity-75">{entry.tokens.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              <p className="mt-2">Stored keys: {apiKeys.length}</p>
-            </div>
+
 
             <div className={`rounded-[0.95rem] px-3.5 py-2.5 ${isDarkMode ? 'bg-white/4 text-stone-200' : 'bg-white/70 text-stone-700'} ${isSidebarExpanded ? '' : 'hidden'}`}>
               <p className="text-sm font-medium leading-none">{user.displayName || user.email}</p>
@@ -3608,7 +3593,7 @@ function AppShell() {
                 <div className="min-w-0">
                   <h2 className="text-xl font-semibold sm:text-2xl">{activeTabLabel}</h2>
                   <p className={`text-sm ${subtleTextClass}`}>
-                    {activeTab === 'chat' ? (conversationStats ? `~${conversationStats.words.toLocaleString()} words · ${conversationStats.exchanges} exchange${conversationStats.exchanges === 1 ? '' : 's'}` : 'Send prompts through Claude or any configured local provider.') : null}
+                    {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
                     {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
                     {activeTab === 'agents' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
                     {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
@@ -3735,22 +3720,10 @@ function AppShell() {
                         </div>
                       ) : message.isCompact ? null : (
                       <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-3 py-3 sm:px-4 sm:py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[94%] sm:max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[94%] sm:max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-full sm:max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-full sm:max-w-[92%]'}`}>
-                        {message.role === 'assistant' && message.routingMode ? (
-                          <div className={`mb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>
-                            Requested via {formatRoutingModeLabel(message.routingMode)}
-                          </div>
-                        ) : null}
-                        <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2 flex items-center justify-between gap-2">
-                          <span>
-                            {message.role === 'user'
-                              ? 'You'
-                              : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
-                          </span>
-                          {message.sentAt ? (
-                            <span className="normal-case tracking-normal text-[11px] opacity-70">
-                              {new Date(message.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          ) : null}
+                        <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
+                          {message.role === 'user'
+                            ? 'You'
+                            : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
                         </div>
                         <div className="text-[15px] leading-6 sm:leading-7">
                           {message.role === 'assistant' && /!\[generated\]\(data:image\/[^)]+\)/.test(message.content)
@@ -3787,8 +3760,7 @@ function AppShell() {
                           </div>
                         ) : null}
                         {message.role === 'assistant' ? (
-                          <div className="mt-2 flex items-center justify-between gap-2">
-                            <div className={`text-xs ${subtleTextClass}`}>{formatTokenUsage(message.tokensUsed, message.provider, message.model) || ''}</div>
+                          <div className="mt-2 flex items-center justify-end gap-2">
                             <div className="flex items-center gap-3">
                               <button
                                 type="button"
@@ -3940,8 +3912,6 @@ function AppShell() {
                         {pendingAttachments.map(item => (
                           <div key={item.id} className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs ${isDarkMode ? 'bg-white/10 text-stone-200 border border-white/10' : 'bg-stone-100 text-stone-700 border border-stone-200'}`}>
                             <span>{item.name}</span>
-                            <span className="opacity-70 uppercase">{item.source}</span>
-                            <span className="opacity-70">{formatAttachmentSize(item.size)}</span>
                             <button type="button" onClick={() => removePendingAttachment(item.id)} className="opacity-80 hover:opacity-100">×</button>
                           </div>
                         ))}
@@ -4088,7 +4058,7 @@ function AppShell() {
                     ) : null}
 
                     <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Auth: local JWT. Memory: {useMemory ? 'enabled' : 'disabled'}. Sandbox: {sandboxMode ? 'on' : 'off'}. {webSearchEnabled ? 'Web search: on. ' : ''}{activePresetId ? `Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}` : 'Mode: default chat'}. Drag files into this panel to attach them.{prompt.trim().length > 0 ? ` · ~${Math.max(1, Math.round(prompt.trim().length / 4)).toLocaleString()} tokens` : ''}</p>
+                      <p className={`text-xs ${subtleTextClass}`}>Memory: {useMemory ? 'on' : 'off'}. Sandbox: {sandboxMode ? 'on' : 'off'}.{webSearchEnabled ? ' Web search: on.' : ''}{activePresetId ? ` Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}.` : ''}</p>
                       <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
                         <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
                           <Upload className="w-4 h-4" />
@@ -4629,77 +4599,6 @@ function AppShell() {
                       <div className={elevatedCardClass}>
                         <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Active models</div>
                         <div className="mt-2 text-2xl font-semibold">{sortedModelUsage.length}</div>
-                      </div>
-                    </div>
-
-                    <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
-                      <div className={elevatedCardClass}>
-                        <div className="flex items-center justify-between gap-3">
-                          <h4 className="text-sm font-medium">{usagePeriod}-day trend</h4>
-                          <div className="flex gap-1">
-                            {([7, 30] as const).map(p => (
-                              <button key={p} type="button" onClick={() => { usagePeriodRef.current = p; setUsagePeriod(p); void apiGet<UsageResponse>(`/api/usage?days=${p}`).then(d => setUsageTrend(Array.isArray(d.trend) ? d.trend : [])); }} className={`rounded px-2 py-0.5 text-xs transition-colors ${usagePeriod === p ? (isDarkMode ? 'bg-white/15 text-white' : 'bg-stone-900 text-white') : (isDarkMode ? 'text-stone-400 hover:text-stone-200' : 'text-stone-500 hover:text-stone-700')}`}>{p}d</button>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="mt-4 flex gap-2">
-                          <div className="flex flex-col justify-between pb-7 text-right">
-                            <div className="text-[10px] leading-none opacity-60">{trendPeak.toLocaleString()}</div>
-                            <div className="text-[10px] leading-none opacity-60">0</div>
-                          </div>
-                          <div className="flex flex-1 h-44 items-end gap-2">
-                          {usageTrend.length > 0 ? usageTrend.map((entry, index) => {
-                            const height = Math.max((entry.tokens / trendPeak) * 100, entry.tokens > 0 ? 10 : 4);
-                            return (
-                              <div key={entry.date} className="flex min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                                {usagePeriod === 7 ? <div className="text-[11px] leading-none opacity-70">{entry.tokens.toLocaleString()}</div> : null}
-                                <div className={`w-full rounded-t-2xl ${isDarkMode ? 'bg-amber-300/70' : 'bg-stone-900/75'}`} style={{ height: `${height}%` }} />
-                                <div className={`text-[11px] ${subtleTextClass}`}>{usagePeriod === 30 && index % 5 !== 0 && index !== usageTrend.length - 1 ? '' : entry.date.slice(5)}</div>
-                              </div>
-                            );
-                          }) : <div className={`text-sm ${subtleTextClass}`}>No usage yet.</div>}
-                          </div>
-                        </div>
-                      </div>
-
-                      <div className={elevatedCardClass}>
-                        <h4 className="text-sm font-medium">By provider</h4>
-                        <div className="mt-4 space-y-3">
-                          {dailyProviderUsage.length > 0 ? dailyProviderUsage.map(entry => (
-                            <div key={entry.provider} className="space-y-1">
-                              <div className="flex items-center justify-between gap-3 text-sm">
-                                <span>{formatProviderLabel(entry.provider)}</span>
-                                <span className={subtleTextClass}>{entry.tokens.toLocaleString()}</span>
-                              </div>
-                              <div className={`h-2 rounded-full ${isDarkMode ? 'bg-white/8' : 'bg-stone-200'}`}>
-                                <div
-                                  className={`h-full rounded-full ${isDarkMode ? 'bg-emerald-300' : 'bg-stone-900'}`}
-                                  style={{ width: `${Math.max((entry.tokens / providerPeak) * 100, 8)}%` }}
-                                />
-                              </div>
-                            </div>
-                          )) : <div className={`text-sm ${subtleTextClass}`}>No provider usage recorded yet.</div>}
-                        </div>
-                      </div>
-
-                      <div className={elevatedCardClass}>
-                        <h4 className="text-sm font-medium">Top models</h4>
-                        <div className="mt-4 space-y-3">
-                          {sortedModelUsage.length > 0 ? sortedModelUsage.slice(0, 6).map(entry => (
-                            <div key={entry.key} className="space-y-1">
-                              <div className="flex items-start justify-between gap-3 text-sm">
-                                <span className="pr-3">{[formatProviderLabel(entry.provider || undefined), entry.model].filter(Boolean).join(' · ')}</span>
-                                <span className={subtleTextClass}>{entry.tokens.toLocaleString()}</span>
-                              </div>
-                              <div className={`h-2 rounded-full ${isDarkMode ? 'bg-white/8' : 'bg-stone-200'}`}>
-                                <div
-                                  className={`h-full rounded-full ${isDarkMode ? 'bg-amber-300' : 'bg-stone-900'}`}
-                                  style={{ width: `${Math.max((entry.tokens / modelPeak) * 100, 8)}%` }}
-                                />
-                              </div>
-                            </div>
-                          )) : <div className={`text-sm ${subtleTextClass}`}>No model usage recorded yet.</div>}
-                        </div>
                       </div>
                     </div>
                   </div>
