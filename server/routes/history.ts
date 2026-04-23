@@ -1,10 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { getDatabase } from '../db/index.js';
-import { history } from '../db/schema.js';
+import { history, userSettings } from '../db/schema.js';
 import { and, eq, desc, like, or, ne } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
-import { incrementDailyUsage } from '../utils/llm.js';
+import { incrementDailyUsage, callLLM, getProviderApiKey, getAvailableProviders, getRuntimeSettings, getDefaultLocalModel, getSuggestedModel } from '../utils/llm.js';
 
 const router = Router();
 
@@ -154,6 +154,88 @@ router.delete('/all', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error clearing all history:', error);
     res.status(500).json({ error: 'Failed to clear history' });
+  }
+});
+
+// POST /api/history/auto-title - Generate a short title for a conversation and persist it
+router.post('/auto-title', async (req: Request, res: Response) => {
+  try {
+    const db = getDatabase();
+    const uid = req.userId!;
+    const { conversationId, prompt } = req.body as { conversationId?: string; prompt?: string };
+
+    if (!conversationId || !prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'conversationId and prompt are required' });
+    }
+
+    // Pick the fastest available provider to generate the title
+    const runtimeSettings = await getRuntimeSettings(uid);
+    const availableProviders = await getAvailableProviders(uid);
+
+    let provider = '';
+    let model = '';
+    let apiKey = '';
+
+    // Prefer local if available (free), then fastest cloud
+    const preferredOrder: Array<'local' | 'google' | 'openai' | 'anthropic'> = ['local', 'google', 'openai', 'anthropic'];
+    for (const p of preferredOrder) {
+      if (!availableProviders.includes(p)) continue;
+      if (p === 'local') {
+        const localModel = await getDefaultLocalModel(runtimeSettings.localUrl);
+        if (!localModel) continue;
+        provider = 'local';
+        model = localModel;
+        apiKey = '';
+        break;
+      }
+      const key = await getProviderApiKey(uid, p);
+      if (!key) continue;
+      provider = p;
+      apiKey = key;
+      model = getSuggestedModel(p, prompt, { preferFast: true });
+      break;
+    }
+
+    if (!provider) {
+      return res.status(200).json({ title: null, reason: 'no provider available' });
+    }
+
+    const titlePrompt = `Write a short conversation title (5 words or fewer, no punctuation, no quotes) that captures what this message is asking about:\n\n${prompt.slice(0, 400)}`;
+
+    const result = await callLLM({
+      prompt: titlePrompt,
+      provider,
+      model,
+      apiKey,
+      systemPrompt: 'You generate ultra-short conversation titles. Reply with only the title — no explanation, no quotes, no punctuation.',
+      localUrl: runtimeSettings.localUrl,
+    });
+
+    const title = result.responseText.trim().replace(/^["']|["']$/g, '').slice(0, 80);
+    if (!title) return res.status(200).json({ title: null });
+
+    // Persist into conversationLabels in userSettings
+    const existing = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
+    const current = existing[0];
+    const labels: Record<string, string> = current?.conversationLabels
+      ? JSON.parse(current.conversationLabels as string)
+      : {};
+
+    // Only set if no manual label already exists
+    if (!labels[conversationId]) {
+      labels[conversationId] = title;
+      const labelsJson = JSON.stringify(labels);
+      if (current) {
+        await db.update(userSettings).set({ conversationLabels: labelsJson }).where(eq(userSettings.uid, uid));
+      } else {
+        await db.insert(userSettings).values({ uid, conversationLabels: labelsJson });
+      }
+    }
+
+    res.json({ title });
+  } catch (error) {
+    console.error('Auto-title error:', error);
+    res.status(500).json({ error: 'Failed to generate title' });
   }
 });
 

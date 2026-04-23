@@ -1763,6 +1763,22 @@ function AppShell() {
           setConversationModels(nextModels);
           void apiSend('/api/settings/user-settings', 'POST', { conversationModels: nextModels });
         }
+        // Auto-title: fire on the first exchange of a new conversation (no prior messages)
+        if (meta.conversationId && messages.length === 0 && !conversationLabels[meta.conversationId]) {
+          void (async () => {
+            try {
+              const res = await fetch('/api/history/auto-title', {
+                method: 'POST',
+                headers: { ...authHeaders, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ conversationId: meta!.conversationId, prompt: text }),
+              });
+              const data = await res.json() as { title?: string | null };
+              if (data.title) {
+                setConversationLabels(prev => ({ ...prev, [meta!.conversationId]: data.title! }));
+              }
+            } catch { /* best-effort, silent */ }
+          })();
+        }
       }
 
       // Auto-compact when conversation grows long (20+ messages).
