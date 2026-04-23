@@ -12,7 +12,6 @@ export type SkillFormState = {
   useWhen: string;
   boundaries: string;
   systemPrompt: string;
-  starterPrompt: string;
 };
 
 const initialSkillFormState: SkillFormState = {
@@ -22,7 +21,6 @@ const initialSkillFormState: SkillFormState = {
   useWhen: '',
   boundaries: '',
   systemPrompt: '',
-  starterPrompt: '',
 };
 
 type SkillFormAction =
@@ -57,7 +55,6 @@ export type BotFormState = {
   executorType: AgentExecutorType;
   endpoint: string;
   systemPrompt: string;
-  starterPrompt: string;
   tools: ToolDefinition[];
   maxTurns: string;
 };
@@ -75,7 +72,6 @@ const initialBotFormState: BotFormState = {
   executorType: 'internal-llm',
   endpoint: '',
   systemPrompt: '',
-  starterPrompt: '',
   tools: [],
   maxTurns: '',
 };
