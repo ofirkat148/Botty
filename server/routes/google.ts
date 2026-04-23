@@ -21,6 +21,7 @@
 import { Router, Request, Response } from 'express';
 import { getDatabase } from '../db/index.js';
 import { authMiddleware } from '../middleware/auth.js';
+import { verifyToken, extractTokenFromHeader } from '../utils/jwt.js';
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { eq, and } from 'drizzle-orm';
 import { apiKeys } from '../db/schema.js';
@@ -198,8 +199,20 @@ router.post('/credentials', authMiddleware, (req: Request, res: Response) => {
 });
 
 // Start OAuth flow — redirect to Google
-router.get('/auth', authMiddleware, (req: Request, res: Response) => {
-  const uid = req.userId!;
+// Auth can come from the Authorization header OR a ?token= query param (needed for
+// window.open redirects which cannot attach Authorization headers).
+router.get('/auth', (req: Request, res: Response) => {
+  // Try header first, then query param
+  const rawToken = extractTokenFromHeader(req.headers.authorization)
+    ?? (typeof req.query.token === 'string' ? req.query.token : null);
+  if (!rawToken) return res.status(401).json({ error: 'No authorization token provided' });
+  let uid: string;
+  try {
+    const payload = verifyToken(rawToken);
+    uid = payload.sub;
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired token' });
+  }
   const clientId = getProviderValue(uid, 'google_client_id');
   if (!clientId) return res.status(400).json({ error: 'Google client ID not configured. Enter credentials in Settings first.' });
   const redirectUri = getRedirectUri(req);

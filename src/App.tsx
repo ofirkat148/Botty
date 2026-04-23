@@ -2724,8 +2724,9 @@ function AppShell() {
   }
 
   function startGoogleOAuth() {
-    // Open in a new tab — Google callback will redirect to /?google=connected
-    window.open('/api/google/auth', '_blank', 'noopener');
+    // Pass JWT as a query param — window.open can't send Authorization headers
+    const authUrl = `/api/google/auth?token=${encodeURIComponent(token)}`;
+    window.open(authUrl, '_blank', 'noopener');
     setGoogleNotice('Authorisation opened in a new tab. Return here after approving access.');
   }
 
