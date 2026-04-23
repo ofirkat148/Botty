@@ -48,7 +48,7 @@ export function normalizeAgentDefinition(value: AgentCandidate): AgentDefinition
   const config = rawConfig ? { ...rawConfig, tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined } : (tools.length > 0 || maxTurns ? { tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined } : null);
   const enabled = candidate?.enabled !== false;
 
-  if (!title || !description || !command || !systemPrompt || !starterPrompt) {
+  if (!title || !description || !command || !systemPrompt) {
     return null;
   }
 

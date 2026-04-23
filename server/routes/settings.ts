@@ -99,7 +99,7 @@ function normalizeStoredFunctionPreset(value: unknown, expectedKind: 'skill' | '
     ? candidate.memoryMode
     : 'shared';
 
-  if (!title || !description || !systemPrompt || !starterPrompt || !command) {
+  if (!title || !description || !systemPrompt || !command) {
     return null;
   }
 

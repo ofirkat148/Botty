@@ -2104,7 +2104,7 @@ function AppShell() {
       }
 
       await saveSystemPromptOnly(preset.systemPrompt);
-      setPrompt(currentPrompt => currentPrompt.trim() && !currentPrompt.trim().startsWith('/') ? currentPrompt : preset.starterPrompt);
+      // starterPrompt removed — no longer pre-fills the chat input
       setActiveTab('chat');
       setNotice(options?.startNewChat ? `${preset.title} started in a new chat.` : `${preset.title} is active in chat.`);
     } finally {
@@ -2285,9 +2285,8 @@ function AppShell() {
     const useWhenValue = newSkillUseWhen.trim();
     const boundariesValue = newSkillBoundaries.trim();
     const systemPromptValue = newSkillSystemPrompt.trim();
-    const starterPromptValue = newSkillStarterPrompt.trim();
 
-    if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
+    if (!title || !description || !command || !systemPromptValue) {
       setNotice('Fill in all skill fields before saving.');
       return;
     }
@@ -2307,7 +2306,7 @@ function AppShell() {
         useWhen: useWhenValue || null,
         boundaries: boundariesValue || null,
         systemPrompt: systemPromptValue,
-        starterPrompt: starterPromptValue,
+        starterPrompt: '',
       });
       resetNewSkill();
       await refreshAll();
@@ -2329,11 +2328,10 @@ function AppShell() {
     const modelValue = newBotModel.trim();
     const endpointValue = newBotEndpoint.trim();
     const systemPromptValue = newBotSystemPrompt.trim();
-    const starterPromptValue = newBotStarterPrompt.trim();
     const parsedMaxTurns = parseInt(newBotMaxTurns, 10);
     const maxTurnsValue = Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? parsedMaxTurns : null;
 
-    if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
+    if (!title || !description || !command || !systemPromptValue) {
       setNotice('Fill in all agent fields before saving.');
       return;
     }
@@ -2363,7 +2361,7 @@ function AppShell() {
         executorType: newBotExecutorType,
         endpoint: newBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
-        starterPrompt: starterPromptValue,
+        starterPrompt: '',
         tools: newBotTools.length > 0 ? newBotTools : null,
         maxTurns: maxTurnsValue,
       });
@@ -2471,12 +2469,11 @@ function AppShell() {
     const modelValue = editingBotModel.trim();
     const endpointValue = editingBotEndpoint.trim();
     const systemPromptValue = editingBotSystemPrompt.trim();
-    const starterPromptValue = editingBotStarterPrompt.trim();
     const parsedMaxTurns = parseInt(editingBotMaxTurns, 10);
     const maxTurnsValue = Number.isFinite(parsedMaxTurns) && parsedMaxTurns > 0 ? parsedMaxTurns : null;
     const commandTaken = allPresets.some(item => item.id !== agentId && item.command === command);
 
-    if (!title || !description || !command || !systemPromptValue || !starterPromptValue) {
+    if (!title || !description || !command || !systemPromptValue) {
       setNotice('Fill in all agent fields before saving.');
       return;
     }
@@ -2505,7 +2502,7 @@ function AppShell() {
         executorType: editingBotExecutorType,
         endpoint: editingBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
-        starterPrompt: starterPromptValue,
+        starterPrompt: '',
         tools: editingBotTools.length > 0 ? editingBotTools : null,
         maxTurns: maxTurnsValue,
       });
@@ -4215,9 +4212,6 @@ function AppShell() {
                     <div className="md:col-span-2">
                       <textarea value={newSkillSystemPrompt} onChange={event => patchNewSkill({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this skill" className={textareaClass} />
                     </div>
-                    <div className="md:col-span-2">
-                      <textarea value={newSkillStarterPrompt} onChange={event => patchNewSkill({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
-                    </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'skill'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'skill' ? 'Adding...' : 'Add skill'}
@@ -4350,9 +4344,6 @@ function AppShell() {
                     </div>
                     <div className="md:col-span-2">
                       <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
-                    </div>
-                    <div className="md:col-span-2">
-                      <textarea value={newBotStarterPrompt} onChange={event => patchNewBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
                     </div>
                     <div>
                       <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
@@ -4517,9 +4508,6 @@ function AppShell() {
                                 </div>
                                 <div className="md:col-span-2">
                                   <textarea value={editingBotSystemPrompt} onChange={event => patchEditingBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
-                                </div>
-                                <div className="md:col-span-2">
-                                  <textarea value={editingBotStarterPrompt} onChange={event => patchEditingBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
                                 </div>
                                 <div>
                                   <input type="number" min="1" max="100" value={editingBotMaxTurns} onChange={event => patchEditingBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
