@@ -588,24 +588,18 @@ function AppShell() {
   const newSkillTitle = newSkill.title;
   const newSkillDescription = newSkill.description;
   const newSkillCommand = newSkill.command;
-  const newSkillUseWhen = newSkill.useWhen;
-  const newSkillBoundaries = newSkill.boundaries;
   const newSkillSystemPrompt = newSkill.systemPrompt;
-  const newSkillStarterPrompt = newSkill.starterPrompt;
 
   const { state: newBot, patch: patchNewBot, reset: resetNewBot } = useNewBotFormReducer();
   const newBotTitle = newBot.title;
   const newBotDescription = newBot.description;
   const newBotCommand = newBot.command;
-  const newBotUseWhen = newBot.useWhen;
-  const newBotBoundaries = newBot.boundaries;
   const newBotProvider = newBot.provider;
   const newBotModel = newBot.model;
   const newBotMemoryMode = newBot.memoryMode;
   const newBotExecutorType = newBot.executorType;
   const newBotEndpoint = newBot.endpoint;
   const newBotSystemPrompt = newBot.systemPrompt;
-  const newBotStarterPrompt = newBot.starterPrompt;
   const newBotTools = newBot.tools;
   const newBotMaxTurns = newBot.maxTurns;
 
@@ -622,7 +616,6 @@ function AppShell() {
   const editingBotExecutorType = editingBot.executorType;
   const editingBotEndpoint = editingBot.endpoint;
   const editingBotSystemPrompt = editingBot.systemPrompt;
-  const editingBotStarterPrompt = editingBot.starterPrompt;
   const editingBotTools = editingBot.tools;
   const editingBotMaxTurns = editingBot.maxTurns;
   const [savingBotId, setSavingBotId] = useState('');
@@ -2282,8 +2275,6 @@ function AppShell() {
     const title = newSkillTitle.trim();
     const description = newSkillDescription.trim();
     const command = normalizeSlashCommand(newSkillCommand);
-    const useWhenValue = newSkillUseWhen.trim();
-    const boundariesValue = newSkillBoundaries.trim();
     const systemPromptValue = newSkillSystemPrompt.trim();
 
     if (!title || !description || !command || !systemPromptValue) {
@@ -2303,10 +2294,9 @@ function AppShell() {
         title,
         description,
         command,
-        useWhen: useWhenValue || null,
-        boundaries: boundariesValue || null,
+        useWhen: null,
+        boundaries: null,
         systemPrompt: systemPromptValue,
-        starterPrompt: '',
       });
       resetNewSkill();
       await refreshAll();
@@ -2322,8 +2312,6 @@ function AppShell() {
     const title = newBotTitle.trim();
     const description = newBotDescription.trim();
     const command = normalizeSlashCommand(newBotCommand);
-    const useWhenValue = newBotUseWhen.trim();
-    const boundariesValue = newBotBoundaries.trim();
     const providerValue = newBotProvider.trim().toLowerCase();
     const modelValue = newBotModel.trim();
     const endpointValue = newBotEndpoint.trim();
@@ -2353,15 +2341,14 @@ function AppShell() {
         title,
         description,
         command,
-        useWhen: useWhenValue || null,
-        boundaries: boundariesValue || null,
+        useWhen: null,
+        boundaries: null,
         provider: newBotExecutorType === 'internal-llm' ? (providerValue || null) : null,
         model: newBotExecutorType === 'internal-llm' ? (modelValue || null) : null,
         memoryMode: newBotMemoryMode,
         executorType: newBotExecutorType,
         endpoint: newBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
-        starterPrompt: '',
         tools: newBotTools.length > 0 ? newBotTools : null,
         maxTurns: maxTurnsValue,
       });
@@ -2387,7 +2374,6 @@ function AppShell() {
       executorType: agent.executorType || 'internal-llm',
       endpoint: agent.endpoint || '',
       systemPrompt: agent.systemPrompt,
-      starterPrompt: agent.starterPrompt,
       tools: agent.tools || [],
       maxTurns: agent.maxTurns ? String(agent.maxTurns) : '',
     });
@@ -2447,7 +2433,6 @@ function AppShell() {
           executorType: a.executorType ?? 'internal-llm',
           endpoint: a.endpoint ?? null,
           systemPrompt: a.systemPrompt,
-          starterPrompt: a.starterPrompt,
           tools: a.tools ?? null,
           maxTurns: a.maxTurns ?? null,
         });
@@ -2502,7 +2487,6 @@ function AppShell() {
         executorType: editingBotExecutorType,
         endpoint: editingBotExecutorType === 'remote-http' ? endpointValue : null,
         systemPrompt: systemPromptValue,
-        starterPrompt: '',
         tools: editingBotTools.length > 0 ? editingBotTools : null,
         maxTurns: maxTurnsValue,
       });
@@ -4294,7 +4278,7 @@ function AppShell() {
                             return;
                           }
 
-                          patchNewBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, newBotStarterPrompt) });
+                          patchNewBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, '') });
                         }} className={textInputClass}>
                           <option value="">Inherit chat provider</option>
                           {PROVIDERS.map(option => (
@@ -4433,12 +4417,6 @@ function AppShell() {
                                 <div className="md:col-span-2">
                                   <input value={editingBotDescription} onChange={event => patchEditingBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
                                 </div>
-                                <div className="md:col-span-2">
-                                  <input value={editingBotUseWhen} onChange={event => patchEditingBot({ useWhen: event.target.value })} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
-                                </div>
-                                <div className="md:col-span-2">
-                                  <textarea value={editingBotBoundaries} onChange={event => patchEditingBot({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
-                                </div>
                                 <select value={editingBotExecutorType} onChange={event => patchEditingBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                                   <option value="internal-llm">Internal Botty agent</option>
                                   <option value="remote-http">Remote HTTP agent</option>
@@ -4458,7 +4436,7 @@ function AppShell() {
                                         return;
                                       }
 
-                                      patchEditingBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, editingBotStarterPrompt, editingBotModel) });
+                                      patchEditingBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, '', editingBotModel) });
                                     }} className={textInputClass}>
                                       <option value="">Inherit chat provider</option>
                                       {PROVIDERS.map(option => (
@@ -5324,47 +5302,6 @@ function AppShell() {
                     {ollamaPullLog ? (
                       <div className={`text-xs font-mono ${subtleTextClass}`}>{ollamaPullLog}</div>
                     ) : null}
-                  </div>
-                </section>
-
-                <section className={sectionCardClass}>
-                  <div className="flex items-start justify-between gap-3 mb-3">
-                    <div>
-                      <h3 className="font-medium">Provider readiness</h3>
-                      <p className={`mt-1 text-sm ${subtleTextClass}`}>See which providers are ready for auto route, which are missing keys, and whether the local endpoint is reachable.</p>
-                    </div>
-                    <div className={`text-xs ${subtleTextClass}`}>
-                      {providerStatuses.filter(item => item.readiness === 'ready').length} ready
-                      {' · '}
-                      {providerStatuses.filter(item => item.readiness === 'missing').length} missing
-                      {' · '}
-                      {providerStatuses.filter(item => item.readiness === 'unreachable').length} unreachable
-                    </div>
-                  </div>
-
-                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                    {providerStatuses.map(item => (
-                      <div key={item.provider} className={`${elevatedCardClass} flex flex-col gap-3`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <div className="text-sm font-medium">{formatProviderLabel(item.provider)}</div>
-                            <div className={`mt-1 text-xs ${subtleTextClass}`}>{formatProviderSourceLabel(item.source)}</div>
-                          </div>
-                          <span className={`rounded-full border px-2 py-1 text-[11px] font-medium ${getProviderStatusTone(item.readiness)}`}>
-                            {formatProviderReadinessLabel(item.readiness)}
-                          </span>
-                        </div>
-
-                        <div className={`text-sm ${subtleTextClass}`}>{item.detail}</div>
-
-                        <div className={`space-y-1 text-xs ${subtleTextClass}`}>
-                          <div>Default model: {item.defaultModel ? formatModelDisplay(item.defaultModel, item.provider) : 'unknown'}</div>
-                          {item.provider === 'local' ? <div>Endpoint: {item.localUrl || localUrl || 'unknown'}</div> : null}
-                          {item.provider === 'local' ? <div>Installed models: {typeof item.modelCount === 'number' ? item.modelCount : 0}</div> : null}
-                          <div>Auto route: {item.available ? 'eligible' : 'skipped'}</div>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 </section>
 
