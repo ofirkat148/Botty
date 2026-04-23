@@ -549,7 +549,6 @@ function AppShell() {
     if (savedValue === null) {
       return !window.matchMedia('(max-width: 1023px)').matches;
     }
-
     return savedValue !== 'false';
   });
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && Boolean(document.fullscreenElement));
@@ -3220,10 +3219,10 @@ function AppShell() {
   const appBackgroundClass = isDarkMode
     ? `w-full overflow-x-hidden bg-[#101214] text-stone-100 ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'}`
     : `w-full overflow-x-hidden bg-[#f3f0ea] text-stone-900 ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'}`;
-  const workspaceShellClass = `grid w-full gap-3 md:gap-4 ${isSidebarExpanded ? 'lg:grid-cols-[264px_minmax(0,1fr)]' : 'lg:grid-cols-[84px_minmax(0,1fr)]'} ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'} lg:gap-4 lg:transition-[grid-template-columns] lg:duration-200`;
+  const workspaceShellClass = `grid w-full gap-3 md:gap-4 ${isSidebarExpanded ? 'md:grid-cols-[264px_minmax(0,1fr)]' : 'md:grid-cols-[84px_minmax(0,1fr)]'} ${isFullscreen ? 'h-dvh overflow-hidden' : 'min-h-dvh'} md:transition-[grid-template-columns] md:duration-200`;
   const sidebarPanelClass = isDarkMode
-    ? `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-white/6 bg-[#15171a] p-4 text-stone-100 shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`
-    : `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-stone-200 bg-[#f7f4ee] p-4 text-stone-900 shadow-[0_6px_16px_rgba(36,29,18,0.05)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} lg:sticky lg:top-4 lg:z-auto lg:max-h-[calc(100dvh-2rem)] lg:w-auto lg:translate-x-0 lg:transition-[width,padding,transform] ${isSidebarExpanded ? 'lg:px-3.5 lg:py-3.5' : 'lg:px-2.5 lg:py-3.5'}`;
+    ? `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-white/6 bg-[#15171a] p-4 text-stone-100 shadow-[0_8px_18px_rgba(0,0,0,0.12)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} md:sticky md:top-4 md:z-auto md:max-h-[calc(100dvh-2rem)] md:w-auto md:translate-x-0 md:transition-[width,padding,transform] ${isSidebarExpanded ? 'md:px-3.5 md:py-3.5' : 'md:px-2.5 md:py-3.5'}`
+    : `fixed inset-y-3 left-3 z-40 flex w-[280px] flex-col gap-3 rounded-[1.35rem] border border-stone-200 bg-[#f7f4ee] p-4 text-stone-900 shadow-[0_6px_16px_rgba(36,29,18,0.05)] transition-transform duration-200 ${isSidebarDrawerOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]'} md:sticky md:top-4 md:z-auto md:max-h-[calc(100dvh-2rem)] md:w-auto md:translate-x-0 md:transition-[width,padding,transform] ${isSidebarExpanded ? 'md:px-3.5 md:py-3.5' : 'md:px-2.5 md:py-3.5'}`;
   const shellPanelClass = isDarkMode
     ? `w-full rounded-[1.5rem] bg-[#15181b] p-4 md:p-5 lg:p-6 shadow-[0_20px_50px_rgba(0,0,0,0.22)] border border-white/8 ${isFullscreen ? 'h-dvh overflow-hidden rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`
     : `w-full rounded-[1.5rem] bg-[#fcfbf8] p-4 md:p-5 lg:p-6 shadow-[0_18px_42px_rgba(36,29,18,0.08)] border border-stone-200 ${isFullscreen ? 'h-dvh overflow-hidden rounded-none border-x-0 border-y-0 p-3 sm:p-4 lg:h-[calc(100dvh-2rem)] lg:rounded-[1.5rem] lg:border lg:p-6' : ''}`;
@@ -3378,7 +3377,7 @@ function AppShell() {
             <button
               type="button"
               aria-label="Close menu overlay"
-              className={`fixed inset-0 z-30 lg:hidden ${isDarkMode ? 'bg-black/55' : 'bg-stone-900/20'}`}
+              className={`fixed inset-0 z-30 md:hidden ${isDarkMode ? 'bg-black/55' : 'bg-stone-900/20'}`}
               onClick={closeMobileSidebar}
             />
           ) : null}
@@ -3430,7 +3429,7 @@ function AppShell() {
               <button
                 type="button"
                 onClick={closeMobileSidebar}
-                className={`${shellUtilityButtonClass} shrink-0 px-3 lg:hidden`}
+                className={`${shellUtilityButtonClass} shrink-0 px-3 md:hidden`}
                 aria-label="Close menu"
                 title="Close menu"
               >
@@ -3593,13 +3592,13 @@ function AppShell() {
             </button>
           </aside>
 
-          <main className={`${shellPanelClass} flex min-h-[calc(100dvh-1.5rem)] flex-col lg:h-[calc(100dvh-2rem)] lg:min-h-0 lg:overflow-hidden ${isFullscreen ? 'h-dvh min-h-0 overflow-hidden lg:h-[calc(100dvh-2rem)]' : activeTab === 'chat' ? 'overflow-hidden' : ''}`}>
+          <main className={`${shellPanelClass} flex min-h-[calc(100dvh-1.5rem)] flex-col md:h-[calc(100dvh-2rem)] md:min-h-0 md:overflow-hidden ${isFullscreen ? 'h-dvh min-h-0 overflow-hidden md:h-[calc(100dvh-2rem)]' : activeTab === 'chat' ? 'overflow-hidden' : ''}`}>
             <div className={`mb-5 shrink-0 flex flex-col gap-3 md:flex-row md:items-center md:justify-between`}>
               <div className="flex min-w-0 items-start gap-3">
                 <button
                   type="button"
                   onClick={() => setIsSidebarDrawerOpen(true)}
-                  className={`${actionButtonClass} ${isFullscreen ? '' : 'lg:hidden'}`}
+                  className={`${actionButtonClass} ${isFullscreen ? '' : 'md:hidden'}`}
                   aria-label="Open menu"
                   title="Open menu"
                 >
