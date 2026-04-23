@@ -289,11 +289,57 @@ export async function sendGmail(accessToken: string, to: string, subject: string
 const CALENDAR_KEYWORDS = /\b(calendar|schedule|event|meeting|appointment|today|tomorrow|week|upcoming|agenda|busy|free|slot|remind)\b/i;
 const EMAIL_KEYWORDS = /\b(email|mail|gmail|inbox|message|send|compose|reply|wrote|received|unread)\b/i;
 
-function formatEventTime(dt?: string, d?: string): string {
+/** Fetch the user's primary calendar timezone string (e.g. 'Asia/Jerusalem'). */
+async function fetchCalendarTimezone(accessToken: string): Promise<string> {
+  try {
+    const res = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary', {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return 'UTC';
+    const data = await res.json() as { timeZone?: string };
+    return data.timeZone || 'UTC';
+  } catch { return 'UTC'; }
+}
+
+function formatEventTime(dt?: string, d?: string, timeZone = 'UTC'): string {
   if (dt) {
-    try { return new Date(dt).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }); } catch { return dt; }
+    try {
+      return new Date(dt).toLocaleString('en-US', {
+        timeZone,
+        weekday: 'short', month: 'short', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false,
+      });
+    } catch { return dt; }
   }
-  return d || '?';
+  if (d) {
+    // All-day event — parse as local date, not UTC midnight
+    try {
+      const [year, month, day] = d.split('-').map(Number);
+      return new Date(year, month - 1, day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+    } catch { return d; }
+  }
+  return '?';
+}
+
+/** Start of today (midnight) expressed as an ISO string in the given IANA timezone. */
+function startOfTodayInTz(timeZone: string): string {
+  try {
+    // Get today's date components in the target timezone
+    const now = new Date();
+    const parts = new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+    }).formatToParts(now);
+    const y = parts.find(p => p.type === 'year')?.value ?? String(now.getFullYear());
+    const m = parts.find(p => p.type === 'month')?.value ?? String(now.getMonth() + 1).padStart(2, '0');
+    const d = parts.find(p => p.type === 'day')?.value ?? String(now.getDate()).padStart(2, '0');
+    // Construct midnight in that timezone as a UTC instant
+    return new Date(`${y}-${m}-${d}T00:00:00`).toLocaleString('sv-SE', { timeZone }).replace(' ', 'T') + ':00';
+  } catch {
+    const now = new Date();
+    now.setUTCHours(0, 0, 0, 0);
+    return now.toISOString();
+  }
 }
 
 /**
@@ -308,19 +354,28 @@ export async function buildGoogleContext(uid: string, prompt: string): Promise<s
   const accessToken = await getValidGoogleAccessToken(uid);
   if (!accessToken) return '';
 
-  const parts: string[] = ['[GOOGLE DATA — live, fetched just now]'];
+  // Resolve user's timezone from their primary calendar
+  const userTimeZone = wantsCalendar ? await fetchCalendarTimezone(accessToken) : 'UTC';
+  const nowInUserTz = new Date().toLocaleString('en-US', {
+    timeZone: userTimeZone,
+    weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+
+  const parts: string[] = [`[GOOGLE DATA — fetched live. Current date/time for the user: ${nowInUserTz} (${userTimeZone})]`];
 
   if (wantsCalendar) {
     try {
-      const events = await fetchCalendarEvents(accessToken, { maxResults: 10 });
+      // Use start-of-today in the user's timezone so we don't miss events already started
+      const timeMin = startOfTodayInTz(userTimeZone);
+      const events = await fetchCalendarEvents(accessToken, { maxResults: 10, timeMin });
       if (events.length === 0) {
-        parts.push('Google Calendar: No upcoming events found.');
+        parts.push('Google Calendar: No upcoming events found from today onwards.');
       } else {
-        parts.push('Google Calendar — upcoming events:');
+        parts.push(`Google Calendar — upcoming events (times in ${userTimeZone}):`);
         for (const e of events) {
-          const start = formatEventTime(e.start?.dateTime, e.start?.date);
-          const end = formatEventTime(e.end?.dateTime, e.end?.date);
-          
+          const start = formatEventTime(e.start?.dateTime, e.start?.date, userTimeZone);
+          const end = formatEventTime(e.end?.dateTime, e.end?.date, userTimeZone);
           const attendees = e.attendees?.map(a => a.displayName || a.email).join(', ');
           parts.push(`• ${e.summary || '(No title)'} | ${start} → ${end}${attendees ? ` | With: ${attendees}` : ''}${e.location ? ` | @ ${e.location}` : ''}`);
         }
