@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useReducer, useS
 import {
   Archive,
   ArchiveRestore,
+  Bookmark,
   Bot,
   Check,
   ChevronRight,
@@ -243,6 +244,12 @@ type Fact = {
   timestamp: string;
 };
 
+type PromptTemplate = {
+  id: string;
+  title: string;
+  text: string;
+};
+
 type MemoryUrl = {
   id: string;
   url: string;
@@ -471,6 +478,10 @@ function AppShell() {
   const [conversationLabels, setConversationLabels] = useState<Record<string, string>>({});
   const [pinnedConversations, setPinnedConversations] = useState<Set<string>>(new Set());
   const [conversationModels, setConversationModels] = useState<Record<string, { provider: string; model: string }>>({});
+  const [promptTemplates, setPromptTemplates] = useState<PromptTemplate[]>([]);
+  const [showTemplatesMenu, setShowTemplatesMenu] = useState(false);
+  const [newTemplateTitle, setNewTemplateTitle] = useState('');
+  const [newTemplateText, setNewTemplateText] = useState('');
   const [editingLabelId, setEditingLabelId] = useState('');
   const [labelDraft, setLabelDraft] = useState('');
   const [facts, setFacts] = useState<Fact[]>([]);
@@ -1464,7 +1475,7 @@ function AppShell() {
       apiGet<ApiKey[]>('/api/keys'),
       apiGet<UsageResponse>(`/api/usage?days=${usagePeriodRef.current}`),
       apiGet<SettingsResponse>('/api/settings'),
-      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null; pinnedConversations?: string[] | null }>('/api/settings/user-settings'),
+      apiGet<{ systemPrompt?: string | null; customSkills?: FunctionPreset[]; customAgents?: AgentDefinition[]; conversationLabels?: Record<string, string> | null; conversationModels?: Record<string, { provider: string; model: string }> | null; pinnedConversations?: string[] | null; promptTemplates?: PromptTemplate[] | null }>('/api/settings/user-settings'),
       apiGet<ProvidersResponse>('/api/chat/providers'),
       apiGet<{ total: number; counts: Record<string, number> }>('/api/memory/facts/agent-counts'),
       apiGet<{ documents: RagDocument[] }>('/api/rag/documents').catch(() => ({ documents: [] })),
@@ -1496,6 +1507,7 @@ function AppShell() {
     setConversationLabels(userSettingsData.conversationLabels || {});
     setPinnedConversations(new Set(Array.isArray(userSettingsData.pinnedConversations) ? userSettingsData.pinnedConversations : []));
     setConversationModels(userSettingsData.conversationModels || {});
+    setPromptTemplates(Array.isArray(userSettingsData.promptTemplates) ? userSettingsData.promptTemplates : []);
     const nextProviders = providersData.providers || [];
     const nextLocalModel = providersData.defaultLocalModel?.trim() || DEFAULT_MODELS.local;
     const nextModelCatalog = {
@@ -2623,6 +2635,29 @@ function AppShell() {
     }
     setPinnedConversations(next);
     await apiSend('/api/settings/user-settings', 'POST', { pinnedConversations: Array.from(next) });
+  }
+
+  async function savePromptTemplate(title: string, text: string) {
+    const trimmedTitle = title.trim();
+    const trimmedText = text.trim();
+    if (!trimmedTitle || !trimmedText) return;
+    const next = [...promptTemplates, { id: crypto.randomUUID(), title: trimmedTitle, text: trimmedText }];
+    setPromptTemplates(next);
+    setNewTemplateTitle('');
+    setNewTemplateText('');
+    await apiSend('/api/settings/user-settings', 'POST', { promptTemplates: next });
+  }
+
+  async function deletePromptTemplate(id: string) {
+    const next = promptTemplates.filter(t => t.id !== id);
+    setPromptTemplates(next);
+    await apiSend('/api/settings/user-settings', 'POST', { promptTemplates: next });
+  }
+
+  function applyPromptTemplate(text: string) {
+    setPrompt(text);
+    setShowTemplatesMenu(false);
+    setTimeout(() => composerTextareaRef.current?.focus(), 50);
   }
 
   function exportConversation(conv: { id: string; items: HistoryEntry[] }) {
@@ -4003,6 +4038,48 @@ function AppShell() {
                           <Globe className="w-4 h-4" />
                           {webSearchEnabled ? 'Search on' : 'Search'}
                         </button>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setShowTemplatesMenu(v => !v)}
+                            title="Prompt templates"
+                            className={`${secondaryButtonClass}${showTemplatesMenu ? (isDarkMode ? ' bg-amber-500/15 text-amber-300 border-amber-500/30' : ' bg-amber-100 text-amber-700 border-amber-300') : ''}`}
+                          >
+                            <Bookmark className="w-4 h-4" />
+                            Templates
+                          </button>
+                          {showTemplatesMenu ? (
+                            <div className={`absolute bottom-full right-0 mb-2 z-50 w-72 rounded-[1rem] border shadow-lg ${isDarkMode ? 'bg-[#1a1d20] border-white/10' : 'bg-white border-stone-200'}`}>
+                              <div className="p-3">
+                                <div className={`text-xs font-medium mb-2 ${subtleTextClass}`}>Prompt templates</div>
+                                {promptTemplates.length === 0 ? (
+                                  <div className={`text-xs ${mutedTextClass} mb-2`}>No templates saved. Add one in Settings.</div>
+                                ) : (
+                                  <div className="space-y-1 mb-2 max-h-52 overflow-y-auto">
+                                    {promptTemplates.map(t => (
+                                      <button
+                                        key={t.id}
+                                        type="button"
+                                        onClick={() => applyPromptTemplate(t.text)}
+                                        className={`w-full rounded-xl px-3 py-2 text-left text-sm ${isDarkMode ? 'hover:bg-white/8 text-stone-200' : 'hover:bg-stone-100 text-stone-800'}`}
+                                      >
+                                        <div className="font-medium truncate">{t.title}</div>
+                                        <div className={`text-xs truncate mt-0.5 ${subtleTextClass}`}>{t.text}</div>
+                                      </button>
+                                    ))}
+                                  </div>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => { setShowTemplatesMenu(false); setActiveTab('settings'); }}
+                                  className={`w-full rounded-xl px-3 py-1.5 text-xs text-left ${isDarkMode ? 'text-stone-400 hover:text-stone-200' : 'text-stone-500 hover:text-stone-800'}`}
+                                >
+                                  Manage templates in Settings →
+                                </button>
+                              </div>
+                            </div>
+                          ) : null}
+                        </div>
                         <button type="button" onClick={toggleVoiceInput} className={`${secondaryButtonClass}${isListening ? ' mic-listening' : ''}`}>
                           {isListening ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                           {isListening ? 'Stop' : 'Voice'}
@@ -5339,6 +5416,67 @@ function AppShell() {
                     <label htmlFor="system-prompt" className={sectionLabelClass}>System prompt</label>
                     <textarea id="system-prompt" value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={textareaClass} />
                   </div>
+
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Bookmark className="w-4 h-4" />
+                    <h3 className="font-medium">Prompt templates</h3>
+                  </div>
+                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Save prompts you use frequently. Click a template in the composer to instantly fill the input field.</p>
+
+                  {promptTemplates.length > 0 ? (
+                    <div className="space-y-2 mb-4">
+                      {promptTemplates.map(t => (
+                        <div key={t.id} className={`${elevatedCardClass} flex items-start gap-3`}>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium">{t.title}</div>
+                            <div className={`text-xs mt-1 whitespace-pre-wrap break-words ${subtleTextClass}`}>{t.text}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void deletePromptTemplate(t.id)}
+                            className={`shrink-0 ${subtleTextClass} hover:text-red-600`}
+                            title="Delete template"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className={`mb-4 text-sm ${subtleTextClass}`}>No templates saved yet.</div>
+                  )}
+
+                  <div className={`${elevatedCardClass} flex flex-col gap-3`}>
+                    <div className="text-sm font-medium">Add template</div>
+                    <input
+                      value={newTemplateTitle}
+                      onChange={e => setNewTemplateTitle(e.target.value)}
+                      placeholder="Template name, e.g. Code review checklist"
+                      className={textInputClass}
+                    />
+                    <textarea
+                      value={newTemplateText}
+                      onChange={e => setNewTemplateText(e.target.value)}
+                      rows={3}
+                      placeholder="Template text, e.g. Review this code for bugs, performance issues, and security risks. List findings with severity."
+                      className={textareaClass}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void savePromptTemplate(newTemplateTitle, newTemplateText)}
+                      disabled={!newTemplateTitle.trim() || !newTemplateText.trim()}
+                      className={responsivePrimaryButtonClass}
+                    >
+                      <Plus className="w-4 h-4" />
+                      Save template
+                    </button>
+                  </div>
+                </section>
+
+                <section className={`${sectionCardClass} space-y-4`}>
 
                   <div className={`grid gap-4 lg:grid-cols-2 ${elevatedCardClass}`}>
                     <div className="lg:col-span-2">

@@ -183,6 +183,12 @@ function bootstrapSchema(sqlite: Database.Database) {
   `);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS projects_uid_idx ON projects (uid)`);
 
+  // Migrate: add prompt_templates to user_settings if missing
+  const userSettingsColumns = sqlite.prepare(`PRAGMA table_info(user_settings)`).all() as Array<{ name: string }>;
+  if (!userSettingsColumns.some(c => c.name === 'prompt_templates')) {
+    sqlite.exec(`ALTER TABLE user_settings ADD COLUMN prompt_templates TEXT`);
+  }
+
   // Migrate: add project_id to history if missing
   const historyColumns = sqlite.prepare(`PRAGMA table_info(history)`).all() as Array<{ name: string }>;
   if (!historyColumns.some(c => c.name === 'project_id')) {

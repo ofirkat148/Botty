@@ -105,6 +105,7 @@ export const userSettings = sqliteTable('user_settings', {
   conversationLabels: text('conversation_labels'), // JSON string
   conversationModels: text('conversation_models'), // JSON string
   pinnedConversations: text('pinned_conversations'), // JSON string
+  promptTemplates: text('prompt_templates'),          // JSON string
   updatedAt: text('updated_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 

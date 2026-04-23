@@ -501,6 +501,7 @@ router.get('/user-settings', async (req: Request, res: Response) => {
       conversationLabels: tryParseJson(row?.conversationLabels),
       conversationModels: tryParseJson(row?.conversationModels),
       pinnedConversations: tryParseJson(row?.pinnedConversations),
+      promptTemplates: tryParseJson(row?.promptTemplates),
       customBots: customAgents,
     });
   } catch (error) {
@@ -519,14 +520,16 @@ router.post('/user-settings', async (req: Request, res: Response) => {
     const existing = await db.select().from(userSettings).where(eq(userSettings.uid, uid)).limit(1);
     const current = existing[0];
 
-    const { systemPrompt, conversationLabels, conversationModels, pinnedConversations } = req.body;
+    const { systemPrompt, conversationLabels, conversationModels, pinnedConversations, promptTemplates } = req.body;
     const nextSystemPrompt = 'systemPrompt' in req.body ? (systemPrompt || null) : (current?.systemPrompt ?? null);
     const rawLabels = 'conversationLabels' in req.body ? (conversationLabels ?? null) : (current?.conversationLabels ?? null);
     const rawModels = 'conversationModels' in req.body ? (conversationModels ?? null) : (current?.conversationModels ?? null);
     const nextPinned = 'pinnedConversations' in req.body ? (Array.isArray(pinnedConversations) ? pinnedConversations : null) : (current?.pinnedConversations ?? null);
+    const nextTemplates = 'promptTemplates' in req.body ? (Array.isArray(promptTemplates) ? promptTemplates : null) : null;
     const nextLabels = rawLabels !== null && typeof rawLabels === 'object' ? JSON.stringify(rawLabels) : rawLabels;
     const nextModels = rawModels !== null && typeof rawModels === 'object' ? JSON.stringify(rawModels) : rawModels;
     const nextPinnedStr = Array.isArray(nextPinned) ? JSON.stringify(nextPinned) : nextPinned;
+    const nextTemplatesStr = Array.isArray(nextTemplates) ? JSON.stringify(nextTemplates) : (current?.promptTemplates ?? null);
 
     if (current) {
       await db
@@ -536,6 +539,7 @@ router.post('/user-settings', async (req: Request, res: Response) => {
           conversationLabels: nextLabels,
           conversationModels: nextModels,
           pinnedConversations: nextPinnedStr,
+          promptTemplates: nextTemplatesStr,
           updatedAt: new Date().toISOString(),
         })
         .where(eq(userSettings.uid, uid));
@@ -548,6 +552,7 @@ router.post('/user-settings', async (req: Request, res: Response) => {
           conversationLabels: nextLabels,
           conversationModels: nextModels,
           pinnedConversations: nextPinnedStr,
+          promptTemplates: nextTemplatesStr,
           updatedAt: new Date().toISOString(),
         });
     }
