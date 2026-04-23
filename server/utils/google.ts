@@ -165,7 +165,17 @@ export async function fetchCalendarEvents(accessToken: string, options: { maxRes
   const res = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!res.ok) throw new Error(`Calendar API error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({})) as { error?: { message?: string; status?: string } };
+    const detail = errBody?.error?.message || '';
+    if (res.status === 403) {
+      if (detail.includes('not been used') || detail.includes('disabled')) {
+        throw new Error('Google Calendar API is not enabled. Go to console.cloud.google.com → APIs & Services → Enable "Google Calendar API".');
+      }
+      throw new Error('Google Calendar access denied (403). Your token may not include calendar permissions — go to Botty Settings → Google → Re-authorise.');
+    }
+    throw new Error(`Calendar API error: ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
   const data = await res.json() as { items?: CalendarEvent[] };
   return data.items || [];
 }
@@ -191,7 +201,12 @@ export async function createCalendarEvent(accessToken: string, event: {
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Calendar API error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({})) as { error?: { message?: string } };
+    const detail = errBody?.error?.message || '';
+    if (res.status === 403) throw new Error('Google Calendar access denied (403). Go to Botty Settings → Google → Re-authorise.');
+    throw new Error(`Calendar create error: ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
   return res.json() as Promise<CalendarEvent>;
 }
 
@@ -212,7 +227,17 @@ export async function fetchGmailMessages(accessToken: string, options: { maxResu
   const listRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages?${listParams}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
-  if (!listRes.ok) throw new Error(`Gmail API error: ${listRes.status}`);
+  if (!listRes.ok) {
+    const errBody = await listRes.json().catch(() => ({})) as { error?: { message?: string } };
+    const detail = errBody?.error?.message || '';
+    if (listRes.status === 403) {
+      if (detail.includes('not been used') || detail.includes('disabled')) {
+        throw new Error('Gmail API is not enabled. Go to console.cloud.google.com → APIs & Services → Enable "Gmail API".');
+      }
+      throw new Error('Gmail access denied (403). Go to Botty Settings → Google → Re-authorise to grant Gmail permissions.');
+    }
+    throw new Error(`Gmail API error: ${listRes.status}${detail ? ` — ${detail}` : ''}`);
+  }
   const listData = await listRes.json() as { messages?: Array<{ id: string }> };
   const ids = (listData.messages || []).slice(0, maxResults);
 
@@ -247,7 +272,14 @@ export async function sendGmail(accessToken: string, to: string, subject: string
     headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ raw: encoded }),
   });
-  if (!res.ok) throw new Error(`Gmail send error: ${res.status}`);
+  if (!res.ok) {
+    const errBody = await res.json().catch(() => ({})) as { error?: { message?: string } };
+    const detail = errBody?.error?.message || '';
+    if (res.status === 403) {
+      throw new Error('Gmail access denied (403). Go to Botty Settings → Google → Re-authorise to grant Gmail permissions.');
+    }
+    throw new Error(`Gmail send error: ${res.status}${detail ? ` — ${detail}` : ''}`);
+  }
   const sent = await res.json() as { id?: string };
   return { messageId: sent.id };
 }
@@ -288,6 +320,7 @@ export async function buildGoogleContext(uid: string, prompt: string): Promise<s
         for (const e of events) {
           const start = formatEventTime(e.start?.dateTime, e.start?.date);
           const end = formatEventTime(e.end?.dateTime, e.end?.date);
+          
           const attendees = e.attendees?.map(a => a.displayName || a.email).join(', ');
           parts.push(`• ${e.summary || '(No title)'} | ${start} → ${end}${attendees ? ` | With: ${attendees}` : ''}${e.location ? ` | @ ${e.location}` : ''}`);
         }
