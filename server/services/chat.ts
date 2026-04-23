@@ -23,6 +23,7 @@ import {
   shouldRetryWithAnotherProvider,
 } from '../utils/llm.js';
 import { webSearch, formatSearchContext } from '../utils/search.js';
+import { buildGoogleContext, getGoogleConnectionStatus } from '../utils/google.js';
 import { resolveAgentForUser } from '../utils/agents.js';
 import type { AgentDefinition, ToolDefinition } from '../../shared/agentDefinitions.js';
 
@@ -324,8 +325,17 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     }
   }
 
+  // Inject live Google Calendar / Gmail data when the user's prompt mentions them
+  let googleContext = '';
+  try {
+    googleContext = await buildGoogleContext(uid, prompt);
+  } catch (err) {
+    console.warn('Google context fetch failed:', err instanceof Error ? err.message : err);
+  }
+
+  const contextParts = [searchContext, googleContext].filter(Boolean);
   const promptForModel = buildPromptWithAttachments(
-    searchContext ? `${searchContext}\n\nUser question: ${prompt}` : prompt,
+    contextParts.length > 0 ? `${contextParts.join('\n\n')}\n\nUser: ${prompt}` : prompt,
     attachments
   );
   const activeAgent = activeAgentId ? await resolveAgentForUser(uid, activeAgentId) : null;
@@ -370,8 +380,12 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     ? await retrieveRagContext(uid, prompt, openaiKey)
     : '';
   const fullMemoryContext = [memoryContext, ragContext].filter(Boolean).join('\n\n');
+  const googleStatus = getGoogleConnectionStatus(uid);
+  const googleSystemNote = googleStatus.connected
+    ? `[GOOGLE INTEGRATION ACTIVE] The user has connected their Google account (${googleStatus.email || 'email unknown'}). When the user asks about their calendar, schedule, events, emails, or wants to send an email, their live data will be injected into the conversation automatically. You can reference and summarise it. You can also tell the user to ask you to create a calendar event or send an email.`
+    : '';
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: [activeAgent?.systemPrompt || projectSystemPrompt || runtimeSettings.systemPrompt, toolCatalogSection].filter(Boolean).join('\n\n'),
+    systemPrompt: [activeAgent?.systemPrompt || projectSystemPrompt || runtimeSettings.systemPrompt, toolCatalogSection, googleSystemNote].filter(Boolean).join('\n\n'),
     memoryContext: fullMemoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
@@ -571,8 +585,17 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
     }
   }
 
+  // Inject live Google Calendar / Gmail data when the user's prompt mentions them
+  let googleContextStream = '';
+  try {
+    googleContextStream = await buildGoogleContext(uid, prompt);
+  } catch (err) {
+    console.warn('Google context fetch failed (stream):', err instanceof Error ? err.message : err);
+  }
+
+  const contextPartsStream = [searchContext, googleContextStream].filter(Boolean);
   const promptForModel = buildPromptWithAttachments(
-    searchContext ? `${searchContext}\n\nUser question: ${prompt}` : prompt,
+    contextPartsStream.length > 0 ? `${contextPartsStream.join('\n\n')}\n\nUser: ${prompt}` : prompt,
     attachments
   );
   const activeAgent = activeAgentId ? await resolveAgentForUser(uid, activeAgentId) : null;
@@ -612,8 +635,12 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
     ? await retrieveRagContext(uid, prompt, openaiKeyStream)
     : '';
   const fullMemoryContextStream = [memoryContext, ragContextStream].filter(Boolean).join('\n\n');
+  const googleStatusStream = getGoogleConnectionStatus(uid);
+  const googleSystemNoteStream = googleStatusStream.connected
+    ? `[GOOGLE INTEGRATION ACTIVE] The user has connected their Google account (${googleStatusStream.email || 'email unknown'}). When the user asks about their calendar, schedule, events, emails, or wants to send an email, their live data will be injected into the conversation automatically. You can reference and summarise it.`
+    : '';
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: activeAgent?.systemPrompt || projectSystemPromptStream || runtimeSettings.systemPrompt,
+    systemPrompt: [activeAgent?.systemPrompt || projectSystemPromptStream || runtimeSettings.systemPrompt, googleSystemNoteStream].filter(Boolean).join('\n\n'),
     memoryContext: fullMemoryContextStream,
     sandboxMode: runtimeSettings.sandboxMode,
   });
