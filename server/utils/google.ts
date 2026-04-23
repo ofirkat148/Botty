@@ -286,8 +286,8 @@ export async function sendGmail(accessToken: string, to: string, subject: string
 
 // ─── Context builder for chat service ────────────────────────────────────────
 
-const CALENDAR_KEYWORDS = /\b(calendar|schedule|event|meeting|appointment|today|tomorrow|week|upcoming|agenda|busy|free|slot|remind|day|morning|afternoon|evening|plans|planning)\b/i;
-const EMAIL_KEYWORDS = /\b(email|mail|gmail|inbox|message|send|compose|reply|wrote|received|unread)\b/i;
+const CALENDAR_KEYWORDS = /\b(calendar|schedule|event|meeting|appointment|today|tomorrow|week|upcoming|agenda|busy|free|slot|remind|day|morning|afternoon|evening|plans|planning)\b|[\u05d9\u05d5\u05dd]|\u05d4\u05d9\u05d5\u05dd|\u05de\u05d7\u05e8|\u05e4\u05d2\u05d9\u05e9\u05d4|\u05e4\u05d2\u05d9\u05e9\u05d5\u05ea|\u05d0\u05d9\u05e8\u05d5\u05e2|\u05d0\u05d9\u05e8\u05d5\u05e2\u05d9\u05dd|\u05dc\u05d5\u05d7|\u05dc\u05d5\u05d7 \u05e9\u05e0\u05d4|\u05e1\u05d3\u05e8 \u05d9\u05d5\u05dd|\u05d9\u05d5\u05dd\u05df|\u05e9\u05d1\u05d5\u05e2|\u05d1\u05d5\u05e7\u05e8|\u05e6\u05d4\u05e8\u05d9\u05d9\u05dd|\u05e2\u05e8\u05d1|\u05ea\u05d5\u05db\u05e0\u05d9\u05ea|\u05e4\u05d2\u05d9\u05e9\u05d5\u05ea \u05d4\u05d9\u05d5\u05dd/i;
+const EMAIL_KEYWORDS = /\b(email|mail|gmail|inbox|message|send|compose|reply|wrote|received|unread)\b|\u05de\u05d9\u05d9\u05dc|\u05d0\u05d9\u05de\u05d9\u05d9\u05dc|\u05ea\u05d9\u05d1\u05d4|\u05d4\u05d5\u05d3\u05e2\u05d4|\u05d4\u05d5\u05d3\u05e2\u05d5\u05ea|\u05e9\u05dc\u05d7|\u05dc\u05e9\u05dc\u05d5\u05d7|\u05d4\u05e9\u05d1/i;
 
 /** Fetch the user's primary calendar timezone string (e.g. 'Asia/Jerusalem'). */
 async function fetchCalendarTimezone(accessToken: string): Promise<string> {
