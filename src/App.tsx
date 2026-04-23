@@ -4116,19 +4116,6 @@ function AppShell() {
 
             {activeTab === 'skills' ? (
               <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
-                <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
-                  <div>
-                    <h3 className="font-medium">Skills</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>Reusable slash-triggered overlays that stay inside the current chat and inherit its provider and memory.</p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className={`text-sm ${mutedTextClass}`}>{activePresetId ? `Active: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom mode'}` : 'No active skill'}</div>
-                    <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
-                      {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
-                    </button>
-                  </div>
-                </section>
-
                 <section className={sectionCardClass}>
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <div className="flex items-center gap-2">
@@ -4146,12 +4133,6 @@ function AppShell() {
                       <textarea value={newSkillSystemPrompt} onChange={event => patchNewSkill({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the expertise, decision rules, and tone for this skill" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2">
-                      <input value={newSkillUseWhen} onChange={event => patchNewSkill({ useWhen: event.target.value })} placeholder="Use when, e.g. you need a quick architecture review inside the current thread" className={textInputClass} />
-                    </div>
-                    <div className="md:col-span-2">
-                      <textarea value={newSkillBoundaries} onChange={event => patchNewSkill({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. keeps the current provider and memory, should not take over the whole session" className={textareaClass} />
-                    </div>
-                    <div className="md:col-span-2">
                       <textarea value={newSkillStarterPrompt} onChange={event => patchNewSkill({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this design and point out the main risks" className={textareaClass} />
                     </div>
                     <div className="md:col-span-2 flex">
@@ -4163,9 +4144,14 @@ function AppShell() {
                 </section>
 
                 <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Sparkles className="w-4 h-4" />
-                    <h3 className="font-medium">Available skills</h3>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      <h3 className="font-medium">Available skills</h3>
+                    </div>
+                    <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
+                      {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
+                    </button>
                   </div>
                   <div className="grid gap-3 xl:grid-cols-2">
                     {skillPresets.map(item => {
@@ -4201,28 +4187,6 @@ function AppShell() {
 
             {activeTab === 'agents' ? (
               <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
-                <section className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
-                  <div>
-                    <h3 className="font-medium">Agents</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>Dedicated specialists that can own a longer workflow with their own provider, memory, and routing policy.</p>
-                  </div>
-                  <div className={`flex items-center gap-1.5 text-sm`}>
-                    {activePresetId && allPresets.find(item => item.id === activePresetId)?.kind === 'agent' ? (
-                      <>
-                        <Bot className="w-3.5 h-3.5 text-violet-500 shrink-0" />
-                        <span className="text-violet-600 dark:text-violet-400 font-medium">Active: {allPresets.find(item => item.id === activePresetId)?.title}</span>
-                      </>
-                    ) : activePresetId ? (
-                      <>
-                        <Sparkles className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                        <span className="text-amber-600 dark:text-amber-400 font-medium">Active: {allPresets.find(item => item.id === activePresetId)?.title}</span>
-                      </>
-                    ) : (
-                      <span className={mutedTextClass}>No active agent</span>
-                    )}
-                  </div>
-                </section>
-
                 <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
                     <Plus className="w-4 h-4" />
@@ -4301,59 +4265,15 @@ function AppShell() {
                         )) : null}
                       </select>
                     </div>
-                    <>
-                        <div className="md:col-span-2">
-                          <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
-                        </div>
-                        <div className="md:col-span-2">
-                          <textarea value={newBotStarterPrompt} onChange={event => patchNewBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
-                        </div>
-                        <div>
-                          <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
-                        </div>
-                        <div className="md:col-span-2">
-                          <div className="flex flex-col gap-2">
-                            <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional) — listed in the system prompt so the LLM knows which tools are available</div>
-                            {newBotTools.map((tool, idx) => (
-                              <div key={idx} className="flex gap-2 items-start">
-                                <input
-                                  value={tool.name}
-                                  onChange={event => patchNewBot({ tools: newBotTools.map((t, i) => i === idx ? { ...t, name: event.target.value } : t) })}
-                                  placeholder="Tool name, e.g. search_web"
-                                  className={textInputClass}
-                                />
-                                <input
-                                  value={tool.description}
-                                  onChange={event => patchNewBot({ tools: newBotTools.map((t, i) => i === idx ? { ...t, description: event.target.value } : t) })}
-                                  placeholder="What this tool does"
-                                  className={textInputClass}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => patchNewBot({ tools: newBotTools.filter((_, i) => i !== idx) })}
-                                  className={`shrink-0 ${secondaryButtonClass}`}
-                                  aria-label="Remove tool"
-                                >
-                                  <X className="w-4 h-4" />
-                                </button>
-                              </div>
-                            ))}
-                            <button
-                              type="button"
-                              onClick={() => patchNewBot({ tools: [...newBotTools, { name: '', description: '' }] })}
-                              className={secondaryButtonClass}
-                            >
-                              <Plus className="w-4 h-4" /> Add tool
-                            </button>
-                          </div>
-                        </div>
-                        <div className="md:col-span-2">
-                          <input value={newBotUseWhen} onChange={event => patchNewBot({ useWhen: event.target.value })} placeholder="Use when, e.g. you want a dedicated security specialist to own the session" className={textInputClass} />
-                        </div>
-                        <div className="md:col-span-2">
-                          <textarea value={newBotBoundaries} onChange={event => patchNewBot({ boundaries: event.target.value })} rows={2} placeholder="Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked" className={textareaClass} />
-                        </div>
-                    </>
+                    <div className="md:col-span-2">
+                      <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={4} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newBotStarterPrompt} onChange={event => patchNewBot({ starterPrompt: event.target.value })} rows={3} placeholder="Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks" className={textareaClass} />
+                    </div>
+                    <div>
+                      <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
+                    </div>
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
@@ -4382,22 +4302,13 @@ function AppShell() {
                               {isActive ? 'Active' : `/${item.command}`}
                             </div>
                           </div>
-                          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                            <button
-                              onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
-                              disabled={applyingFunctionId === item.id}
-                              className={responsivePrimaryButtonClass}
-                            >
-                              {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
-                            </button>
-                            <button
-                              onClick={() => void activateFunctionPreset(item)}
-                              disabled={applyingFunctionId === item.id}
-                              className={responsiveSecondaryButtonClass}
-                            >
-                              {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
-                            </button>
-                          </div>
+                          <button
+                            onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
+                            disabled={applyingFunctionId === item.id}
+                            className={responsivePrimaryButtonClass}
+                          >
+                            {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
+                          </button>
                         </div>
                       );
                     })}
@@ -4585,7 +4496,7 @@ function AppShell() {
                                 <div className={`text-xs ${subtleTextClass} flex flex-wrap gap-x-3 gap-y-1`}>
                                   {item.provider ? <span>{formatProviderLabel(item.provider)}{item.model ? ` · ${formatModelDisplay(item.model, item.provider)}` : ''}</span> : null}
                                   <span>Memory: {item.memoryMode || 'shared'}</span>
-                                  <span>Executor: {getAgentExecutorLabel(item)}</span>
+                                  {getAgentExecutorLabel(item) !== 'Internal Botty agent' ? <span>{getAgentExecutorLabel(item)}</span> : null}
                                   {getAgentEndpoint(item) ? <span className="truncate max-w-[200px]">Endpoint: {getAgentEndpoint(item)}</span> : null}
                                 </div>
                                 {isConfirmingDelete ? (

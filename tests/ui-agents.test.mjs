@@ -57,8 +57,6 @@ test('ui can create and run a remote http agent', async () => {
     await page.getByPlaceholder('Agent title, e.g. Security Reviewer').fill(agentTitle);
     await page.getByPlaceholder('Slash command, e.g. security-review').fill(agentCommand);
     await page.getByPlaceholder('Specialist summary, e.g. reviews code and architecture for security risk').fill('UI smoke test remote agent.');
-    await page.getByPlaceholder('Use when, e.g. you want a dedicated security specialist to own the session').fill('Use when validating the remote agent UI flow.');
-    await page.getByPlaceholder('Operating bounds, e.g. should stay in review mode and avoid drifting into implementation without being asked').fill('Stay in remote execution mode for this test.');
 
     const createAgentSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Create agent' }) });
     await createAgentSection.locator('select').first().selectOption('remote-http');
@@ -71,7 +69,7 @@ test('ui can create and run a remote http agent', async () => {
 
     const customAgentsSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Custom agents' }) });
     const agentCard = customAgentsSection.locator('div').filter({ hasText: agentTitle }).first();
-    await agentCard.getByText('Executor: Remote HTTP agent').waitFor();
+    await agentCard.getByText('Remote HTTP agent').waitFor();
     await agentCard.getByText(`Endpoint: ${endpoint}`).waitFor();
     await agentCard.getByRole('button', { name: 'Edit agent' }).click();
     await agentCard.getByPlaceholder('Agent title, e.g. Security Reviewer').fill(`${agentTitle} Updated`);
