@@ -62,7 +62,6 @@ test('ui can create and run a remote http agent', async () => {
     await createAgentSection.locator('select').first().selectOption('remote-http');
     await page.getByPlaceholder('Remote endpoint, e.g. http://127.0.0.1:8787/agent').fill(endpoint);
     await page.getByPlaceholder('System prompt: define the specialist role, operating rules, and decision standards').fill('You are a remote UI smoke-test agent.');
-    await page.getByPlaceholder('Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks').fill('Check the remote UI path end to end.');
     await page.getByRole('button', { name: 'Add agent' }).click();
 
     await page.getByText('Custom agent added.').waitFor();
@@ -73,7 +72,6 @@ test('ui can create and run a remote http agent', async () => {
     await agentCard.getByText(`Endpoint: ${endpoint}`).waitFor();
     await agentCard.getByRole('button', { name: 'Edit agent' }).click();
     await agentCard.getByPlaceholder('Agent title, e.g. Security Reviewer').fill(`${agentTitle} Updated`);
-    await agentCard.getByPlaceholder('Starter prompt, e.g. Review this feature end to end and prioritize the biggest risks').fill('Check the updated remote UI path end to end.');
     await agentCard.getByPlaceholder('System prompt: define the specialist role, operating rules, and decision standards').fill('You are an updated remote UI smoke-test agent.');
     await agentCard.getByRole('button', { name: 'Save changes' }).click();
 
@@ -84,6 +82,7 @@ test('ui can create and run a remote http agent', async () => {
     await updatedAgentCard.getByRole('button', { name: 'Start agent chat' }).click();
 
     await page.getByRole('heading', { name: 'Chat' }).waitFor();
+    await page.getByRole('textbox').last().fill('Check the remote UI path end to end.');
     await page.getByRole('button', { name: 'Send' }).click();
     // SSRF protection blocks execution to private/loopback IPs — the UI must surface the error.
     await page.locator('div.bg-red-50').waitFor({ timeout: 15000 });
