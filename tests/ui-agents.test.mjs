@@ -51,14 +51,14 @@ test('ui can create and run a remote http agent', async () => {
     await page.getByRole('button', { name: 'Enter local workspace' }).click();
     await page.getByRole('heading', { name: 'Chat' }).waitFor();
 
-    await page.getByRole('button', { name: 'Agents' }).click();
-    await page.getByRole('heading', { name: 'Create agent' }).waitFor();
+    await page.getByRole('button', { name: 'Settings' }).click();
+    await page.getByRole('heading', { name: 'Agents', exact: true, level: 3 }).waitFor();
 
     await page.getByPlaceholder('Agent title, e.g. Security Reviewer').fill(agentTitle);
     await page.getByPlaceholder('Slash command, e.g. security-review').fill(agentCommand);
     await page.getByPlaceholder('Specialist summary, e.g. reviews code and architecture for security risk').fill('UI smoke test remote agent.');
 
-    const createAgentSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Create agent' }) });
+    const createAgentSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Agents', exact: true, level: 3 }) });
     await createAgentSection.locator('select').first().selectOption('remote-http');
     await page.getByPlaceholder('Remote endpoint, e.g. http://127.0.0.1:8787/agent').fill(endpoint);
     await page.getByPlaceholder('System prompt: define the specialist role, operating rules, and decision standards').fill('You are a remote UI smoke-test agent.');
@@ -71,8 +71,8 @@ test('ui can create and run a remote http agent', async () => {
     await agentCard.getByText('Remote HTTP agent').waitFor();
     await agentCard.getByText(`Endpoint: ${endpoint}`).waitFor();
     await agentCard.getByRole('button', { name: 'Edit agent' }).click();
-    await agentCard.getByPlaceholder('Agent title, e.g. Security Reviewer').fill(`${agentTitle} Updated`);
-    await agentCard.getByPlaceholder('System prompt: define the specialist role, operating rules, and decision standards').fill('You are an updated remote UI smoke-test agent.');
+    await agentCard.getByPlaceholder('Agent title').fill(`${agentTitle} Updated`);
+    await agentCard.getByPlaceholder('System prompt').fill('You are an updated remote UI smoke-test agent.');
     await agentCard.getByRole('button', { name: 'Save changes' }).click();
 
     await page.getByText('Custom agent updated.').waitFor();
@@ -82,7 +82,7 @@ test('ui can create and run a remote http agent', async () => {
     await updatedAgentCard.getByRole('button', { name: 'Start agent chat' }).click();
 
     await page.getByRole('heading', { name: 'Chat' }).waitFor();
-    await page.getByRole('textbox').last().fill('Check the remote UI path end to end.');
+    await page.getByPlaceholder('Ask Claude').fill('Check the remote UI path end to end.');
     await page.getByRole('button', { name: 'Send' }).click();
     // SSRF protection blocks execution to private/loopback IPs — the UI must surface the error.
     await page.locator('div.bg-red-50').waitFor({ timeout: 15000 });
@@ -91,7 +91,8 @@ test('ui can create and run a remote http agent', async () => {
 
     assert.equal(requests.length, 0, 'SSRF block must prevent any outbound request to the mock server');
 
-    await page.getByRole('button', { name: 'Agents' }).click();
+    // Navigate back to Settings to delete the agent
+    await page.getByRole('button', { name: 'Settings' }).click();
     await updatedAgentCard.getByRole('button', { name: 'Delete agent' }).click();
     await updatedAgentCard.getByText('Delete this custom agent?').waitFor();
     await updatedAgentCard.getByRole('button', { name: 'Confirm delete' }).click();

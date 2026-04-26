@@ -601,8 +601,10 @@ function AppShell() {
   const [useMemory, setUseMemory] = useState(true);
   const [autoMemory, setAutoMemory] = useState(true);
   const [sandboxMode, setSandboxMode] = useState(false);
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(true);
   const [tavilyConfigured, setTavilyConfigured] = useState(false);
+  const [attachedRagDoc, setAttachedRagDoc] = useState('');
+  const [showRagDocMenu, setShowRagDocMenu] = useState(false);
   // Sharing state
   const [sharingConvId, setSharingConvId] = useState('');
   const [shareLink, setShareLink] = useState('');
@@ -1823,6 +1825,7 @@ function AppShell() {
       })),
       activeAgentId: activeBotPreset?.id || null,
       webSearch: webSearchEnabled,
+      ragDocName: attachedRagDoc || undefined,
       sessionSystemPrompt: sessionSystemPrompt.trim() || undefined,
     };
 
@@ -1849,7 +1852,7 @@ function AppShell() {
       const reader = streamRes.body.getReader();
       const decoder = new TextDecoder();
       let sseBuffer = '';
-      let meta: { id: string; text: string; tokensUsed: number; model: string; provider: string; conversationId: string; routingMode: string | null } | null = null;
+      let meta: { id: string; text: string; tokensUsed: number; model: string; provider: string; conversationId: string; routingMode: string | null; ragSources?: string[] } | null = null;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1887,6 +1890,7 @@ function AppShell() {
           routingMode: meta.routingMode,
           tokensUsed: meta.tokensUsed,
           conversationId: meta.conversationId,
+          ragSources: meta.ragSources || [],
         });
         setDailyTokens(prev => prev + meta!.tokensUsed);
         if (meta.conversationId && meta.provider && meta.model) {
@@ -1917,6 +1921,9 @@ function AppShell() {
       // the summary when the 'done' event arrives.
       if (messages.length + 2 >= 20) {
         const nonCompact = messages.filter(m => !m.isCompact);
+        // Capture the conversation ID now so we can guard against applying a
+        // stale compact to a new chat that starts before the response arrives.
+        const compactConvId = meta?.conversationId ?? conversationId;
         void (async () => {
           try {
             const compactRes = await fetch('/api/chat/compact', {
@@ -1939,7 +1946,7 @@ function AppShell() {
                 try {
                   const event = JSON.parse(line.slice(5).trim()) as { type: string; summary?: string };
                   if (event.type === 'done' && event.summary) {
-                    dispatchChat({ type: 'COMPACT_HISTORY', summary: event.summary, keepLast: 8 });
+                    dispatchChat({ type: 'COMPACT_HISTORY', summary: event.summary, keepLast: 8, conversationId: compactConvId });
                   }
                 } catch { /* ignore malformed SSE lines */ }
               }
@@ -3860,6 +3867,16 @@ function AppShell() {
                             : <span className="whitespace-pre-wrap">{message.content}</span>
                           }
                         </div>
+                        {message.role === 'assistant' && message.ragSources?.length ? (
+                          <div className="mt-2 flex flex-wrap gap-1.5">
+                            {message.ragSources.map(src => (
+                              <span key={src} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${isDarkMode ? 'bg-white/8 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200'}`}>
+                                <FileText className="w-3 h-3 shrink-0" />
+                                {src}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         {message.role === 'user' && !isSending ? (
                           <div className="mt-2 flex justify-start">
                             <button
@@ -4247,6 +4264,40 @@ function AppShell() {
                           <Globe className="w-4 h-4" />
                           {webSearchEnabled ? 'Search on' : 'Search'}
                         </button>
+                        {ragDocuments.length > 0 ? (
+                          <div className="relative">
+                            <button
+                              type="button"
+                              onClick={() => setShowRagDocMenu(v => !v)}
+                              title={attachedRagDoc ? `Doc: ${attachedRagDoc}` : 'Attach a document for context'}
+                              className={`${secondaryButtonClass}${attachedRagDoc ? (isDarkMode ? ' bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : ' bg-emerald-100 text-emerald-700 border-emerald-300') : ''}`}
+                            >
+                              <FileText className="w-4 h-4" />
+                              {attachedRagDoc ? attachedRagDoc.slice(0, 12) + (attachedRagDoc.length > 12 ? '\u2026' : '') : 'Doc'}
+                            </button>
+                            {showRagDocMenu ? (
+                              <div className={`absolute bottom-full right-0 mb-2 z-50 w-64 rounded-[1rem] border shadow-lg ${isDarkMode ? 'bg-[#1a1d20] border-white/10' : 'bg-white border-stone-200'}`}>
+                                <div className="p-3">
+                                  <div className={`text-xs font-medium mb-2 ${subtleTextClass}`}>Pick a document</div>
+                                  {attachedRagDoc ? (
+                                    <button type="button" onClick={() => { setAttachedRagDoc(''); setShowRagDocMenu(false); }} className={`w-full rounded-xl px-3 py-2 text-sm text-left mb-1 ${isDarkMode ? 'hover:bg-white/8 text-red-300' : 'hover:bg-red-50 text-red-600'}`}>
+                                      ✕ Remove document
+                                    </button>
+                                  ) : null}
+                                  {ragDocuments.map(doc => (
+                                    <button key={doc.name} type="button"
+                                      onClick={() => { setAttachedRagDoc(doc.name); setShowRagDocMenu(false); }}
+                                      className={`w-full rounded-xl px-3 py-2 text-left text-sm ${attachedRagDoc === doc.name ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200' : 'bg-emerald-50 text-emerald-800') : (isDarkMode ? 'hover:bg-white/8 text-stone-200' : 'hover:bg-stone-100 text-stone-800')}`}
+                                    >
+                                      <div className="font-medium truncate">{doc.name}</div>
+                                      <div className={`text-xs truncate mt-0.5 ${subtleTextClass}`}>{doc.chunks} chunks</div>
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="relative">
                           <button
                             type="button"

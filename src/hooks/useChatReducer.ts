@@ -9,6 +9,7 @@ export type ChatMessage = {
   tokensUsed?: number | null;
   isCompact?: boolean;
   sentAt?: string; // ISO timestamp
+  ragSources?: string[];
 };
 
 export type ChatState = {
@@ -22,13 +23,13 @@ type ChatAction =
   | { type: 'ADD_USER_MESSAGE'; content: string }
   | { type: 'ADD_ASSISTANT_PLACEHOLDER' }
   | { type: 'APPEND_ASSISTANT_CHUNK'; delta: string }
-  | { type: 'FINALIZE_ASSISTANT'; content: string; model: string; provider: string; routingMode: string | null; tokensUsed: number; conversationId: string }
+  | { type: 'FINALIZE_ASSISTANT'; content: string; model: string; provider: string; routingMode: string | null; tokensUsed: number; conversationId: string; ragSources?: string[] }
   | { type: 'SET_SENDING'; value: boolean }
   | { type: 'SET_ERROR'; message: string }
   | { type: 'CLEAR_ERROR' }
   | { type: 'ROLLBACK_OPTIMISTIC' }
   | { type: 'LOAD_HISTORY'; messages: ChatMessage[]; conversationId: string }
-  | { type: 'COMPACT_HISTORY'; summary: string; keepLast: number }
+  | { type: 'COMPACT_HISTORY'; summary: string; keepLast: number; conversationId?: string | null }
   | { type: 'FORK_AT'; beforeIndex: number }
   | { type: 'RESET' };
 
@@ -68,6 +69,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           routingMode: action.routingMode,
           tokensUsed: action.tokensUsed,
           sentAt: new Date().toISOString(),
+          ragSources: action.ragSources,
         };
       }
       return { ...state, messages: updated, conversationId: action.conversationId };
@@ -98,6 +100,10 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
       return { ...state, messages: action.messages, conversationId: action.conversationId };
 
     case 'COMPACT_HISTORY': {
+      // Guard: don't apply a stale compact from a previous conversation
+      if (action.conversationId && state.conversationId !== action.conversationId) {
+        return state;
+      }
       const kept = state.messages.slice(-action.keepLast);
       const summaryMessages: ChatMessage[] = [
         { role: 'user', content: `[Context from earlier in this conversation]: ${action.summary}`, isCompact: true },

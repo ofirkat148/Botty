@@ -509,7 +509,7 @@ describe('UI feature tests', { concurrency: false }, () => {
       const page = await browser.newPage();
       await loginViaUI(page, sharedEmail);
 
-      await page.getByRole('button', { name: 'Agents' }).click();
+      await page.getByRole('button', { name: 'Settings' }).click();
       await page.getByRole('heading', { name: 'Custom agents' }).waitFor({ timeout: 8000 });
 
       // Import button is a subtle text-only button next to the Custom agents heading.
