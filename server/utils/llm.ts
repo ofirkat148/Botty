@@ -526,6 +526,22 @@ function isGarbageFact(value: string): boolean {
 
   // LLM hedging/meta phrases
   const lower = v.toLowerCase();
+
+  // Template variables / placeholders
+  if (/\{\{.*\}\}/.test(v)) return true;
+
+  // Pure URL — not a fact about the user
+  if (/^https?:\/\/\S+$/.test(v)) return true;
+
+  // Truncated facts (ends with …/... mid-sentence)
+  if (/[\w,]\s*\.{3}$/.test(v)) return true;
+
+  // Markdown section headers
+  if (/^#{1,3}\s/.test(v)) return true;
+
+  // Purely numeric / hex values
+  if (/^[\d\s\-+.,:#x%/]+$/.test(v)) return true;
+
   const metaPhrases = [
     'here are the', 'here is the', "here's an", "here's a ", "here's the", "here's how",
     "here is a ", 'the following', 'the above',

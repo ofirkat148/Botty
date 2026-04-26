@@ -4,9 +4,19 @@ _Last updated: 26 April 2026._
 
 ## Done (see history below)
 
-All prior 33 items complete. Most recent shipped: markdown rendering, message search, session system prompt, scheduled backups, Telegram /remember + /summary, routing explainer, Pin fact / memory suggestions, SQLite FTS5 RAG, proactive Telegram daily digest.
+All prior 33 items complete. Most recent shipped: markdown rendering, message search, session system prompt, scheduled backups, Telegram /remember + /summary, routing explainer, Pin fact / memory suggestions, SQLite FTS5 RAG, proactive Telegram daily digest. Plus recent: RAG doc picker + citations in chat UI, auto-compact race condition fix, web search on by default, error boundaries, history loading skeletons, memory guardrail hardening.
 
 ---
+
+## Tech Debt / Rough Edges
+
+| # | Item | Notes |
+|---|------|-------|
+| 1 | ✅ **React Error Boundary** | Done: `src/utils/ErrorBoundary.tsx` wraps the full app in `src/main.tsx`. Shows user-friendly fallback + Reload button on render crash. |
+| 2 | ✅ **History loading skeletons** | Done: `historyLoading` state in `App.tsx`; 5 animated pulse skeleton rows shown in History tab while data fetches on load or archive toggle. |
+| 3 | ✅ **Memory guardrail hardening** | Done: `isGarbageFact()` in `server/utils/llm.ts` now also rejects template variables `{{...}}`, bare URLs, truncated facts ending in `...`, markdown headers (`## `), and purely numeric strings. |
+| 4 | **Split `src/App.tsx` into components** | File is ~5700 lines. Suggested splits: `ChatPanel`, `HistoryPanel`, `MemoryPanel`, `SettingsPanel`, `ComposerBar` — each as a standalone file under `src/components/`. Low-risk parts first; share state via context or props. |
+| 5 | **Upgrade major dependencies** | `express` v4 → v5 (routing changes), `typescript` v5 → v6 (strict mode changes), `vite` v6 → v8 (config API changes), `jsonwebtoken` v8 → v9 (async API), `lucide-react` v0 → v1 (icon renames), `@vitejs/plugin-react` v5 → v6. Each needs its own PR + test pass. |
 
 ## Next Wave — Niche-focused features
 

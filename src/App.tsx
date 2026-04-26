@@ -549,6 +549,7 @@ function AppShell() {
   const ragFileInputRef = useRef<HTMLInputElement>(null);
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [historySearch, setHistorySearch] = useState('');
   const [chatSearch, setChatSearch] = useState('');
   const [showChatSearch, setShowChatSearch] = useState(false);
@@ -1463,9 +1464,10 @@ function AppShell() {
       return;
     }
 
+    setHistoryLoading(true);
     apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history')
-      .then(rows => setHistory(rows))
-      .catch(err => setNotice(err instanceof Error ? err.message : 'Failed to load history'));
+      .then(rows => { setHistory(rows); setHistoryLoading(false); })
+      .catch(err => { setHistoryLoading(false); setNotice(err instanceof Error ? err.message : 'Failed to load history'); });
     apiGet<Project[]>('/api/projects')
       .then(rows => setProjects(rows))
       .catch(() => {});
@@ -1582,6 +1584,7 @@ function AppShell() {
   }
 
   async function refreshAll() {
+    setHistoryLoading(true);
     const [historyRows, factRows, fileRows, urlRows, functionsData, keyRows, usageData, settingsData, userSettingsData, providersData, agentCountsData, ragDocsData] = await Promise.all([
       apiGet<HistoryEntry[]>(showArchivedHistory ? '/api/history?archived=true' : '/api/history'),
       apiGet<Fact[]>('/api/memory/facts'),
@@ -1657,6 +1660,7 @@ function AppShell() {
     if (nextProviders.length === 1 && nextProviders[0] === 'local') {
       setProvider('local');
       setModel(nextLocalModel);
+      setHistoryLoading(false);
       return;
     }
 
@@ -1668,6 +1672,7 @@ function AppShell() {
       setProvider('auto');
       setModel('');
     }
+    setHistoryLoading(false);
   }
 
   async function refreshTelegramStatus() {
@@ -4674,7 +4679,17 @@ function AppShell() {
                     ) : null}
                   </div>
                 ))}
-                {conversations.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
+                {conversations.length === 0 && !historyLoading ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
+                {historyLoading ? (
+                  <div className="flex flex-col gap-2 animate-pulse">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className={`rounded-xl p-3 ${isDarkMode ? 'bg-white/5' : 'bg-stone-100'}`}>
+                        <div className={`h-3.5 w-2/3 rounded mb-2 ${isDarkMode ? 'bg-white/10' : 'bg-stone-200'}`} />
+                        <div className={`h-3 w-1/2 rounded ${isDarkMode ? 'bg-white/7' : 'bg-stone-200/70'}`} />
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
                 {conversations.length > 0 && historySearch.trim() && conversations.filter(item => item.items.some(entry => entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) || entry.response.toLowerCase().includes(historySearch.toLowerCase())) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
               </div>
             ) : null}
