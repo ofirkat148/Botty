@@ -552,7 +552,7 @@ function AppShell() {
   const [historySearch, setHistorySearch] = useState('');
   const [chatSearch, setChatSearch] = useState('');
   const [showChatSearch, setShowChatSearch] = useState(false);
-  const [docContext, setDocContext] = useState('');
+  const [sessionSystemPrompt, setSessionSystemPrompt] = useState('');
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectFilter, setActiveProjectFilter] = useState<string | null>(null);
@@ -1818,16 +1818,14 @@ function AppShell() {
       model: isAutoRouteProvider(provider) ? undefined : model,
       conversationId,
       messages: messages.slice(-30),
-      attachments: [
-        ...(docContext.trim() ? [{ name: 'document-context.txt', content: docContext.trim(), type: 'text/plain' }] : []),
-        ...pendingAttachments.map(item => ({
-          name: item.name,
-          content: item.content,
-          type: item.type,
-        })),
-      ],
+      attachments: pendingAttachments.map(item => ({
+        name: item.name,
+        content: item.content,
+        type: item.type,
+      })),
       activeAgentId: activeBotPreset?.id || null,
       webSearch: webSearchEnabled,
+      sessionSystemPrompt: sessionSystemPrompt.trim() || undefined,
     };
 
     try {
@@ -4263,23 +4261,23 @@ function AppShell() {
                     <div className="flex items-center justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2">
                         <FileText className="w-4 h-4 opacity-60" />
-                        <h3 className="font-medium">Document context</h3>
+                        <h3 className="font-medium">Session system prompt</h3>
                       </div>
-                      {docContext.trim() ? (
-                        <button type="button" onClick={() => setDocContext('')} className={`text-xs ${subtleTextClass} opacity-60 hover:opacity-100`}>Clear</button>
+                      {sessionSystemPrompt.trim() ? (
+                        <button type="button" onClick={() => setSessionSystemPrompt('')} className={`text-xs ${subtleTextClass} opacity-60 hover:opacity-100`}>Clear</button>
                       ) : null}
                     </div>
-                    <p className={`text-xs ${mutedTextClass} mb-2`}>Paste text — it will be included as context on every message you send.</p>
+                    <p className={`text-xs ${mutedTextClass} mb-2`}>Appended to the system prompt on every send. Use it to set a tone, persona, or extra instructions for this session.</p>
                     <textarea
-                      value={docContext}
-                      onChange={e => setDocContext(e.target.value)}
+                      value={sessionSystemPrompt}
+                      onChange={e => setSessionSystemPrompt(e.target.value)}
                       rows={5}
-                      placeholder="Paste document, code, notes, or any context here…"
+                      placeholder={`e.g. Always reply concisely in bullet points.\nFocus on performance and security tradeoffs.`}
                       className={`w-full resize-y text-xs ${isDarkMode ? 'bg-white/5 border-white/10 text-stone-200 placeholder:text-stone-500' : 'bg-stone-50 border-stone-200 text-stone-800 placeholder:text-stone-400'} rounded-xl border px-3 py-2 outline-none focus:ring-1 ${isDarkMode ? 'focus:ring-white/20' : 'focus:ring-stone-300'}`}
                     />
-                    {docContext.trim() ? (
+                    {sessionSystemPrompt.trim() ? (
                       <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-amber-300/80' : 'text-amber-700'}`}>
-                        {docContext.trim().length.toLocaleString()} chars · active on all sends
+                        {sessionSystemPrompt.trim().length.toLocaleString()} chars · active on all sends
                       </p>
                     ) : null}
                   </div>

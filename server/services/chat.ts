@@ -131,6 +131,7 @@ export type RunChatForUserInput = {
   activeAgentId?: string | null;
   attachments?: ChatAttachment[];
   webSearch?: boolean;
+  sessionSystemPrompt?: string;
   signal?: AbortSignal;
 };
 
@@ -384,8 +385,9 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   const googleSystemNote = googleStatus.connected
     ? `[GOOGLE INTEGRATION ACTIVE] The user has connected their Google account (${googleStatus.email || 'email unknown'}). When the user asks about their calendar, schedule, events, emails, or wants to send an email, their live data will be injected into the conversation automatically. You can reference and summarise it. You can also tell the user to ask you to create a calendar event or send an email.`
     : '';
+  const sessionSysPrompt = String(input.sessionSystemPrompt || '').trim();
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: [activeAgent?.systemPrompt || projectSystemPrompt || runtimeSettings.systemPrompt, toolCatalogSection, googleSystemNote].filter(Boolean).join('\n\n'),
+    systemPrompt: [activeAgent?.systemPrompt || projectSystemPrompt || runtimeSettings.systemPrompt, sessionSysPrompt, toolCatalogSection, googleSystemNote].filter(Boolean).join('\n\n'),
     memoryContext: fullMemoryContext,
     sandboxMode: runtimeSettings.sandboxMode,
   });
@@ -639,8 +641,9 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   const googleSystemNoteStream = googleStatusStream.connected
     ? `[GOOGLE INTEGRATION ACTIVE] The user has connected their Google account (${googleStatusStream.email || 'email unknown'}). When the user asks about their calendar, schedule, events, emails, or wants to send an email, their live data will be injected into the conversation automatically. You can reference and summarise it.`
     : '';
+  const sessionSysPromptStream = String(input.sessionSystemPrompt || '').trim();
   const systemPrompt = buildChatSystemPrompt({
-    systemPrompt: [activeAgent?.systemPrompt || projectSystemPromptStream || runtimeSettings.systemPrompt, googleSystemNoteStream].filter(Boolean).join('\n\n'),
+    systemPrompt: [activeAgent?.systemPrompt || projectSystemPromptStream || runtimeSettings.systemPrompt, sessionSysPromptStream, googleSystemNoteStream].filter(Boolean).join('\n\n'),
     memoryContext: fullMemoryContextStream,
     sandboxMode: runtimeSettings.sandboxMode,
   });

@@ -59,6 +59,7 @@ router.post('/', async (req: Request, res: Response) => {
       activeAgentId: typeof req.body?.activeAgentId === 'string' ? req.body.activeAgentId.trim() : '',
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
       webSearch: req.body?.webSearch === true,
+      sessionSystemPrompt: typeof req.body?.sessionSystemPrompt === 'string' ? req.body.sessionSystemPrompt.trim() : '',
       signal: abortController.signal,
     });
 
@@ -111,6 +112,7 @@ router.post('/stream', async (req: Request, res: Response) => {
       activeAgentId: typeof req.body?.activeAgentId === 'string' ? req.body.activeAgentId.trim() : '',
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
       webSearch: req.body?.webSearch === true,
+      sessionSystemPrompt: typeof req.body?.sessionSystemPrompt === 'string' ? req.body.sessionSystemPrompt.trim() : '',
       signal: abortController.signal,
       onChunk: (delta) => send({ type: 'chunk', delta }),
     });
