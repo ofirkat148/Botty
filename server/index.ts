@@ -19,7 +19,7 @@ import projectsRoutes from './routes/projects.js';
 import sharesRoutes from './routes/shares.js';
 import ragRoutes from './routes/rag.js';
 import googleRoutes from './routes/google.js';
-import { getTelegramBotStatus, startTelegramBot } from './services/telegram.js';
+import { getTelegramBotStatus, startTelegramBot, startDigestScheduler } from './services/telegram.js';
 import { getLocalProviderStatus, reconcileAllFacts } from './utils/llm.js';
 import { logger } from './utils/logger.js';
 import { lt, sql } from 'drizzle-orm';
@@ -272,6 +272,7 @@ async function startServer() {
 
   try {
     await startTelegramBot();
+    startDigestScheduler();
   } catch (error) {
     console.error('Failed to start Telegram bot:', error);
   }

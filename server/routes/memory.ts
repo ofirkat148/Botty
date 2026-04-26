@@ -4,7 +4,7 @@ import { getDatabase } from '../db/index.js';
 import { facts, history, memoryFiles, memoryUrls, settings, userSettings } from '../db/schema.js';
 import { and, desc, eq, isNotNull, sql } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
-import { consolidateFactRows, reconcileFactsForUser, reconcileFactsForUserScoped, saveFactsWithConsolidation } from '../utils/llm.js';
+import { consolidateFactRows, getAvailableProviders, getDefaultModel, getProviderApiKey, getRuntimeSettings, callLLM, reconcileFactsForUser, reconcileFactsForUserScoped, saveFactsWithConsolidation } from '../utils/llm.js';
 import { listCustomAgentsForUser, replaceCustomAgentsForUser } from '../utils/agents.js';
 
 const router = Router();
@@ -478,6 +478,76 @@ router.delete('/urls/:id', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error deleting memory URL:', error);
     res.status(500).json({ error: 'Failed to delete memory URL' });
+  }
+});
+
+// POST /api/memory/suggest — extract a memorable fact from an assistant message using LLM
+router.post('/suggest', async (req: Request, res: Response) => {
+  try {
+    const { assistantContent, userPrompt } = req.body as { assistantContent?: string; userPrompt?: string };
+    const uid = req.userId!;
+
+    if (!assistantContent || typeof assistantContent !== 'string') {
+      return res.status(400).json({ error: 'assistantContent is required' });
+    }
+
+    const runtimeSettings = await getRuntimeSettings(uid);
+    const providers = await getAvailableProviders(uid);
+    const providerName = providers[0];
+    if (!providerName) {
+      return res.json({ suggestions: [] });
+    }
+    const model = getDefaultModel(providerName);
+
+    const apiKey = await getProviderApiKey(uid, providerName);
+    if (!apiKey && providerName !== 'local') {
+      return res.json({ suggestions: [] });
+    }
+
+    const existingFacts = (await reconcileFactsForUser(uid)).slice(0, 30);
+    const extractionPrompt = [
+      'Extract 0-2 durable user facts from this exchange worth saving to long-term memory.',
+      'Return a JSON array of short strings (or [] if nothing worth saving).',
+      'Only include stable preferences, habits, decisions, identity facts, or project context.',
+      'Do NOT include temporary tasks, secrets, passwords, API keys, or anything sensitive.',
+      'Do NOT repeat facts already known.',
+      '',
+      '[ALREADY KNOWN]',
+      existingFacts.map(f => `- ${f.content}`).join('\n') || '(none)',
+      '',
+      userPrompt ? `[USER MESSAGE]\n${userPrompt.slice(0, 500)}\n` : '',
+      '[ASSISTANT REPLY]',
+      assistantContent.slice(0, 1200),
+    ].filter(Boolean).join('\n');
+
+    const { responseText } = await callLLM({
+      prompt: extractionPrompt,
+      provider: providerName,
+      model,
+      apiKey: apiKey || '',
+      systemPrompt: 'You extract durable user facts. Output only a JSON array of strings.',
+      localUrl: runtimeSettings.localUrl,
+      messages: [],
+    });
+
+    let suggestions: string[] = [];
+    try {
+      const parsed = JSON.parse(responseText.trim());
+      if (Array.isArray(parsed)) {
+        suggestions = parsed.filter((s): s is string => typeof s === 'string' && s.length >= 8 && s.length <= 180);
+      }
+    } catch {
+      // non-JSON response — extract lines
+      suggestions = responseText.trim().split('\n')
+        .map(l => l.replace(/^[-*\d.)\s]+/, '').trim())
+        .filter(s => s.length >= 8 && s.length <= 180)
+        .slice(0, 2);
+    }
+
+    res.json({ suggestions: suggestions.slice(0, 2) });
+  } catch (error) {
+    console.error('Error suggesting facts:', error);
+    res.status(500).json({ error: 'Failed to suggest facts' });
   }
 });
 

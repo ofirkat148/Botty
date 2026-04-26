@@ -370,6 +370,8 @@ type SettingsResponse = {
   telegramAllowedChatIds?: string | null;
   telegramProvider?: string | null;
   telegramModel?: string | null;
+  telegramDigestEnabled?: boolean;
+  telegramDigestHour?: number | null;
 };
 
 type TelegramStatusResponse = {
@@ -553,6 +555,7 @@ function AppShell() {
   const [chatSearch, setChatSearch] = useState('');
   const [showChatSearch, setShowChatSearch] = useState(false);
   const [sessionSystemPrompt, setSessionSystemPrompt] = useState('');
+  const [memorySuggestion, setMemorySuggestion] = useState<{ messageIndex: number; suggestions: string[]; loading: boolean; saved: boolean } | null>(null);
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectFilter, setActiveProjectFilter] = useState<string | null>(null);
@@ -612,6 +615,8 @@ function AppShell() {
   const [telegramAllowedChatIds, setTelegramAllowedChatIds] = useState('');
   const [telegramProvider, setTelegramProvider] = useState('auto');
   const [telegramModel, setTelegramModel] = useState('');
+  const [telegramDigestEnabled, setTelegramDigestEnabled] = useState(false);
+  const [telegramDigestHour, setTelegramDigestHour] = useState('9');
   const [telegramStatus, setTelegramStatus] = useState<TelegramStatusResponse | null>(null);
   const [loadingTelegramStatus, setLoadingTelegramStatus] = useState(false);
   const [sendingTelegramTest, setSendingTelegramTest] = useState(false);
@@ -1648,6 +1653,8 @@ function AppShell() {
           : '')
         : '',
     );
+    setTelegramDigestEnabled(settingsData.telegramDigestEnabled === true);
+    setTelegramDigestHour(String(settingsData.telegramDigestHour ?? 9));
     setKeyInputs({
       anthropic: '',
       google: '',
@@ -3109,6 +3116,8 @@ function AppShell() {
           telegramAllowedChatIds,
           telegramProvider,
           telegramModel,
+          telegramDigestEnabled,
+          telegramDigestHour: Number(telegramDigestHour) || 9,
         }),
         apiSend('/api/settings/user-settings', 'POST', { systemPrompt }),
       ]);
@@ -3140,6 +3149,8 @@ function AppShell() {
         telegramAllowedChatIds,
         telegramProvider,
         telegramModel,
+        telegramDigestEnabled,
+        telegramDigestHour: Number(telegramDigestHour) || 9,
       });
 
       await refreshAll();
@@ -3848,6 +3859,11 @@ function AppShell() {
                           {message.role === 'user'
                             ? 'You'
                             : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
+                          {message.role === 'assistant' && message.routingMode ? (
+                            <span className="ml-2 lowercase tracking-normal opacity-60 not-italic font-normal" style={{ fontSize: '0.68rem' }}>
+                              ({message.routingMode})
+                            </span>
+                          ) : null}
                         </div>
                         <div className="text-[15px] leading-6 sm:leading-7">
                           {message.role === 'assistant'
@@ -3871,36 +3887,94 @@ function AppShell() {
                           </div>
                         ) : null}
                         {message.role === 'assistant' ? (
-                          <div className="mt-2 flex items-center justify-end gap-2">
-                            <div className="flex items-center gap-3">
-                              <button
-                                type="button"
-                                title="Copy message"
-                                onClick={() => {
-                                  navigator.clipboard.writeText(message.content);
-                                  setCopiedMessageIndex(index);
-                                  setTimeout(() => setCopiedMessageIndex(null), 1500);
-                                }}
-                                className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100 transition-opacity`}
-                              >
-                                {copiedMessageIndex === index ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                                {copiedMessageIndex === index ? 'Copied!' : 'Copy'}
-                              </button>
-                              {message.model && index === messages.length - 1 && !isSending ? (
+                          <div className="mt-2 flex flex-col gap-2">
+                            {/* Memory suggestion inline panel */}
+                            {memorySuggestion?.messageIndex === index ? (
+                              <div className={`rounded-lg border px-3 py-2 text-xs ${isDarkMode ? 'border-amber-400/30 bg-amber-500/8 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+                                {memorySuggestion.loading ? (
+                                  <span className="opacity-70">Extracting memorable fact…</span>
+                                ) : memorySuggestion.saved ? (
+                                  <span className="flex items-center gap-1.5"><Check className="w-3 h-3" /> Saved to memory.</span>
+                                ) : memorySuggestion.suggestions.length === 0 ? (
+                                  <span className="opacity-70">Nothing memorable found in this message.</span>
+                                ) : (
+                                  <div className="flex flex-col gap-1.5">
+                                    {memorySuggestion.suggestions.map((s, si) => (
+                                      <div key={si} className="flex items-start justify-between gap-2">
+                                        <span>📌 {s}</span>
+                                        <button
+                                          type="button"
+                                          onClick={async () => {
+                                            try {
+                                              await apiSend('/api/memory/facts', 'POST', { content: s });
+                                              setMemorySuggestion(prev => prev ? { ...prev, saved: true } : null);
+                                              setTimeout(() => setMemorySuggestion(null), 2000);
+                                            } catch {
+                                              setMemorySuggestion(null);
+                                            }
+                                          }}
+                                          className="shrink-0 font-medium underline underline-offset-2 hover:no-underline"
+                                        >Save</button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                                {!memorySuggestion.loading && !memorySuggestion.saved ? (
+                                  <button type="button" onClick={() => setMemorySuggestion(null)} className="mt-1 opacity-50 hover:opacity-100">Dismiss</button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            <div className="flex items-center justify-end gap-2">
+                              <div className="flex items-center gap-3">
                                 <button
                                   type="button"
-                                  title="Retry — resend the last message"
-                                  onClick={() => {
-                                    const lastUser = [...messages].reverse().find(m => m.role === 'user');
-                                    if (!lastUser) return;
-                                    dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
-                                    setPrompt(lastUser.content);
+                                  title="Pin a fact to memory"
+                                  onClick={async () => {
+                                    setMemorySuggestion({ messageIndex: index, suggestions: [], loading: true, saved: false });
+                                    try {
+                                      const prevUser = messages.slice(0, index).reverse().find(m => m.role === 'user');
+                                      const data = await apiSend<{ suggestions: string[] }>('/api/memory/suggest', 'POST', {
+                                        assistantContent: message.content,
+                                        userPrompt: prevUser?.content,
+                                      });
+                                      setMemorySuggestion({ messageIndex: index, suggestions: data?.suggestions ?? [], loading: false, saved: false });
+                                    } catch {
+                                      setMemorySuggestion({ messageIndex: index, suggestions: [], loading: false, saved: false });
+                                    }
                                   }}
-                                  className={`flex items-center gap-1 text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}
+                                  className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100 transition-opacity`}
                                 >
-                                  <RefreshCw className="w-3 h-3" /> Retry
+                                  <Pin className="w-3 h-3" /> Remember
                                 </button>
-                              ) : null}
+                                <button
+                                  type="button"
+                                  title="Copy message"
+                                  onClick={() => {
+                                    navigator.clipboard.writeText(message.content);
+                                    setCopiedMessageIndex(index);
+                                    setTimeout(() => setCopiedMessageIndex(null), 1500);
+                                  }}
+                                  className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100 transition-opacity`}
+                                >
+                                  {copiedMessageIndex === index ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                                  {copiedMessageIndex === index ? 'Copied!' : 'Copy'}
+                                </button>
+                                {message.model && index === messages.length - 1 && !isSending ? (
+                                  <button
+                                    type="button"
+                                    title="Retry — resend the last message"
+                                    onClick={() => {
+                                      const lastUser = [...messages].reverse().find(m => m.role === 'user');
+                                      if (!lastUser) return;
+                                      dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
+                                      setPrompt(lastUser.content);
+                                    }}
+                                    className={`flex items-center gap-1 text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}
+                                  >
+                                    <RefreshCw className="w-3 h-3" /> Retry
+                                  </button>
+                                ) : null}
+                              </div>
                             </div>
                           </div>
                         ) : null}
@@ -5633,6 +5707,32 @@ function AppShell() {
                         placeholder="123456789,987654321"
                         className={textInputClass}
                       />
+                    </div>
+
+                    <div>
+                      <label className={sectionLabelClass}>Daily digest</label>
+                      <label className={`flex items-center gap-2 text-sm mt-1 cursor-pointer`}>
+                        <input
+                          type="checkbox"
+                          checked={telegramDigestEnabled}
+                          onChange={e => setTelegramDigestEnabled(e.target.checked)}
+                        />
+                        <span>Send a daily summary via Telegram</span>
+                      </label>
+                      {telegramDigestEnabled ? (
+                        <div className="mt-2 flex items-center gap-2">
+                          <label htmlFor="telegram-digest-hour" className={`text-xs ${mutedTextClass}`}>UTC hour (0–23):</label>
+                          <input
+                            id="telegram-digest-hour"
+                            type="number"
+                            min="0"
+                            max="23"
+                            value={telegramDigestHour}
+                            onChange={e => setTelegramDigestHour(e.target.value)}
+                            className={`${textInputClass} w-20`}
+                          />
+                        </div>
+                      ) : null}
                     </div>
 
                   </div>

@@ -181,6 +181,8 @@ router.get('/', async (req: Request, res: Response) => {
         telegramAllowedChatIds: appSettingsRow?.telegramAllowedChatIds || '',
         telegramProvider: appSettingsRow?.telegramProvider || 'auto',
         telegramModel: appSettingsRow?.telegramModel || '',
+        telegramDigestEnabled: appSettingsRow?.telegramDigestEnabled === true,
+        telegramDigestHour: appSettingsRow?.telegramDigestHour ?? 9,
       });
     }
 
@@ -191,6 +193,8 @@ router.get('/', async (req: Request, res: Response) => {
       telegramAllowedChatIds: appSettingsRow?.telegramAllowedChatIds || '',
       telegramProvider: appSettingsRow?.telegramProvider || 'auto',
       telegramModel: appSettingsRow?.telegramModel || '',
+      telegramDigestEnabled: appSettingsRow?.telegramDigestEnabled === true,
+      telegramDigestHour: appSettingsRow?.telegramDigestHour ?? 9,
     });
   } catch (error) {
     console.error('Error fetching settings:', error);
@@ -212,6 +216,8 @@ router.post('/', async (req: Request, res: Response) => {
       telegramAllowedChatIds,
       telegramProvider,
       telegramModel,
+      telegramDigestEnabled,
+      telegramDigestHour,
     } = req.body;
     const db = getDatabase();
     const uid = req.userId!;
@@ -275,6 +281,8 @@ router.post('/', async (req: Request, res: Response) => {
         telegramModel: typeof telegramModel === 'string' && telegramModel.trim()
           ? telegramModel.trim()
           : null,
+        telegramDigestEnabled: telegramDigestEnabled === true,
+        telegramDigestHour: Number.isFinite(Number(telegramDigestHour)) ? Math.min(Math.max(0, Math.floor(Number(telegramDigestHour))), 23) : 9,
         updatedAt: new Date().toISOString(),
       })
       .onConflictDoUpdate({
@@ -293,6 +301,8 @@ router.post('/', async (req: Request, res: Response) => {
           telegramModel: typeof telegramModel === 'string' && telegramModel.trim()
             ? telegramModel.trim()
             : null,
+          telegramDigestEnabled: telegramDigestEnabled === true,
+          telegramDigestHour: Number.isFinite(Number(telegramDigestHour)) ? Math.min(Math.max(0, Math.floor(Number(telegramDigestHour))), 23) : 9,
           updatedAt: new Date().toISOString(),
         },
       });

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { randomUUID } from 'crypto';
-import { getDatabase } from '../db/index.js';
+import { getDatabase, getSqlite } from '../db/index.js';
 import { ragDocuments } from '../db/schema.js';
 import { and, eq } from 'drizzle-orm';
 import { authMiddleware } from '../middleware/auth.js';
@@ -89,6 +89,15 @@ router.post('/documents', async (req: Request, res: Response) => {
       embedding: JSON.stringify(allEmbeddings[idx]),
     }));
     await db.insert(ragDocuments).values(rows);
+
+    // Also index into FTS5 for keyword-based retrieval (no OpenAI key needed)
+    const sqlite = getSqlite();
+    const insertFts = sqlite.prepare(`INSERT INTO rag_fts(chunk_text, doc_name, uid) VALUES (?, ?, ?)`);
+    const insertManyFts = sqlite.transaction((chunks: Array<{ text: string; name: string; uid: string }>) => {
+      for (const c of chunks) insertFts.run(c.text, c.name, c.uid);
+    });
+    insertManyFts(rows.map(r => ({ text: r.chunkText, name: r.name, uid: r.uid })));
+
     res.json({ ok: true, chunks: rows.length, name: name.trim().slice(0, 200) });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Upload failed';
@@ -132,6 +141,11 @@ router.delete('/documents/:name', async (req: Request, res: Response) => {
     const uid = req.userId!;
     const name = decodeURIComponent(req.params.name);
     await db.delete(ragDocuments).where(and(eq(ragDocuments.uid, uid), eq(ragDocuments.name, name)));
+
+    // Also remove from FTS5
+    const sqlite = getSqlite();
+    sqlite.prepare(`DELETE FROM rag_fts WHERE uid = ? AND doc_name = ?`).run(uid, name);
+
     res.json({ ok: true });
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Delete failed';
@@ -140,6 +154,7 @@ router.delete('/documents/:name', async (req: Request, res: Response) => {
 });
 
 // POST /api/rag/query  — retrieve top-k relevant chunks for a query
+// Uses OpenAI embeddings when available, falls back to SQLite FTS5 keyword search
 router.post('/query', async (req: Request, res: Response) => {
   try {
     const { query, topK = TOP_K } = req.body as { query?: string; topK?: number };
@@ -147,14 +162,35 @@ router.post('/query', async (req: Request, res: Response) => {
       res.status(400).json({ error: 'query is required' });
       return;
     }
-    const apiKey = await getProviderApiKey(req.userId!, 'openai');
+    const uid = req.userId!;
+    const apiKey = await getProviderApiKey(uid, 'openai');
+
+    // FTS5 keyword fallback — no OpenAI key required
     if (!apiKey) {
-      res.status(400).json({ error: 'OpenAI API key required for embeddings' });
+      const sqlite = getSqlite();
+      // Sanitize query: turn it into a safe FTS5 phrase search
+      const safeTerm = query.trim().replace(/["]/g, '').slice(0, 200);
+      const words = safeTerm.split(/\s+/).filter(Boolean);
+      if (words.length === 0) {
+        res.json({ chunks: [], fts: true });
+        return;
+      }
+      const ftsQuery = words.map(w => `"${w}"`).join(' OR ');
+      let rows: Array<{ chunk_text: string; doc_name: string }> = [];
+      try {
+        rows = sqlite.prepare(
+          `SELECT chunk_text, doc_name FROM rag_fts WHERE rag_fts MATCH ? AND uid = ? LIMIT ?`
+        ).all(ftsQuery, uid, Math.min(Number(topK) || TOP_K, 20)) as Array<{ chunk_text: string; doc_name: string }>;
+      } catch {
+        // FTS5 syntax error — fall back to empty results
+        rows = [];
+      }
+      res.json({ chunks: rows.map(r => ({ name: r.doc_name, text: r.chunk_text, score: 1 })), fts: true });
       return;
     }
+
     const [queryEmbedding] = await embedTexts([query], apiKey);
     const db = getDatabase();
-    const uid = req.userId!;
     const rows = await db.select({
       name: ragDocuments.name,
       chunkText: ragDocuments.chunkText,

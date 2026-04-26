@@ -1,7 +1,8 @@
 import { randomUUID, createHash, createDecipheriv } from 'crypto';
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, gte } from 'drizzle-orm';
 import { getDatabase } from '../db/index.js';
-import { appSettings, users } from '../db/schema.js';
+import { appSettings, history, users } from '../db/schema.js';
+import { callLLM, getAvailableProviders, getDefaultModel, getProviderApiKey, getRuntimeSettings, reconcileFactsForUser, saveFactsWithConsolidation } from '../utils/llm.js';
 import { runChatForUser } from './chat.js';
 
 type TelegramUpdate = {
@@ -320,7 +321,7 @@ async function handleTelegramMessage(update: TelegramUpdate) {
     await sendTelegramMessage(
       config.token,
       message.chat.id,
-      'Botty is ready. Send a message to chat.\n\nCommands:\n/start\n/help\n/reset',
+      'Botty is ready. Send a message to chat.\n\nCommands:\n/start\n/help\n/reset\n/remember <text> — save a fact to memory\n/summary — summarise today\'s conversations',
     );
     return;
   }
@@ -328,6 +329,32 @@ async function handleTelegramMessage(update: TelegramUpdate) {
   if (text === '/reset') {
     conversationByChatId.delete(message.chat.id);
     await sendTelegramMessage(config.token, message.chat.id, 'Conversation reset.');
+    return;
+  }
+
+  // /remember <text> — save a fact to memory
+  if (text.startsWith('/remember ') || text === '/remember') {
+    const factText = text.slice('/remember'.length).trim();
+    if (!factText) {
+      await sendTelegramMessage(config.token, message.chat.id, 'Usage: /remember <text to save>');
+      return;
+    }
+    const uid = await ensureTelegramUser(message);
+    await saveFactsWithConsolidation(uid, [{ content: factText, isSkill: false, timestamp: new Date() }]);
+    await sendTelegramMessage(config.token, message.chat.id, `✓ Saved: “${factText.slice(0, 120)}”`);
+    return;
+  }
+
+  // /summary — summarise today's conversations
+  if (text === '/summary') {
+    const uid = await ensureTelegramUser(message);
+    await sendTelegramTyping(config.token, message.chat.id);
+    try {
+      const summary = await buildDailySummary(uid);
+      await sendTelegramMessage(config.token, message.chat.id, summary);
+    } catch (error) {
+      await sendTelegramMessage(config.token, message.chat.id, 'Could not generate summary: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
     return;
   }
 
@@ -436,6 +463,8 @@ export async function refreshTelegramBot() {
         { command: 'start', description: 'Start chatting with Botty' },
         { command: 'help', description: 'Show available commands' },
         { command: 'reset', description: 'Start a new conversation' },
+        { command: 'remember', description: 'Save a fact to memory' },
+        { command: 'summary', description: "Summarise today's conversations" },
       ],
     }).catch((error: unknown) => {
       // Non-fatal: autocomplete registration failure should not prevent the bot from running
@@ -481,4 +510,118 @@ export async function getTelegramBotStatus(): Promise<TelegramBotStatus> {
     username: lastKnownUsername,
     error: lastTelegramError,
   };
+}
+
+// ── Daily summary / digest helpers ────────────────────────────────────────────
+
+async function buildDailySummary(uid: string): Promise<string> {
+  const db = getDatabase();
+  const todayStart = new Date();
+  todayStart.setUTCHours(0, 0, 0, 0);
+
+  const [todayHistory, userFacts] = await Promise.all([
+    db.select({ prompt: history.prompt, response: history.response, timestamp: history.timestamp })
+      .from(history)
+      .where(and(eq(history.uid, uid), gte(history.timestamp, todayStart.toISOString())))
+      .orderBy(desc(history.timestamp))
+      .limit(20),
+    reconcileFactsForUser(uid),
+  ]);
+
+  if (todayHistory.length === 0) {
+    return 'No conversations today yet.';
+  }
+
+  const providers = await getAvailableProviders(uid);
+  const providerName = providers[0];
+  if (!providerName) {
+    // No LLM available — return a plain list
+    const items = todayHistory.slice(0, 5).map(h => `• ${h.prompt.slice(0, 80)}`).join('\n');
+    return `Today's topics:\n${items}`;
+  }
+  const model = getDefaultModel(providerName);
+  const apiKey = await getProviderApiKey(uid, providerName);
+  const runtimeSettings = await getRuntimeSettings(uid);
+
+  const factsSection = userFacts.length > 0
+    ? `[YOUR MEMORY]\n${userFacts.slice(0, 10).map(f => `- ${f.content}`).join('\n')}`
+    : '';
+
+  const historySection = todayHistory.map(
+    h => `Q: ${h.prompt.slice(0, 200)}\nA: ${h.response.slice(0, 300)}`
+  ).join('\n\n');
+
+  const summaryPrompt = [
+    'Write a brief daily digest (3-6 bullet points) of what the user worked on today.',
+    'Be concrete and specific. Use plain text (no markdown).',
+    factsSection,
+    '[TODAY\'S CONVERSATIONS]',
+    historySection,
+  ].filter(Boolean).join('\n\n');
+
+  const { responseText } = await callLLM({
+    prompt: summaryPrompt,
+    provider: providerName,
+    model,
+    apiKey: apiKey || '',
+    systemPrompt: 'You write brief daily digests. Be concise and specific. Plain text only.',
+    localUrl: runtimeSettings.localUrl,
+    messages: [],
+  });
+
+  return responseText.trim() || 'Nothing notable today.';
+}
+
+let digestInterval: ReturnType<typeof setInterval> | null = null;
+
+export function startDigestScheduler(): void {
+  if (digestInterval) return;
+
+  digestInterval = setInterval(() => {
+    sendScheduledDigestIfDue().catch(err => {
+      console.error('Telegram digest scheduler error:', err);
+    });
+  }, 60 * 60 * 1000); // check every hour
+}
+
+async function sendScheduledDigestIfDue(): Promise<void> {
+  const db = getDatabase();
+  const rows = await db.select().from(appSettings).where(eq(appSettings.id, APP_SETTINGS_ID)).limit(1);
+  const row = rows[0];
+  if (!row?.telegramDigestEnabled || !row.telegramBotEnabled || !row.telegramBotToken) return;
+
+  const digestHour = row.telegramDigestHour ?? 9;
+  const nowUtcHour = new Date().getUTCHours();
+  if (nowUtcHour !== digestHour) return;
+
+  const todayDate = new Date().toISOString().slice(0, 10);
+  if (row.telegramDigestLastSent === todayDate) return; // already sent today
+
+  const token = decryptValue(row.telegramBotToken);
+  const allowedChatIds = parseAllowedChatIds(row.telegramAllowedChatIds?.trim() || '');
+
+  // Collect all Telegram users to send digest to
+  const telegramUsers = await db.select({ uid: users.uid }).from(users)
+    .where(eq(users.uid, users.uid)); // we filter below by uid prefix
+
+  const allUsers = await db.select({ uid: users.uid }).from(users);
+  const telegramUids = allUsers.filter(u => u.uid.startsWith('telegram:'));
+
+  for (const { uid } of telegramUids) {
+    const chatId = Number(uid.replace('telegram:', ''));
+    if (!Number.isFinite(chatId)) continue;
+    if (allowedChatIds && !allowedChatIds.has(chatId)) continue;
+
+    try {
+      const summary = await buildDailySummary(uid);
+      await sendTelegramMessage(token, chatId, `🌅 Daily digest:\n\n${summary}`);
+    } catch (err) {
+      console.error(`Failed to send digest to ${uid}:`, err);
+    }
+  }
+
+  // Mark as sent
+  await db.update(appSettings)
+    .set({ telegramDigestLastSent: todayDate, updatedAt: new Date().toISOString() })
+    .where(eq(appSettings.id, APP_SETTINGS_ID));
 }

@@ -9,6 +9,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let db: ReturnType<typeof drizzle> | null = null;
+let sqliteInstance: Database.Database | null = null;
 
 function bootstrapSchema(sqlite: Database.Database) {
   sqlite.exec(`
@@ -222,6 +223,33 @@ function bootstrapSchema(sqlite: Database.Database) {
     )
   `);
   sqlite.exec(`CREATE INDEX IF NOT EXISTS rag_documents_uid_idx ON rag_documents (uid)`);
+
+  // FTS5 virtual table for keyword-based RAG (no OpenAI key required)
+  sqlite.exec(`
+    CREATE VIRTUAL TABLE IF NOT EXISTS rag_fts USING fts5(
+      chunk_text,
+      doc_name UNINDEXED,
+      uid UNINDEXED
+    )
+  `);
+
+  // One-time backfill: populate FTS5 from existing rag_documents if FTS5 is empty
+  const ftsCount = (sqlite.prepare(`SELECT COUNT(*) as n FROM rag_fts`).get() as { n: number }).n;
+  if (ftsCount === 0) {
+    sqlite.exec(`INSERT INTO rag_fts(chunk_text, doc_name, uid) SELECT chunk_text, name, uid FROM rag_documents`);
+  }
+
+  // Migrate app_settings: add digest columns if missing
+  const appSettingsCols = sqlite.prepare(`PRAGMA table_info(app_settings)`).all() as Array<{ name: string }>;
+  if (!appSettingsCols.some(c => c.name === 'telegram_digest_enabled')) {
+    sqlite.exec(`ALTER TABLE app_settings ADD COLUMN telegram_digest_enabled INTEGER DEFAULT 0`);
+  }
+  if (!appSettingsCols.some(c => c.name === 'telegram_digest_hour')) {
+    sqlite.exec(`ALTER TABLE app_settings ADD COLUMN telegram_digest_hour INTEGER DEFAULT 9`);
+  }
+  if (!appSettingsCols.some(c => c.name === 'telegram_digest_last_sent')) {
+    sqlite.exec(`ALTER TABLE app_settings ADD COLUMN telegram_digest_last_sent TEXT`);
+  }
 }
 
 export function initializeDatabase() {
@@ -238,6 +266,7 @@ export function initializeDatabase() {
 
   bootstrapSchema(sqlite);
 
+  sqliteInstance = sqlite;
   db = drizzle(sqlite, { schema });
   console.log(`✅ SQLite database ready: ${dbPath}`);
   return db;
@@ -248,6 +277,13 @@ export function getDatabase() {
     throw new Error('Database not initialized. Call initializeDatabase() first.');
   }
   return db;
+}
+
+export function getSqlite(): Database.Database {
+  if (!sqliteInstance) {
+    throw new Error('Database not initialized. Call initializeDatabase() first.');
+  }
+  return sqliteInstance;
 }
 
 export default getDatabase;

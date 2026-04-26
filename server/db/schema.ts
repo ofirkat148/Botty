@@ -93,6 +93,9 @@ export const appSettings = sqliteTable('app_settings', {
   telegramAllowedChatIds: text('telegram_allowed_chat_ids'),
   telegramProvider: text('telegram_provider'),
   telegramModel: text('telegram_model'),
+  telegramDigestEnabled: integer('telegram_digest_enabled', { mode: 'boolean' }).default(false),
+  telegramDigestHour: integer('telegram_digest_hour').default(9),
+  telegramDigestLastSent: text('telegram_digest_last_sent'),
   updatedAt: text('updated_at').notNull().default(sql`(strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))`),
 });
 
