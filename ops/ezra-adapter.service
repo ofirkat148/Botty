@@ -1,0 +1,18 @@
+[Unit]
+Description=Ezra Botty adapter (port 7001)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ofirkat
+Group=ofirkat
+WorkingDirectory=/home/ofirkat/eitan/ezra-agent
+Environment=PATH=/home/ofirkat/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 /home/ofirkat/eitan/ezra-agent/botty_adapter.py
+Restart=always
+RestartSec=5
+TimeoutStopSec=10
+
+[Install]
+WantedBy=multi-user.target
