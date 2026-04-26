@@ -485,6 +485,67 @@ function isFactNoise(value: string) {
     || normalized.includes("['");
 }
 
+/** Returns true for LLM artifacts, JSON fragments, meta-commentary, code, and other non-fact garbage. */
+function isGarbageFact(value: string): boolean {
+  const v = value.trim();
+  if (!v) return true;
+
+  // Must have at least 2 words to be a real fact
+  if (v.split(/\s+/).length < 2) return true;
+
+  // JSON fragments: looks like a JSON key ("foo": or "foo" :)
+  if (/^"?\w[\w\s]*"?\s*[":]\s/.test(v)) return true;
+  // Contains JSON structural characters
+  if (/[{}\[\]]/.test(v)) return true;
+  // JSON field pattern anywhere in the value (key": "value)
+  if (/\w+\\?"\s*:\s*\\?"/.test(v)) return true;
+
+  // Code/markup
+  if (/^(\/\/|\/\*|import |class |def |return |await |async |if isinstance)/i.test(v)) return true;
+  if (/<[a-z]/i.test(v)) return true;
+  if (/`/.test(v)) return true;
+  if (/^[#$*|]/.test(v)) return true;
+
+  // Numbered list item fragments (e.g. "word 2. Word...")
+  if (/\b\d+\.\s+[A-Z]/.test(v)) return true;
+
+  // Starts with opening paren (meta notes like "(my apologies)")
+  if (/^\(/.test(v)) return true;
+
+  // Fragment sentences starting with subordinating conjunctions
+  if (/^(which |that |because |although |since |despite |unless )/i.test(v)) return true;
+
+  // LLM greetings / agreements as facts
+  if (/^(hey |hi |hello |dear )/i.test(v)) return true;
+  if (/^(yes[,. ]|yes\.\.\.|sure!|ok,|okay,)/i.test(v)) return true;
+
+  // Prompt template echoes and LLM meta-commentary
+  if (/^\[(?:KNOWN_FACTS|USER_MESSAGE|ASSISTANT|RETRIEVED)\]/i.test(v)) return true;
+  if (/\*\*\s*:/.test(v)) return true; // "LABEL**: ..."
+  if (/^(?:KNOWN_FACTS|ASSISTANT_REFLECTIVE_FACTS|USER_MESSAGE|ASSISTANT_REPLY)\b/i.test(v)) return true;
+
+  // LLM hedging/meta phrases
+  const lower = v.toLowerCase();
+  const metaPhrases = [
+    'here are the', 'here is the', "here's an", "here's a ", "here's the", "here's how",
+    "here is a ", 'the following', 'the above',
+    'i will gladly', 'i am going to', 'if you please',
+    'no edit is required', 'there isn\'t a simple task',
+    'you are correct', 'you\'re not even asking',
+    'now, if you', 'handle exceptions',
+    'consider using', 'in your program',
+    "i hope you ", 'i understand your need',
+    "we're so glad", 'your original message',
+    'please reply accordingly', 'based on various sources',
+    'the conversation ends', 'the user will have access',
+    'extract only durable user facts', 'reply only with confirmed user',
+    'snippets of knowledge such as', 'rules may not overlap',
+  ];
+  if (metaPhrases.some(p => lower.startsWith(p) || lower.includes(p))) return true;
+
+  return false;
+}
+
 function standardizeFactContent(value: string) {
   const cleaned = stripTrailingFactPunctuation(cleanFactContent(value));
   if (!cleaned) {
@@ -821,10 +882,19 @@ function parseLearnedFacts(responseText: string) {
     return [] as string[];
   }
 
+  // If the LLM echoed back prompt template markers, it didn't follow instructions — discard
+  if (/\[KNOWN_FACTS\]|\[USER_MESSAGE\]|\[ASSISTANT_REPLY\]/i.test(trimmed)) {
+    return [] as string[];
+  }
+
   try {
     const parsed = JSON.parse(trimmed);
     if (Array.isArray(parsed)) {
       return parsed.filter((item): item is string => typeof item === 'string');
+    }
+    // LLM returned a JSON object instead of array — discard
+    if (parsed && typeof parsed === 'object') {
+      return [] as string[];
     }
   } catch {
     // Fall back to line parsing below.
@@ -924,7 +994,7 @@ export async function learnFactsFromConversation(params: {
 
     candidateFacts = parseLearnedFacts(learnedText)
       .map(cleanFactContent)
-      .filter(item => item.length >= 8 && item.length <= 180);
+      .filter(item => item.length >= 8 && item.length <= 180 && !isGarbageFact(item));
   }
 
   const seen = new Set<string>();

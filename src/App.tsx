@@ -5623,13 +5623,12 @@ function AppShell() {
                   ) : (
                     <div className={`text-sm ${subtleTextClass}`}>No custom agents yet.</div>
                   )}
-                </section>
-
-                <section className={sectionCardClass}>
-                  <button onClick={() => void saveSettings()} disabled={savingSettings} className={responsivePrimaryButtonClass}>
-                    <Save className="w-4 h-4" />
-                    {savingSettings ? 'Saving...' : 'Save settings'}
-                  </button>
+                  <div className="mt-4 pt-4 border-t border-current/10">
+                    <button onClick={() => void saveSettings()} disabled={savingSettings} className={responsivePrimaryButtonClass}>
+                      <Save className="w-4 h-4" />
+                      {savingSettings ? 'Saving...' : 'Save settings'}
+                    </button>
+                  </div>
                 </section>
               </div>
             ) : null}

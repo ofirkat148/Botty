@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto';
 import { eq, and, count } from 'drizzle-orm';
-import { getDatabase } from '../db/index.js';
+import { getDatabase, getSqlite } from '../db/index.js';
 import { history, projects, ragDocuments } from '../db/schema.js';
 import {
   BotMemoryMode,
@@ -60,16 +60,54 @@ function buildToolCatalogSection(tools: ToolDefinition[]): string {
   return lines.join('\n');
 }
 
-/** Retrieve top-k RAG chunks for a query using cosine similarity (no external vector DB). */
-async function retrieveRagContext(uid: string, query: string, apiKey: string): Promise<string> {
+/** Retrieve top-k RAG chunks. Returns {context, sources}. Filters by docName if provided.
+ *  Uses OpenAI embeddings when available; falls back to SQLite FTS5 keyword search. */
+async function retrieveRagContext(
+  uid: string,
+  query: string,
+  apiKey: string,
+  docName?: string,
+): Promise<{ context: string; sources: string[] }> {
+  const empty = { context: '', sources: [] };
   try {
+    // --- FTS5 keyword fallback (no OpenAI key needed) ---
+    if (!apiKey) {
+      const sqlite = getSqlite();
+      const safeTerm = query.trim().replace(/["]/g, '').slice(0, 200);
+      const words = safeTerm.split(/\s+/).filter(Boolean);
+      if (words.length === 0) return empty;
+      const ftsQuery = words.map(w => `"${w}"`).join(' OR ');
+      let rows: Array<{ chunk_text: string; doc_name: string }> = [];
+      try {
+        const docFilter = docName ? ` AND doc_name = ?` : '';
+        const params: unknown[] = docName
+          ? [ftsQuery, uid, docName, 4]
+          : [ftsQuery, uid, 4];
+        rows = sqlite.prepare(
+          `SELECT chunk_text, doc_name FROM rag_fts WHERE rag_fts MATCH ?${docFilter} AND uid = ? ORDER BY rank LIMIT ?`
+        ).all(...params) as Array<{ chunk_text: string; doc_name: string }>;
+      } catch {
+        return empty;
+      }
+      if (rows.length === 0) return empty;
+      const sources = [...new Set(rows.map(r => r.doc_name))];
+      const lines = ['[RETRIEVED DOCUMENT CONTEXT]', 'The following excerpts from your uploaded documents are relevant to this query:'];
+      rows.forEach((r, i) => { lines.push(`\n[${i + 1}] From "${r.doc_name}":\n${r.chunk_text}`); });
+      lines.push('\nUse the above context to inform your answer when relevant.');
+      return { context: lines.join('\n'), sources };
+    }
+
+    // --- Embedding-based retrieval ---
     const db = getDatabase();
+    const whereClause = docName
+      ? and(eq(ragDocuments.uid, uid), eq(ragDocuments.name, docName))
+      : eq(ragDocuments.uid, uid);
     const rows = await db.select({
       name: ragDocuments.name,
       chunkText: ragDocuments.chunkText,
       embedding: ragDocuments.embedding,
-    }).from(ragDocuments).where(eq(ragDocuments.uid, uid));
-    if (rows.length === 0) return '';
+    }).from(ragDocuments).where(whereClause);
+    if (rows.length === 0) return empty;
 
     // Embed the query
     const embedRes = await fetch('https://api.openai.com/v1/embeddings', {
@@ -77,11 +115,10 @@ async function retrieveRagContext(uid: string, query: string, apiKey: string): P
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({ model: 'text-embedding-3-small', input: [query] }),
     });
-    if (!embedRes.ok) return '';
+    if (!embedRes.ok) return empty;
     const embedData = await embedRes.json() as { data: Array<{ embedding: number[] }> };
     const qVec = embedData.data[0].embedding;
 
-    // Cosine similarity
     function cosine(a: number[], b: number[]): number {
       let dot = 0, na = 0, nb = 0;
       for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
@@ -94,18 +131,16 @@ async function retrieveRagContext(uid: string, query: string, apiKey: string): P
       score: cosine(qVec, JSON.parse(row.embedding) as number[]),
     })).sort((a, b) => b.score - a.score).slice(0, 4);
 
-    // Only include chunks above a relevance threshold
     const relevant = scored.filter(c => c.score > 0.3);
-    if (relevant.length === 0) return '';
+    if (relevant.length === 0) return empty;
 
+    const sources = [...new Set(relevant.map(c => c.name))];
     const lines = ['[RETRIEVED DOCUMENT CONTEXT]', 'The following excerpts from your uploaded documents are relevant to this query:'];
-    relevant.forEach((c, i) => {
-      lines.push(`\n[${i + 1}] From "${c.name}":\n${c.text}`);
-    });
+    relevant.forEach((c, i) => { lines.push(`\n[${i + 1}] From "${c.name}":\n${c.text}`); });
     lines.push('\nUse the above context to inform your answer when relevant.');
-    return lines.join('\n');
+    return { context: lines.join('\n'), sources };
   } catch {
-    return '';
+    return empty;
   }
 }
 
@@ -132,6 +167,7 @@ export type RunChatForUserInput = {
   attachments?: ChatAttachment[];
   webSearch?: boolean;
   sessionSystemPrompt?: string;
+  ragDocName?: string;
   signal?: AbortSignal;
 };
 
@@ -143,6 +179,7 @@ export type RunChatForUserResult = {
   model: string;
   conversationId: string;
   routingMode: string | null;
+  ragSources?: string[];
 };
 
 function normalizeChatAttachments(value: unknown) {
@@ -375,11 +412,11 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
   const projectSystemPrompt = !activeAgent && incomingConversationId
     ? await resolveProjectSystemPrompt(uid, incomingConversationId)
     : '';
-  // RAG: retrieve relevant document chunks if the user has uploaded docs and OpenAI key is available
+  // RAG: retrieve relevant document chunks if the user has uploaded docs
   const openaiKey = await getProviderApiKey(uid, 'openai').catch(() => '');
-  const ragContext = prompt && openaiKey
-    ? await retrieveRagContext(uid, prompt, openaiKey)
-    : '';
+  const { context: ragContext, sources: ragSources } = prompt
+    ? await retrieveRagContext(uid, prompt, openaiKey, input.ragDocName)
+    : { context: '', sources: [] as string[] };
   const fullMemoryContext = [memoryContext, ragContext].filter(Boolean).join('\n\n');
   const googleStatus = getGoogleConnectionStatus(uid);
   const googleSystemNote = googleStatus.connected
@@ -542,6 +579,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     model,
     conversationId,
     routingMode: shouldAutoRoute ? routingMode : null,
+    ragSources,
   };
 }
 
@@ -631,11 +669,11 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   const projectSystemPromptStream = !activeAgent && incomingConversationId
     ? await resolveProjectSystemPrompt(uid, incomingConversationId)
     : '';
-  // RAG: retrieve relevant document chunks if the user has uploaded docs and OpenAI key is available
+  // RAG: retrieve relevant document chunks if the user has uploaded docs
   const openaiKeyStream = await getProviderApiKey(uid, 'openai').catch(() => '');
-  const ragContextStream = prompt && openaiKeyStream
-    ? await retrieveRagContext(uid, prompt, openaiKeyStream)
-    : '';
+  const { context: ragContextStream, sources: ragSourcesStream } = prompt
+    ? await retrieveRagContext(uid, prompt, openaiKeyStream, input.ragDocName)
+    : { context: '', sources: [] as string[] };
   const fullMemoryContextStream = [memoryContext, ragContextStream].filter(Boolean).join('\n\n');
   const googleStatusStream = getGoogleConnectionStatus(uid);
   const googleSystemNoteStream = googleStatusStream.connected
@@ -779,5 +817,6 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
     model,
     conversationId,
     routingMode: shouldAutoRoute ? routingMode : null,
+    ragSources: ragSourcesStream,
   };
 }

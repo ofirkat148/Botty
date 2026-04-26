@@ -60,6 +60,7 @@ router.post('/', async (req: Request, res: Response) => {
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
       webSearch: req.body?.webSearch === true,
       sessionSystemPrompt: typeof req.body?.sessionSystemPrompt === 'string' ? req.body.sessionSystemPrompt.trim() : '',
+      ragDocName: typeof req.body?.ragDocName === 'string' ? req.body.ragDocName.trim() : undefined,
       signal: abortController.signal,
     });
 
@@ -113,6 +114,7 @@ router.post('/stream', async (req: Request, res: Response) => {
       attachments: Array.isArray(req.body?.attachments) ? req.body.attachments : [],
       webSearch: req.body?.webSearch === true,
       sessionSystemPrompt: typeof req.body?.sessionSystemPrompt === 'string' ? req.body.sessionSystemPrompt.trim() : '',
+      ragDocName: typeof req.body?.ragDocName === 'string' ? req.body.ragDocName.trim() : undefined,
       signal: abortController.signal,
       onChunk: (delta) => send({ type: 'chunk', delta }),
     });
@@ -127,6 +129,7 @@ router.post('/stream', async (req: Request, res: Response) => {
         provider: result.provider,
         conversationId: result.conversationId,
         routingMode: result.routingMode,
+        ragSources: result.ragSources || [],
       },
     });
   } catch (error) {
