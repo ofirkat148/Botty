@@ -77,6 +77,11 @@ import {
   terminateOcrWorker,
 } from './utils/chatAttachments';
 import { parseArtifacts, hasArtifacts } from './utils/artifacts';
+import AppContext from './contexts/AppContext';
+import ChatPanel from './components/panels/ChatPanel';
+import HistoryPanel from './components/panels/HistoryPanel';
+import MemoryPanel from './components/panels/MemoryPanel';
+import SettingsPanel from './components/panels/SettingsPanel';
 
 // ---------------------------------------------------------------------------
 // Artifact language set (shared by ArtifactBlock and MarkdownMessage)
@@ -3476,7 +3481,215 @@ function AppShell() {
     );
   }
 
+
+  // ---------------------------------------------------------------------------
+  // App context value — passed to panel components via React Context
+  // ---------------------------------------------------------------------------
+  const ctxVal = {
+    isDarkMode, setIsDarkMode,
+    token, setToken,
+    user, setUser,
+    authLoading, setAuthLoading,
+    authError, setAuthError,
+    loginEmail, setLoginEmail,
+    loginName, setLoginName,
+    activeTab, setActiveTab,
+    provider, setProvider,
+    model, setModel,
+    prompt, setPrompt,
+    chatState, dispatchChat,
+    messages, conversationId, isSending, chatError,
+    setConversationId, setMessages, setIsSending, setChatError,
+    isListening, setIsListening,
+    interimTranscript, setInterimTranscript,
+    availableProviders, setAvailableProviders,
+    defaultLocalModel, setDefaultLocalModel,
+    modelCatalog, setModelCatalog,
+    providerStatuses, setProviderStatuses,
+    isRefreshingModels, setIsRefreshingModels,
+    ollamaModels, setOllamaModels,
+    ollamaModelsLoading, setOllamaModelsLoading,
+    ollamaModelsError, setOllamaModelsError,
+    ollamaPullName, setOllamaPullName,
+    ollamaPullLog, setOllamaPullLog,
+    ollamaPulling, setOllamaPulling,
+    ollamaDeleting, setOllamaDeleting,
+    ragDocuments, setRagDocuments,
+    ragUploading, setRagUploading,
+    ragUploadError, setRagUploadError,
+    ragDeleting, setRagDeleting,
+    history, setHistory,
+    historyLoading, setHistoryLoading,
+    historySearch, setHistorySearch,
+    chatSearch, setChatSearch,
+    showChatSearch, setShowChatSearch,
+    sessionSystemPrompt, setSessionSystemPrompt,
+    memorySuggestion, setMemorySuggestion,
+    showArchivedHistory, setShowArchivedHistory,
+    projects, setProjects,
+    activeProjectFilter, setActiveProjectFilter,
+    creatingProject, setCreatingProject,
+    newProjectName, setNewProjectName,
+    editingProjectId, setEditingProjectId,
+    editingProject, setEditingProject,
+    newProjectColor, setNewProjectColor,
+    newProjectSystemPrompt, setNewProjectSystemPrompt,
+    assigningConvId, setAssigningConvId,
+    openConvMenuId, setOpenConvMenuId,
+    factsSearch, setFactsSearch,
+    sidebarSearch, setSidebarSearch,
+    sidebarSearchFocused, setSidebarSearchFocused,
+    conversationLabels, setConversationLabels,
+    pinnedConversations, setPinnedConversations,
+    conversationModels, setConversationModels,
+    promptTemplates, setPromptTemplates,
+    showTemplatesMenu, setShowTemplatesMenu,
+    newTemplateTitle, setNewTemplateTitle,
+    newTemplateText, setNewTemplateText,
+    googleCredentialsSaving, setGoogleCredentialsSaving,
+    googleClientIdInput, setGoogleClientIdInput,
+    googleClientSecretInput, setGoogleClientSecretInput,
+    googleStatus, setGoogleStatus,
+    googleNotice, setGoogleNotice,
+    editingLabelId, setEditingLabelId,
+    labelDraft, setLabelDraft,
+    facts, setFacts,
+    memoryFiles, setMemoryFiles,
+    memoryUrls, setMemoryUrls,
+    agentFactCounts, setAgentFactCounts,
+    customSkills, setCustomSkills,
+    customAgents, setCustomAgents,
+    apiKeys, setApiKeys,
+    dailyTokens, setDailyTokens,
+    dailyModelUsage, setDailyModelUsage,
+    dailyProviderUsage, setDailyProviderUsage,
+    usageTrend, setUsageTrend,
+    usagePeriod, setUsagePeriod,
+    systemPrompt, setSystemPrompt,
+    localUrl, setLocalUrl,
+    useMemory, setUseMemory,
+    autoMemory, setAutoMemory,
+    sandboxMode, setSandboxMode,
+    webSearchEnabled, setWebSearchEnabled,
+    tavilyConfigured, setTavilyConfigured,
+    attachedRagDoc, setAttachedRagDoc,
+    showRagDocMenu, setShowRagDocMenu,
+    sharingConvId, setSharingConvId,
+    shareLink, setShareLink,
+    shareLoading, setShareLoading,
+    historyRetentionDays, setHistoryRetentionDays,
+    telegramBotToken, setTelegramBotToken,
+    telegramBotEnabled, setTelegramBotEnabled,
+    telegramAllowedChatIds, setTelegramAllowedChatIds,
+    telegramProvider, setTelegramProvider,
+    telegramModel, setTelegramModel,
+    telegramDigestEnabled, setTelegramDigestEnabled,
+    telegramDigestHour, setTelegramDigestHour,
+    telegramStatus, setTelegramStatus,
+    loadingTelegramStatus, setLoadingTelegramStatus,
+    sendingTelegramTest, setSendingTelegramTest,
+    telegramTestResult, setTelegramTestResult,
+    activePresetId, setActivePresetId,
+    applyingFunctionId, setApplyingFunctionId,
+    selectedSlashIndex, setSelectedSlashIndex,
+    hasSidebarPreference, setHasSidebarPreference,
+    isSidebarExpanded, setIsSidebarExpanded,
+    isFullscreen, setIsFullscreen,
+    isSidebarDrawerOpen, setIsSidebarDrawerOpen,
+    isChatSidebarOpen, setIsChatSidebarOpen,
+    recentSlashItemIds, setRecentSlashItemIds,
+    newFact, setNewFact,
+    newUrl, setNewUrl,
+    agentFacts, setAgentFacts,
+    expandedAgentMemory, setExpandedAgentMemory,
+    pendingAttachments, setPendingAttachments,
+    isDragOverComposer, setIsDragOverComposer,
+    savingBotId, setSavingBotId,
+    deletingBotId, setDeletingBotId,
+    confirmingDeleteBotId, setConfirmingDeleteBotId,
+    confirmingClearHistory, setConfirmingClearHistory,
+    keyInputs, setKeyInputs,
+    savingKey, setSavingKey,
+    savingSettings, setSavingSettings,
+    creatingFunction, setCreatingFunction,
+    isExportingMemory, setIsExportingMemory,
+    isImportingMemory, setIsImportingMemory,
+    copiedMessageIndex, setCopiedMessageIndex,
+    pendingMemoryRestore, setPendingMemoryRestore,
+    memoryRestorePreview, setMemoryRestorePreview,
+    notice, setNotice,
+    showScrollResumeBtn, setShowScrollResumeBtn,
+    showShortcuts, setShowShortcuts,
+    patchNewSkill, resetNewSkill,
+    newSkillTitle, newSkillCommand, newSkillDescription, newSkillSystemPrompt,
+    patchNewBot, resetNewBot,
+    newBotTitle, newBotDescription, newBotCommand, newBotProvider, newBotModel,
+    newBotMemoryMode, newBotExecutorType, newBotEndpoint, newBotSystemPrompt,
+    newBotTools, newBotMaxTurns,
+    patchEditingBot, resetEditingBot, loadEditingBot,
+    editingBotId, editingBotTitle, editingBotDescription, editingBotCommand,
+    editingBotUseWhen, editingBotBoundaries, editingBotProvider, editingBotModel,
+    editingBotMemoryMode, editingBotExecutorType, editingBotEndpoint, editingBotSystemPrompt,
+    editingBotTools, editingBotMaxTurns,
+    ragFileInputRef, factFileInputRef, factImportRef,
+    importMemoryInputRef, importAgentInputRef, attachmentInputRef,
+    composerDropRef, composerTextareaRef, speechRecognitionRef,
+    chatAbortControllerRef, chatScrollRef,
+    authHeaders, allPresets, skillPresets, agentPresets, usedCommands,
+    builtInAgents, customAgentsPresets, activePreset, slashCommands,
+    activeBotPreset, conversationTokenWarning, slashMenuItems, groupedSlashItems,
+    conversations, sortedModelUsage, latestAssistantMessage,
+    trendPeak, providerPeak, modelPeak, sidebarSearchResults,
+    currentRuntimeProvider, currentRuntimeModel, currentRuntimeTokenUsage,
+    sectionCardClass, elevatedCardClass, inputClass, textInputClass, textareaClass,
+    subtleTextClass, mutedTextClass, sectionLabelClass, navButtonClass,
+    sidebarPrimaryButtonClass, primaryButtonClass, shellUtilityButtonClass,
+    sidebarTextClass, sidebarBlockClass, sidebarStatsClass, sidebarCompactButtonClass,
+    telegramStatusToneClass, telegramStatusLabel, telegramStatusDetails,
+    actionButtonClass, listButtonClass, secondaryButtonClass, destructiveButtonClass,
+    responsiveButtonClass, responsivePrimaryButtonClass, responsiveSecondaryButtonClass,
+    responsiveDestructiveButtonClass, noticeClass, emptyStateClass,
+    refreshAll, stopCurrentResponse, sendPrompt, startNewChat, loadConversation,
+    openTab, handleLogout, toggleVoiceInput, handlePromptKeyDown, handleSystemPromptKeyDown,
+    addChatFiles, removePendingAttachment, refreshModels,
+    refreshTelegramStatus, sendTelegramTest,
+    toggleFullscreenMode, toggleSidebarPreference, closeMobileSidebar,
+    clearFunctionPreset, executeSlashCommand, activateSlashItem,
+    activateFunctionPreset, dismissSlashMode, rememberSlashItem,
+    saveSystemPromptOnly, createCustomSkill, createCustomBot,
+    startEditingCustomBot, stopEditingCustomBot,
+    requestDeleteCustomBot, cancelDeleteCustomBot,
+    exportAgents, importAgentsFromFile, saveEditedCustomBot, deleteCustomBot,
+    activateSlashSkill, clearAllHistory, deleteConversation,
+    archiveConversation, unarchiveConversation, shareConversation, revokeShare,
+    createProject, updateProject, deleteProject,
+    assignConversationToProject, saveConversationLabel, togglePinConversation,
+    savePromptTemplate, deletePromptTemplate, applyPromptTemplate,
+    loadGoogleStatus, saveGoogleCredentials, startGoogleOAuth, disconnectGoogle,
+    exportConversation, exportConversationCSV,
+    addFact, importFactsFromFile, deleteFact, loadAgentFacts,
+    deleteAgentFact, clearAgentFacts, toggleAgentMemory, addFactFiles,
+    deleteMemoryFile, addUrl, deleteUrl,
+    uploadRagDocument, deleteRagDocument,
+    loadOllamaModels, pullOllamaModel, deleteOllamaModel,
+    saveKey, saveSettings, toggleSandboxModeFromMenu,
+    exportMemoryBackup, resetMemoryRestoreSelection, prepareMemoryRestore, importMemoryBackup,
+    getAgentExecutorType, getAgentEndpoint, getAgentExecutorLabel,
+    formatProviderLabel, formatRoutingModeLabel, formatProviderSourceLabel,
+    getProviderStatusTone, formatProviderReadinessLabel,
+    humanizeFallbackModelName, formatModelOptionLabel, formatModelDisplay,
+    getPresetActivationLabel, getPresetAutonomyLabel, getPresetRoutingLabel, getPresetMemoryLabel,
+    getSlashItemPanelClass, getSlashItemBadgeClass,
+    inferProviderFromModel, isAutoRouteProvider, getProviderSelectValue,
+    getEstimatedModelTokenLimit, formatTokenUsage,
+    getSuggestedChatModel, getSelectableModels, getPreferredSelectableModel,
+    supportsSpeechRecognition,
+    ARTIFACT_LANG_SET,
+    ArtifactBlock,
+    MarkdownMessage,
+  };
   return (
+    <AppContext.Provider value={ctxVal}>
     <div className={appBackgroundClass}>
       <div className={`${isFullscreen ? 'h-dvh w-full overflow-hidden p-0' : 'min-h-dvh w-full p-3 sm:p-4 lg:p-5'}`}>
         <div className={workspaceShellClass}>
@@ -3727,1981 +3940,18 @@ function AppShell() {
 
             {notice ? <div className={`shrink-0 ${noticeClass}`}>{notice}</div> : null}
 
-            {activeTab === 'chat' ? (
-              <div className={`grid flex-1 min-h-0 gap-3 sm:gap-4 ${isFullscreen ? 'grid-cols-1 overflow-hidden' : 'xl:grid-cols-[minmax(0,1fr)_320px]'}`}>
-                <section className={`${sectionCardClass} flex min-h-0 flex-col ${isFullscreen ? 'h-full' : 'min-h-[62vh] sm:min-h-[70vh] lg:min-h-0'}`}>
-                  {activePreset ? (
-                    <div className={`mb-3 flex flex-col gap-2 rounded-[1rem] border px-3 py-3 text-sm sm:flex-row sm:items-center sm:justify-between ${
-                      activePreset.kind === 'skill'
-                        ? (isDarkMode ? 'border-amber-400/20 bg-amber-500/10 text-amber-100' : 'border-amber-200 bg-amber-50 text-amber-900')
-                        : (isDarkMode ? 'border-violet-400/20 bg-violet-500/10 text-violet-100' : 'border-violet-200 bg-violet-50 text-violet-900')
-                    }`}>
-                      <div className="flex items-start gap-2">
-                        {activePreset.kind === 'skill'
-                          ? <Sparkles className="mt-0.5 w-4 h-4 shrink-0" />
-                          : <Bot className="mt-0.5 w-4 h-4 shrink-0" />}
-                        <div>
-                          <div className="font-medium">{activePreset.kind === 'skill' ? 'Skill overlay' : 'Agent session'}: {activePreset.title}</div>
-                          <div className={`mt-1 text-xs opacity-80`}>
-                            {activePreset.kind === 'skill'
-                              ? 'Inherits the current provider, memory, and session — does not take over the workflow.'
-                              : 'Owns the session. May apply its own routing, model, and memory policy.'}
-                          </div>
-                          {activeBotPreset?.tools?.length ? (
-                            <div className="mt-1.5 flex flex-wrap gap-1">
-                              {activeBotPreset.tools.map(tool => (
-                                <span key={tool.name} className={`rounded-full border px-2 py-0.5 text-[11px] tracking-wide opacity-80 ${isDarkMode ? 'border-violet-400/20 bg-violet-500/10' : 'border-violet-200 bg-violet-100'}`}>
-                                  {tool.name}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </div>
-                      </div>
-                      <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
-                        {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
-                      </button>
-                    </div>
-                  ) : null}
+            {activeTab === 'chat' ? <ChatPanel /> : null}
 
-                  <div className={`items-center justify-between gap-3 pb-3 xl:hidden ${isFullscreen ? 'hidden' : 'flex'}`}>
-                    <div>
-                      <h3 className="text-sm font-medium">Runtime</h3>
-                      <p className={`mt-1 text-xs ${subtleTextClass}`}>Toggle runtime details.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        title="Search messages (Ctrl+F)"
-                        onClick={() => setShowChatSearch(v => !v)}
-                        className={`${secondaryButtonClass} ${showChatSearch ? (isDarkMode ? 'bg-amber-500/15 border-amber-400/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-800') : ''}`}
-                      >
-                        <Search className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setIsChatSidebarOpen(value => !value)}
-                        className={secondaryButtonClass}
-                        aria-expanded={isChatSidebarOpen}
-                        aria-label={isChatSidebarOpen ? 'Hide runtime details' : 'Show runtime details'}
-                      >
-                        {isChatSidebarOpen ? 'Hide runtime' : 'Show runtime'}
-                      </button>
-                    </div>
-                  </div>
+            {activeTab === 'history' ? <HistoryPanel /> : null}
 
-                  <div ref={chatScrollRef} className="flex-1 overflow-auto space-y-3 pr-1 sm:space-y-4 sm:pr-2 relative">
-                    {showChatSearch ? (
-                      <div className={`sticky top-0 z-10 flex items-center gap-2 rounded-xl border px-3 py-2 mb-2 ${isDarkMode ? 'bg-[#1a1d20] border-white/10' : 'bg-white border-stone-200'}`}>
-                        <Search className="w-3.5 h-3.5 shrink-0 opacity-50" />
-                        <input
-                          autoFocus
-                          type="text"
-                          placeholder="Search messages…"
-                          value={chatSearch}
-                          onChange={e => setChatSearch(e.target.value)}
-                          className="flex-1 bg-transparent text-sm outline-none"
-                        />
-                        {chatSearch ? (
-                          <span className={`text-xs ${isDarkMode ? 'text-stone-400' : 'text-stone-500'}`}>
-                            {messages.filter(m => m.content.toLowerCase().includes(chatSearch.toLowerCase())).length} match(es)
-                          </span>
-                        ) : null}
-                        <button type="button" onClick={() => { setShowChatSearch(false); setChatSearch(''); }} className="opacity-50 hover:opacity-100">
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    ) : null}
-                    {showScrollResumeBtn ? (
-                      <div className="sticky top-0 z-10 flex justify-center pb-1 pt-0.5">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            scrollLockedRef.current = false;
-                            setShowScrollResumeBtn(false);
-                            const el = chatScrollRef.current;
-                            if (el) el.scrollTop = el.scrollHeight;
-                          }}
-                          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs shadow-md ${isDarkMode ? 'bg-stone-700 text-stone-100 hover:bg-stone-600' : 'bg-stone-800 text-white hover:bg-stone-700'}`}
-                        >
-                          ↓ Resume scroll
-                        </button>
-                      </div>
-                    ) : null}
-                    {conversationTokenWarning ? (
-                      <div className={`flex items-center gap-2 rounded-xl border px-3 py-2 text-xs ${conversationTokenWarning.level === 'critical' ? (isDarkMode ? 'border-red-400/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-800') : (isDarkMode ? 'border-amber-400/20 bg-amber-500/8 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800')}`}>
-                        <Layers className="h-3.5 w-3.5 shrink-0 opacity-70" />
-                        <span>
-                          Context is {Math.round(conversationTokenWarning.pct * 100)}% full ({conversationTokenWarning.totalUsed.toLocaleString()} / {conversationTokenWarning.limit.toLocaleString()} tokens). Consider starting a new chat or using /new-chat.
-                        </span>
-                      </div>
-                    ) : null}
-                    {messages.length === 0 ? (
-                      <div className={`h-full min-h-[360px] flex items-center justify-center ${emptyStateClass}`}>
-                        <div className="max-w-md text-center">
-                          <Bot className={`w-10 h-10 mx-auto mb-3 ${isDarkMode ? 'text-stone-500' : 'text-stone-400'}`} />
-                          <p className={`text-lg ${isDarkMode ? 'text-stone-200' : 'text-stone-700'}`}>Start a local conversation.</p>
-                          <p className="text-sm mt-2 max-w-md">Choose a provider, type naturally, or use slash to jump modes without leaving the composer.</p>
-                        </div>
-                      </div>
-                    ) : null}
+            {activeTab === 'memory' ? <MemoryPanel /> : null}
 
-                    {messages.map((message, index) => (
-                      message.isCompact && message.role === 'user' ? (
-                        <div key={`compact-${index}`} className={`flex items-start gap-2 rounded-xl border px-3 py-2.5 ${isDarkMode ? 'border-amber-400/20 bg-amber-500/8 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-                          <Layers className="mt-0.5 h-3.5 w-3.5 shrink-0 opacity-60" />
-                          <div className="text-xs leading-relaxed opacity-80">
-                            {message.content.replace('[Context from earlier in this conversation]: ', '')}
-                          </div>
-                        </div>
-                      ) : message.isCompact ? null : (
-                      <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-3 py-3 sm:px-4 sm:py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[94%] sm:max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[94%] sm:max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-full sm:max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-full sm:max-w-[92%]'} ${chatSearch.trim() && message.content.toLowerCase().includes(chatSearch.toLowerCase()) ? (isDarkMode ? 'ring-2 ring-amber-400/60' : 'ring-2 ring-amber-400') : ''}`}>
-                        <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
-                          {message.role === 'user'
-                            ? 'You'
-                            : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
-                          {message.role === 'assistant' && message.routingMode ? (
-                            <span className="ml-2 lowercase tracking-normal opacity-60 not-italic font-normal" style={{ fontSize: '0.68rem' }}>
-                              ({message.routingMode})
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="text-[15px] leading-6 sm:leading-7">
-                          {message.role === 'assistant'
-                            ? <MarkdownMessage content={message.content} isDark={isDarkMode} />
-                            : <span className="whitespace-pre-wrap">{message.content}</span>
-                          }
-                        </div>
-                        {message.role === 'assistant' && message.ragSources?.length ? (
-                          <div className="mt-2 flex flex-wrap gap-1.5">
-                            {message.ragSources.map(src => (
-                              <span key={src} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${isDarkMode ? 'bg-white/8 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200'}`}>
-                                <FileText className="w-3 h-3 shrink-0" />
-                                {src}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        {message.role === 'user' && !isSending ? (
-                          <div className="mt-2 flex justify-start">
-                            <button
-                              type="button"
-                              title="Fork — branch from this point"
-                              onClick={() => {
-                                dispatchChat({ type: 'FORK_AT', beforeIndex: index });
-                                setPrompt(message.content);
-                              }}
-                              className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100`}
-                            >
-                              <GitBranch className="w-3 h-3" /> Fork
-                            </button>
-                          </div>
-                        ) : null}
-                        {message.role === 'assistant' ? (
-                          <div className="mt-2 flex flex-col gap-2">
-                            {/* Memory suggestion inline panel */}
-                            {memorySuggestion?.messageIndex === index ? (
-                              <div className={`rounded-lg border px-3 py-2 text-xs ${isDarkMode ? 'border-amber-400/30 bg-amber-500/8 text-amber-200' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
-                                {memorySuggestion.loading ? (
-                                  <span className="opacity-70">Extracting memorable fact…</span>
-                                ) : memorySuggestion.saved ? (
-                                  <span className="flex items-center gap-1.5"><Check className="w-3 h-3" /> Saved to memory.</span>
-                                ) : memorySuggestion.suggestions.length === 0 ? (
-                                  <span className="opacity-70">Nothing memorable found in this message.</span>
-                                ) : (
-                                  <div className="flex flex-col gap-1.5">
-                                    {memorySuggestion.suggestions.map((s, si) => (
-                                      <div key={si} className="flex items-start justify-between gap-2">
-                                        <span>📌 {s}</span>
-                                        <button
-                                          type="button"
-                                          onClick={async () => {
-                                            try {
-                                              await apiSend('/api/memory/facts', 'POST', { content: s });
-                                              setMemorySuggestion(prev => prev ? { ...prev, saved: true } : null);
-                                              setTimeout(() => setMemorySuggestion(null), 2000);
-                                            } catch {
-                                              setMemorySuggestion(null);
-                                            }
-                                          }}
-                                          className="shrink-0 font-medium underline underline-offset-2 hover:no-underline"
-                                        >Save</button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-                                {!memorySuggestion.loading && !memorySuggestion.saved ? (
-                                  <button type="button" onClick={() => setMemorySuggestion(null)} className="mt-1 opacity-50 hover:opacity-100">Dismiss</button>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            <div className="flex items-center justify-end gap-2">
-                              <div className="flex items-center gap-3">
-                                <button
-                                  type="button"
-                                  title="Pin a fact to memory"
-                                  onClick={async () => {
-                                    setMemorySuggestion({ messageIndex: index, suggestions: [], loading: true, saved: false });
-                                    try {
-                                      const prevUser = messages.slice(0, index).reverse().find(m => m.role === 'user');
-                                      const data = await apiSend<{ suggestions: string[] }>('/api/memory/suggest', 'POST', {
-                                        assistantContent: message.content,
-                                        userPrompt: prevUser?.content,
-                                      });
-                                      setMemorySuggestion({ messageIndex: index, suggestions: data?.suggestions ?? [], loading: false, saved: false });
-                                    } catch {
-                                      setMemorySuggestion({ messageIndex: index, suggestions: [], loading: false, saved: false });
-                                    }
-                                  }}
-                                  className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100 transition-opacity`}
-                                >
-                                  <Pin className="w-3 h-3" /> Remember
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Copy message"
-                                  onClick={() => {
-                                    navigator.clipboard.writeText(message.content);
-                                    setCopiedMessageIndex(index);
-                                    setTimeout(() => setCopiedMessageIndex(null), 1500);
-                                  }}
-                                  className={`flex items-center gap-1 text-xs ${subtleTextClass} opacity-50 hover:opacity-100 transition-opacity`}
-                                >
-                                  {copiedMessageIndex === index ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                                  {copiedMessageIndex === index ? 'Copied!' : 'Copy'}
-                                </button>
-                                {message.model && index === messages.length - 1 && !isSending ? (
-                                  <button
-                                    type="button"
-                                    title="Retry — resend the last message"
-                                    onClick={() => {
-                                      const lastUser = [...messages].reverse().find(m => m.role === 'user');
-                                      if (!lastUser) return;
-                                      dispatchChat({ type: 'ROLLBACK_OPTIMISTIC' });
-                                      setPrompt(lastUser.content);
-                                    }}
-                                    className={`flex items-center gap-1 text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}
-                                  >
-                                    <RefreshCw className="w-3 h-3" /> Retry
-                                  </button>
-                                ) : null}
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
-                      </div>
-                      )
-                    ))}
-                  </div>
-
-                  {chatError ? <div className="mt-4 rounded-[1rem] bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">{chatError}</div> : null}
-
-                  <div ref={composerDropRef} className={`relative mt-4 rounded-[1.25rem] p-2.5 sm:p-3 transition-colors ${isDarkMode ? 'border border-white/8 bg-[#111417]' : 'border border-stone-200 bg-[#faf8f3]'} ${isDragOverComposer ? (isDarkMode ? 'ring-2 ring-white/30 bg-[#1b2024]' : 'ring-2 ring-stone-400/60 bg-white') : ''}`}>
-                    {isDragOverComposer ? (
-                      <div className={`pointer-events-none absolute inset-3 z-10 flex items-center justify-center rounded-[1.1rem] border-2 border-dashed ${isDarkMode ? 'border-white/25 bg-[#111417]/92 text-stone-100' : 'border-stone-300 bg-white/92 text-stone-900'}`}>
-                        <div className="text-center">
-                          <Upload className="mx-auto h-8 w-8" />
-                          <p className="mt-3 text-base font-medium">Drop files to attach</p>
-                          <p className="mt-1 text-sm opacity-75">Text, PDF, and image files are supported.</p>
-                        </div>
-                      </div>
-                    ) : null}
-                    <div className="mb-3 grid gap-3 sm:grid-cols-[minmax(0,180px)_1fr_auto]">
-                      <select
-                        value={getProviderSelectValue(provider)}
-                        onChange={event => {
-                          const nextProvider = event.target.value;
-                          if (nextProvider === 'auto') {
-                            setProvider(currentProvider => isAutoRouteProvider(currentProvider) ? currentProvider : 'auto');
-                            setModel('');
-                            return;
-                          }
-
-                          setProvider(nextProvider);
-                          setModel(getPreferredSelectableModel(nextProvider, prompt));
-                        }}
-                        className={inputClass}
-                      >
-                        {PROVIDERS.map(option => (
-                          <option key={option.value} value={option.value}>{option.label}</option>
-                        ))}
-                      </select>
-
-                      <select
-                        value={isAutoRouteProvider(provider) ? provider : model}
-                        onChange={event => {
-                          if (isAutoRouteProvider(provider)) {
-                            setProvider(event.target.value);
-                            return;
-                          }
-
-                          setModel(event.target.value);
-                        }}
-                        className={inputClass}
-                      >
-                        {isAutoRouteProvider(provider)
-                          ? AUTO_ROUTE_OPTIONS.map(option => (
-                              <option key={option.value} value={option.value}>{option.label}</option>
-                            ))
-                          : getSelectableModels(provider, model).map(option => (
-                              <option key={option} value={option}>{formatModelOptionLabel(option, provider)}</option>
-                            ))}
-                      </select>
-
-                      <button
-                        type="button"
-                        title="Refresh model catalog"
-                        onClick={() => void refreshModels()}
-                        disabled={isRefreshingModels}
-                        className={`flex items-center justify-center rounded-lg px-3 py-2 text-sm transition-opacity ${isDarkMode ? 'bg-white/10 hover:bg-white/20 text-stone-300' : 'bg-stone-100 hover:bg-stone-200 text-stone-600'} disabled:opacity-40`}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className={`h-4 w-4 ${isRefreshingModels ? 'animate-spin' : ''}`}
-                        >
-                          <path d="M23 4v6h-6" />
-                          <path d="M1 20v-6h6" />
-                          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10" />
-                          <path d="M20.49 15a9 9 0 0 1-14.85 3.36L1 14" />
-                        </svg>
-                      </button>
-                    </div>
-
-                    {conversationId && conversationModels[conversationId] ? (
-                      <div className={`mb-2 flex items-center gap-1.5 text-xs ${subtleTextClass}`}>
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="h-3 w-3 shrink-0"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        <span>Locked to <strong>{[conversationModels[conversationId].provider, conversationModels[conversationId].model].filter(Boolean).join(' · ')}</strong> for this conversation</span>
-                      </div>
-                    ) : null}
-
-                    <textarea
-                      ref={composerTextareaRef}
-                      value={prompt}
-                      onChange={event => setPrompt(event.target.value)}
-                      onKeyDown={handlePromptKeyDown}
-                      rows={4}
-                      placeholder="Ask Claude to debug, design, or write code... Use /development for skills or /new-chat for commands"
-                      className={textareaClass}
-                    />
-
-                    {interimTranscript ? (
-                      <p className={`mt-1 px-1 text-xs italic ${subtleTextClass}`}>{interimTranscript}…</p>
-                    ) : null}
-
-                    <input
-                      ref={attachmentInputRef}
-                      type="file"
-                      multiple
-                      accept="text/*,.txt,.md,.markdown,.json,.csv,.ts,.tsx,.js,.jsx,.css,.html,.xml,.yml,.yaml,.py,.java,.c,.cpp,.rs,.go,.sh,.sql,.log,.pdf,image/*"
-                      onChange={event => void addChatFiles(event.target.files)}
-                      className="hidden"
-                    />
-
-                    {pendingAttachments.length > 0 ? (
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        {pendingAttachments.map(item => (
-                          <div key={item.id} className={`inline-flex items-center gap-2 rounded-full px-3 py-2 text-xs ${isDarkMode ? 'bg-white/10 text-stone-200 border border-white/10' : 'bg-stone-100 text-stone-700 border border-stone-200'}`}>
-                            <span>{item.name}</span>
-                            <button type="button" onClick={() => removePendingAttachment(item.id)} className="opacity-80 hover:opacity-100">×</button>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-
-                    {prompt.startsWith('/') ? (
-                      <div className={`mt-3 rounded-[1rem] border ${isDarkMode ? 'border-white/8 bg-[#1a1d20]' : 'border-stone-200 bg-white'} p-2`}>
-                        <div className="flex items-center justify-between gap-3 px-2 pb-2">
-                          <div className={`text-xs ${subtleTextClass}`}>Slash autocomplete</div>
-                          <div className={`text-[11px] ${subtleTextClass}`}>Arrow keys to move, Enter to apply, Esc to keep text</div>
-                        </div>
-                        <div className="space-y-3">
-                          {slashMenuItems.length > 0 ? (
-                            <>
-                              {groupedSlashItems.recent.length > 0 ? (
-                                <div>
-                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Recent</div>
-                                  <div className="space-y-1">
-                                    {groupedSlashItems.recent.map(item => {
-                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
-                                      return (
-                                        <button
-                                          key={item.id}
-                                          type="button"
-                                          onClick={() => void activateSlashItem(item)}
-                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
-                                        >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                              <div className="text-sm font-medium">/{item.command}</div>
-                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
-                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
-                                            </div>
-                                            <div className="flex flex-col items-end gap-2">
-                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
-                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
-                                            </div>
-                                          </div>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {groupedSlashItems.commands.length > 0 ? (
-                                <div>
-                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Navigation</div>
-                                  <div className="space-y-1">
-                                    {groupedSlashItems.commands.map(item => {
-                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
-                                      return (
-                                        <button
-                                          key={item.id}
-                                          type="button"
-                                          onClick={() => void activateSlashItem(item)}
-                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
-                                        >
-                                          <div className="flex items-center justify-between gap-3">
-                                            <div className="flex items-center gap-2 min-w-0">
-                                              <span className={`text-xs ${isDarkMode ? 'text-sky-400' : 'text-sky-600'}`}>→</span>
-                                              <div>
-                                                <span className="text-sm font-medium">/{item.command}</span>
-                                                <span className={`ml-2 text-xs ${subtleTextClass}`}>{item.description}</span>
-                                              </div>
-                                            </div>
-                                            <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
-                                          </div>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {groupedSlashItems.skills.length > 0 ? (
-                                <div>
-                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Skills</div>
-                                  <div className="space-y-1">
-                                    {groupedSlashItems.skills.map(item => {
-                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
-                                      return (
-                                        <button
-                                          key={item.id}
-                                          type="button"
-                                          onClick={() => void activateSlashItem(item)}
-                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
-                                        >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                              <div className="text-sm font-medium">/{item.command}</div>
-                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
-                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
-                                            </div>
-                                            <div className="flex flex-col items-end gap-2">
-                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
-                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
-                                            </div>
-                                          </div>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-
-                              {groupedSlashItems.agents.length > 0 ? (
-                                <div>
-                                  <div className={`px-2 pb-2 text-[11px] uppercase tracking-[0.2em] ${subtleTextClass}`}>Agents</div>
-                                  <div className="space-y-1">
-                                    {groupedSlashItems.agents.map(item => {
-                                      const index = slashMenuItems.findIndex(candidate => candidate.id === item.id);
-                                      return (
-                                        <button
-                                          key={item.id}
-                                          type="button"
-                                          onClick={() => void activateSlashItem(item)}
-                                          className={`w-full rounded-xl px-3 py-2 text-left ${getSlashItemPanelClass(index === selectedSlashIndex)}`}
-                                        >
-                                          <div className="flex items-start justify-between gap-3">
-                                            <div>
-                                              <div className="text-sm font-medium">/{item.command}</div>
-                                              <div className={`text-xs mt-1 ${subtleTextClass}`}>{item.description}</div>
-                                              {item.detail ? <div className={`text-[11px] mt-2 ${subtleTextClass}`}>{item.detail}</div> : null}
-                                            </div>
-                                            <div className="flex flex-col items-end gap-2">
-                                              <span className={`rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-[0.18em] ${getSlashItemBadgeClass(item)}`}>{item.badge}</span>
-                                              <div className={`text-xs ${subtleTextClass}`}>{item.title}</div>
-                                            </div>
-                                          </div>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-                              ) : null}
-                            </>
-                          ) : (
-                            <div className={`px-3 py-2 text-sm ${subtleTextClass}`}>No matching commands, skills, or agents.</div>
-                          )}
-                        </div>
-                      </div>
-                    ) : null}
-
-                    <div className="mt-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                      <p className={`text-xs ${subtleTextClass}`}>Memory: {useMemory ? 'on' : 'off'}. Sandbox: {sandboxMode ? 'on' : 'off'}.{webSearchEnabled ? ' Web search: on.' : ''}{activePresetId ? ` Mode: ${allPresets.find(item => item.id === activePresetId)?.title || 'Custom'}.` : ''}</p>
-                      <div className="flex w-full flex-wrap items-center gap-2 lg:w-auto lg:justify-end">
-                        <button type="button" onClick={() => attachmentInputRef.current?.click()} className={secondaryButtonClass}>
-                          <Upload className="w-4 h-4" />
-                          Add files
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setWebSearchEnabled(v => !v)}
-                          title={webSearchEnabled ? 'Web search on — click to disable' : 'Enable web search (requires TAVILY_API_KEY)'}
-                          className={`${secondaryButtonClass}${webSearchEnabled ? (isDarkMode ? ' bg-blue-500/15 text-blue-300 border-blue-500/30' : ' bg-blue-100 text-blue-700 border-blue-300') : ''}`}
-                        >
-                          <Globe className="w-4 h-4" />
-                          {webSearchEnabled ? 'Search on' : 'Search'}
-                        </button>
-                        {ragDocuments.length > 0 ? (
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => setShowRagDocMenu(v => !v)}
-                              title={attachedRagDoc ? `Doc: ${attachedRagDoc}` : 'Attach a document for context'}
-                              className={`${secondaryButtonClass}${attachedRagDoc ? (isDarkMode ? ' bg-emerald-500/15 text-emerald-300 border-emerald-500/30' : ' bg-emerald-100 text-emerald-700 border-emerald-300') : ''}`}
-                            >
-                              <FileText className="w-4 h-4" />
-                              {attachedRagDoc ? attachedRagDoc.slice(0, 12) + (attachedRagDoc.length > 12 ? '\u2026' : '') : 'Doc'}
-                            </button>
-                            {showRagDocMenu ? (
-                              <div className={`absolute bottom-full right-0 mb-2 z-50 w-64 rounded-[1rem] border shadow-lg ${isDarkMode ? 'bg-[#1a1d20] border-white/10' : 'bg-white border-stone-200'}`}>
-                                <div className="p-3">
-                                  <div className={`text-xs font-medium mb-2 ${subtleTextClass}`}>Pick a document</div>
-                                  {attachedRagDoc ? (
-                                    <button type="button" onClick={() => { setAttachedRagDoc(''); setShowRagDocMenu(false); }} className={`w-full rounded-xl px-3 py-2 text-sm text-left mb-1 ${isDarkMode ? 'hover:bg-white/8 text-red-300' : 'hover:bg-red-50 text-red-600'}`}>
-                                      ✕ Remove document
-                                    </button>
-                                  ) : null}
-                                  {ragDocuments.map(doc => (
-                                    <button key={doc.name} type="button"
-                                      onClick={() => { setAttachedRagDoc(doc.name); setShowRagDocMenu(false); }}
-                                      className={`w-full rounded-xl px-3 py-2 text-left text-sm ${attachedRagDoc === doc.name ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200' : 'bg-emerald-50 text-emerald-800') : (isDarkMode ? 'hover:bg-white/8 text-stone-200' : 'hover:bg-stone-100 text-stone-800')}`}
-                                    >
-                                      <div className="font-medium truncate">{doc.name}</div>
-                                      <div className={`text-xs truncate mt-0.5 ${subtleTextClass}`}>{doc.chunks} chunks</div>
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            ) : null}
-                          </div>
-                        ) : null}
-                        <div className="relative">
-                          <button
-                            type="button"
-                            onClick={() => setShowTemplatesMenu(v => !v)}
-                            title="Prompt templates"
-                            className={`${secondaryButtonClass}${showTemplatesMenu ? (isDarkMode ? ' bg-amber-500/15 text-amber-300 border-amber-500/30' : ' bg-amber-100 text-amber-700 border-amber-300') : ''}`}
-                          >
-                            <Bookmark className="w-4 h-4" />
-                            Templates
-                          </button>
-                          {showTemplatesMenu ? (
-                            <div className={`absolute bottom-full right-0 mb-2 z-50 w-72 rounded-[1rem] border shadow-lg ${isDarkMode ? 'bg-[#1a1d20] border-white/10' : 'bg-white border-stone-200'}`}>
-                              <div className="p-3">
-                                <div className={`text-xs font-medium mb-2 ${subtleTextClass}`}>Prompt templates</div>
-                                {promptTemplates.length === 0 ? (
-                                  <div className={`text-xs ${mutedTextClass} mb-2`}>No templates saved. Add one in Settings.</div>
-                                ) : (
-                                  <div className="space-y-1 mb-2 max-h-52 overflow-y-auto">
-                                    {promptTemplates.map(t => (
-                                      <button
-                                        key={t.id}
-                                        type="button"
-                                        onClick={() => applyPromptTemplate(t.text)}
-                                        className={`w-full rounded-xl px-3 py-2 text-left text-sm ${isDarkMode ? 'hover:bg-white/8 text-stone-200' : 'hover:bg-stone-100 text-stone-800'}`}
-                                      >
-                                        <div className="font-medium truncate">{t.title}</div>
-                                        <div className={`text-xs truncate mt-0.5 ${subtleTextClass}`}>{t.text}</div>
-                                      </button>
-                                    ))}
-                                  </div>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => { setShowTemplatesMenu(false); setActiveTab('settings'); }}
-                                  className={`w-full rounded-xl px-3 py-1.5 text-xs text-left ${isDarkMode ? 'text-stone-400 hover:text-stone-200' : 'text-stone-500 hover:text-stone-800'}`}
-                                >
-                                  Manage templates in Settings →
-                                </button>
-                              </div>
-                            </div>
-                          ) : null}
-                        </div>
-                        <button type="button" onClick={toggleVoiceInput} className={`${secondaryButtonClass}${isListening ? ' mic-listening' : ''}`}>
-                          {isListening ? <Square className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                          {isListening ? 'Stop' : 'Voice'}
-                        </button>
-                        {isSending ? (
-                          <button type="button" onClick={stopCurrentResponse} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 px-4 py-2.5 text-white sm:w-auto">
-                            <Square className="w-4 h-4" />
-                            Stop
-                          </button>
-                        ) : (
-                          <button onClick={() => void sendPrompt()} className="flex w-full items-center justify-center gap-2 rounded-2xl bg-stone-900 px-4 py-2.5 text-white disabled:opacity-60 sm:w-auto">
-                            <Send className="w-4 h-4" />
-                            Send
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className={`${isChatSidebarOpen || isFullscreen ? 'space-y-4' : 'hidden'} ${isFullscreen ? 'grid gap-4 md:grid-cols-2 xl:grid-cols-2' : ''} xl:block`}>
-                  <div className={sectionCardClass}>
-                    <h3 className="font-medium">Current runtime</h3>
-                    <ul className={`mt-3 text-sm ${mutedTextClass} space-y-2`}>
-                      <li>Primary provider: {currentRuntimeProvider}</li>
-                      <li>Model: {formatModelDisplay(currentRuntimeModel, currentRuntimeProvider)}</li>
-                      <li>{currentRuntimeTokenUsage || `Estimated token window: ${getEstimatedModelTokenLimit(currentRuntimeProvider, currentRuntimeModel)?.toLocaleString() || 'unknown'}`}</li>
-                      <li>Available providers: {availableProviders.length ? availableProviders.join(', ') : 'none'}</li>
-                    </ul>
-                  </div>
-
-                  <div className={sectionCardClass}>
-                    <div className="flex items-center justify-between gap-2 mb-2">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 opacity-60" />
-                        <h3 className="font-medium">Session system prompt</h3>
-                      </div>
-                      {sessionSystemPrompt.trim() ? (
-                        <button type="button" onClick={() => setSessionSystemPrompt('')} className={`text-xs ${subtleTextClass} opacity-60 hover:opacity-100`}>Clear</button>
-                      ) : null}
-                    </div>
-                    <p className={`text-xs ${mutedTextClass} mb-2`}>Appended to the system prompt on every send. Use it to set a tone, persona, or extra instructions for this session.</p>
-                    <textarea
-                      value={sessionSystemPrompt}
-                      onChange={e => setSessionSystemPrompt(e.target.value)}
-                      rows={5}
-                      placeholder={`e.g. Always reply concisely in bullet points.\nFocus on performance and security tradeoffs.`}
-                      className={`w-full resize-y text-xs ${isDarkMode ? 'bg-white/5 border-white/10 text-stone-200 placeholder:text-stone-500' : 'bg-stone-50 border-stone-200 text-stone-800 placeholder:text-stone-400'} rounded-xl border px-3 py-2 outline-none focus:ring-1 ${isDarkMode ? 'focus:ring-white/20' : 'focus:ring-stone-300'}`}
-                    />
-                    {sessionSystemPrompt.trim() ? (
-                      <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-amber-300/80' : 'text-amber-700'}`}>
-                        {sessionSystemPrompt.trim().length.toLocaleString()} chars · active on all sends
-                      </p>
-                    ) : null}
-                  </div>
-                </section>
-              </div>
-            ) : null}
-
-            {activeTab === 'history' ? (
-              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
-                <section className={sectionCardClass}>
-                  <div className="flex flex-col gap-4">
-                    <div>
-                      <h3 className="font-medium">Usage overview</h3>
-                      <p className={`mt-1 text-sm ${subtleTextClass}`}>Track today&apos;s token usage by provider and model, plus the last 7 days of activity.</p>
-                    </div>
-
-                    <div className="flex items-center gap-4 flex-wrap">
-                      <span className={`text-sm ${subtleTextClass}`}>
-                        ~{dailyTokens.toLocaleString()} tokens today
-                      </span>
-                      <span className={`text-sm ${subtleTextClass}`}>
-                        {agentFactCounts.total} memory facts
-                      </span>
-                    </div>
-                  </div>
-                </section>
-
-                <div className="flex gap-2">
-                  <input
-                    value={historySearch}
-                    onChange={event => setHistorySearch(event.target.value)}
-                    placeholder="Search conversations..."
-                    className={`flex-1 ${textInputClass}`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowArchivedHistory(v => !v)}
-                    className={responsiveSecondaryButtonClass}
-                    title={showArchivedHistory ? 'Show active conversations' : 'Show archived conversations'}
-                  >
-                    {showArchivedHistory ? <ArchiveRestore className="w-4 h-4" /> : <Archive className="w-4 h-4" />}
-                    <span className="hidden sm:inline">{showArchivedHistory ? 'Active' : 'Archived'}</span>
-                  </button>
-                  {!showArchivedHistory && conversations.length > 0 ? (
-                    confirmingClearHistory ? (
-                      <>
-                        <button type="button" onClick={() => void clearAllHistory()} className={`${responsiveSecondaryButtonClass} text-red-600 dark:text-red-400`}>Confirm clear</button>
-                        <button type="button" onClick={() => setConfirmingClearHistory(false)} className={responsiveSecondaryButtonClass}>Cancel</button>
-                      </>
-                    ) : (
-                      <button type="button" onClick={() => setConfirmingClearHistory(true)} className={responsiveSecondaryButtonClass} title="Clear all history">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )
-                  ) : null}
-                </div>
-
-                {/* Projects panel */}
-                <section className={sectionCardClass}>
-                  <div className="flex items-center justify-between gap-3">
-                    <h3 className="font-medium">Projects</h3>
-                    <button type="button" onClick={() => setCreatingProject(v => !v)} className={responsiveSecondaryButtonClass}>
-                      <Plus className="w-4 h-4" />
-                      New project
-                    </button>
-                  </div>
-                  {creatingProject ? (
-                    <form onSubmit={event => { event.preventDefault(); void createProject(); }} className="mt-3 flex flex-col gap-2">
-                      <input
-                        autoFocus
-                        value={newProjectName}
-                        onChange={event => setNewProjectName(event.target.value)}
-                        placeholder="Project name…"
-                        className={`text-sm ${inputClass}`}
-                      />
-                      <div className="flex items-center gap-2">
-                        <span className={`text-xs ${subtleTextClass}`}>Color</span>
-                        {PROJECT_COLOR_PRESETS.map(c => (
-                          <button key={c} type="button" title={c} onClick={() => setNewProjectColor(c)}
-                            className={`w-4 h-4 rounded-full transition-all ${getProjectDotClass(c)} ${newProjectColor === c ? 'ring-2 ring-offset-1 ring-offset-transparent scale-125' : 'opacity-60 hover:opacity-100'}`} />
-                        ))}
-                      </div>
-                      <textarea
-                        value={newProjectSystemPrompt}
-                        onChange={event => setNewProjectSystemPrompt(event.target.value)}
-                        placeholder="System prompt for this project (optional)…"
-                        rows={2}
-                        className={`text-sm resize-none ${inputClass}`}
-                      />
-                      <div className="flex gap-2">
-                        <button type="submit" className={responsivePrimaryButtonClass}>Create</button>
-                        <button type="button" onClick={() => { setCreatingProject(false); setNewProjectName(''); setNewProjectColor('stone'); setNewProjectSystemPrompt(''); }} className={responsiveSecondaryButtonClass}>Cancel</button>
-                      </div>
-                    </form>
-                  ) : null}
-                  {projects.length === 0 && !creatingProject ? (
-                    <p className={`mt-2 text-sm ${subtleTextClass}`}>No projects yet. Group conversations into named folders with a shared system prompt.</p>
-                  ) : (
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {activeProjectFilter ? (
-                        <button
-                          type="button"
-                          onClick={() => setActiveProjectFilter(null)}
-                          className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ${isDarkMode ? 'bg-white/10 text-stone-200' : 'bg-stone-200 text-stone-700'}`}
-                        >
-                          <X className="w-3 h-3" /> All conversations
-                        </button>
-                      ) : null}
-                      {projects.map(proj => (
-                        <div key={proj.id} className="flex items-center gap-1">
-                          {editingProjectId === proj.id ? (
-                            <form onSubmit={event => { event.preventDefault(); void updateProject(proj.id, editingProject); }} className="w-full flex flex-col gap-2 mt-1">
-                              <input
-                                autoFocus
-                                value={editingProject.name ?? proj.name}
-                                onChange={event => setEditingProject(p => ({ ...p, name: event.target.value }))}
-                                className={`text-sm ${inputClass}`}
-                              />
-                              <div className="flex items-center gap-2">
-                                <span className={`text-xs ${subtleTextClass}`}>Color</span>
-                                {PROJECT_COLOR_PRESETS.map(c => (
-                                  <button key={c} type="button" title={c} onClick={() => setEditingProject(p => ({ ...p, color: c }))}
-                                    className={`w-4 h-4 rounded-full transition-all ${getProjectDotClass(c)} ${(editingProject.color ?? proj.color) === c ? 'ring-2 ring-offset-1 ring-offset-transparent scale-125' : 'opacity-60 hover:opacity-100'}`} />
-                                ))}
-                              </div>
-                              <textarea
-                                value={editingProject.systemPrompt ?? proj.systemPrompt ?? ''}
-                                onChange={event => setEditingProject(p => ({ ...p, systemPrompt: event.target.value }))}
-                                placeholder="System prompt for this project (optional)…"
-                                rows={3}
-                                className={`text-sm resize-none ${inputClass}`}
-                              />
-                              <div className="flex gap-2">
-                                <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
-                                <button type="button" onClick={() => { setEditingProjectId(''); setEditingProject({}); }} className={responsiveSecondaryButtonClass}>Cancel</button>
-                              </div>
-                            </form>
-                          ) : (
-                            <>
-                              <button
-                                type="button"
-                                onClick={() => setActiveProjectFilter(id => id === proj.id ? null : proj.id)}
-                                className={`flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition-colors ${activeProjectFilter === proj.id ? getProjectActivePill(proj.color, isDarkMode) : (isDarkMode ? 'bg-white/8 text-stone-200 hover:bg-white/14' : 'bg-stone-100 text-stone-700 hover:bg-stone-200')}`}
-                              >
-                                <span className={`w-2 h-2 rounded-full shrink-0 ${getProjectDotClass(proj.color)}`} />
-                                {proj.name}
-                              </button>
-                              <button type="button" onClick={() => { setEditingProjectId(proj.id); setEditingProject({ name: proj.name, color: proj.color, systemPrompt: proj.systemPrompt }); }} className={`rounded-full p-1 ${subtleTextClass} hover:opacity-80`} title="Edit project"><Pencil className="w-3 h-3" /></button>
-                              <button type="button" onClick={() => void deleteProject(proj.id)} className={`rounded-full p-1 ${subtleTextClass} hover:text-red-500`} title="Delete project"><Trash2 className="w-3 h-3" /></button>
-                            </>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </section>
-
-                {conversations.filter(item =>
-                  !historySearch.trim() || item.items.some(entry =>
-                    entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
-                    entry.response.toLowerCase().includes(historySearch.toLowerCase())
-                  ) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())
-                ).filter(item => !activeProjectFilter || item.items.some(e => e.projectId === activeProjectFilter))
-                .sort((a, b) => {
-                  const aPinned = pinnedConversations.has(a.id) ? 0 : 1;
-                  const bPinned = pinnedConversations.has(b.id) ? 0 : 1;
-                  return aPinned - bPinned;
-                }).map(item => (
-                  <div key={item.id} data-pinned={pinnedConversations.has(item.id) ? 'true' : undefined} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between ${pinnedConversations.has(item.id) ? (isDarkMode ? 'ring-1 ring-amber-400/30' : 'ring-1 ring-amber-400/60') : ''}`}>
-                    <div className="min-w-0 flex-1">
-                      {editingLabelId === item.id ? (
-                        <form onSubmit={event => { event.preventDefault(); void saveConversationLabel(item.id, labelDraft); }} className="mb-2 flex gap-2">
-                          <input
-                            autoFocus
-                            value={labelDraft}
-                            onChange={event => setLabelDraft(event.target.value)}
-                            placeholder="Rename this conversation…"
-                            className={`flex-1 text-sm ${inputClass}`}
-                          />
-                          <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
-                          <button type="button" onClick={() => setEditingLabelId('')} className={responsiveSecondaryButtonClass}>Cancel</button>
-                        </form>
-                      ) : (
-                        <button type="button" onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className="w-full text-left">
-                          <div className="text-sm font-medium line-clamp-2">
-                            {conversationLabels[item.id] || item.items[0].prompt}
-                          </div>
-                          {conversationLabels[item.id] ? (
-                            <div className={`mt-0.5 text-xs line-clamp-1 ${subtleTextClass}`}>{item.items[0].prompt}</div>
-                          ) : null}
-                        </button>
-                      )}
-                      <div className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs ${subtleTextClass}`}>
-                        <span>{(() => { const t = item.items.reduce((s, e) => s + (e.tokensUsed || 0), 0); return t > 0 ? `${t.toLocaleString()} tokens total` : 'Tokens: unknown'; })()}</span>
-                        <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
-                        <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
-                        {(() => { const pid = item.items.find(e => e.projectId)?.projectId; const proj = pid ? projects.find(p => p.id === pid) : null; return proj ? <span className={`flex items-center gap-1 font-medium ${getProjectBadgeClass(proj.color, isDarkMode)}`}><span className={`w-1.5 h-1.5 rounded-full ${getProjectDotClass(proj.color)}`} />{proj.name}</span> : null; })()}
-                      </div>
-                      {assigningConvId === item.id && projects.length > 0 ? (
-                        <div className={`mt-2 flex flex-wrap gap-2`}>
-                          <span className={`text-xs ${subtleTextClass}`}>Move to:</span>
-                          {projects.map(proj => (
-                            <button key={proj.id} type="button" onClick={() => void assignConversationToProject(item.id, proj.id)} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14 text-stone-200' : 'bg-stone-100 hover:bg-stone-200 text-stone-700'}`}>
-                              <span className={`w-2 h-2 rounded-full shrink-0 ${getProjectDotClass(proj.color)}`} />{proj.name}
-                            </button>
-                          ))}
-                          {item.items.some(e => e.projectId) ? <button type="button" onClick={() => void assignConversationToProject(item.id, null)} className={`rounded-full px-2.5 py-1 text-xs text-red-500`}>Remove from project</button> : null}
-                          <button type="button" onClick={() => setAssigningConvId('')} className={`rounded-full px-2.5 py-1 text-xs ${subtleTextClass}`}>Cancel</button>
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
-                      <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
-                      <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass} title="Export as Markdown">
-                        <Download className="w-4 h-4" />
-                      </button>
-                      <div className="relative">
-                        <button
-                          type="button"
-                          onClick={() => setOpenConvMenuId(id => id === item.id ? '' : item.id)}
-                          className={responsiveSecondaryButtonClass}
-                          title="More actions"
-                        >
-                          <MoreHorizontal className="w-4 h-4" />
-                        </button>
-                        {openConvMenuId === item.id ? (
-                          <div className={`absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border py-1 shadow-lg ${isDarkMode ? 'border-white/10 bg-stone-900 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
-                            {!showArchivedHistory ? (
-                              <button type="button" onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
-                                <Pencil className="w-3.5 h-3.5" /> Rename
-                              </button>
-                            ) : null}
-                            {!showArchivedHistory ? (
-                              <button type="button" onClick={() => { void togglePinConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`}>
-                                <Pin className="w-3.5 h-3.5" /> {pinnedConversations.has(item.id) ? 'Unpin' : 'Pin'}
-                              </button>
-                            ) : null}
-                            {!showArchivedHistory ? (
-                              <button type="button" onClick={() => { void shareConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
-                                <Share2 className="w-3.5 h-3.5" /> Share
-                              </button>
-                            ) : null}
-                            {!showArchivedHistory && projects.length > 0 ? (
-                              <button type="button" onClick={() => { setAssigningConvId(id => id === item.id ? '' : item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
-                                <Layers className="w-3.5 h-3.5" /> Assign project
-                              </button>
-                            ) : null}
-                            <button type="button" onClick={() => { exportConversationCSV(item); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
-                              <span className="w-3.5 text-xs font-medium">CSV</span> Export CSV
-                            </button>
-                            {showArchivedHistory ? (
-                              <button type="button" onClick={() => { void unarchiveConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
-                                <ArchiveRestore className="w-3.5 h-3.5" /> Restore
-                              </button>
-                            ) : (
-                              <button type="button" onClick={() => { void archiveConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
-                                <Archive className="w-3.5 h-3.5" /> Archive
-                              </button>
-                            )}
-                          </div>
-                        ) : null}
-                      </div>
-                      <button onClick={() => void deleteConversation(item.id)} className={responsiveDestructiveButtonClass}>
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    {sharingConvId === item.id && shareLink ? (
-                      <div className={`mt-2 rounded-xl border px-3 py-2.5 text-sm flex items-center gap-2 ${isDarkMode ? 'border-sky-400/20 bg-sky-500/8' : 'border-sky-200 bg-sky-50'}`}>
-                        {shareLink === 'error' ? (
-                          <span className="text-red-500">Failed to create share link.</span>
-                        ) : (
-                          <>
-                            <a href={shareLink} target="_blank" rel="noopener noreferrer" className={`flex-1 truncate font-mono text-xs ${isDarkMode ? 'text-sky-300' : 'text-sky-700'}`}>{shareLink}</a>
-                            <button onClick={() => void navigator.clipboard.writeText(shareLink)} className={`shrink-0 rounded-lg px-2 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14' : 'bg-stone-100 hover:bg-stone-200'}`} title="Copy link"><Copy className="w-3.5 h-3.5" /></button>
-                            <button onClick={() => void revokeShare(item.id)} className={`shrink-0 rounded-lg px-2 py-1 text-xs text-red-500`} title="Revoke share">Revoke</button>
-                            <button onClick={() => { setSharingConvId(''); setShareLink(''); }} className={`shrink-0 ${subtleTextClass}`} title="Dismiss"><X className="w-3.5 h-3.5" /></button>
-                          </>
-                        )}
-                      </div>
-                    ) : null}
-                  </div>
-                ))}
-                {conversations.length === 0 && !historyLoading ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
-                {historyLoading ? (
-                  <div className="flex flex-col gap-2 animate-pulse">
-                    {[...Array(5)].map((_, i) => (
-                      <div key={i} className={`rounded-xl p-3 ${isDarkMode ? 'bg-white/5' : 'bg-stone-100'}`}>
-                        <div className={`h-3.5 w-2/3 rounded mb-2 ${isDarkMode ? 'bg-white/10' : 'bg-stone-200'}`} />
-                        <div className={`h-3 w-1/2 rounded ${isDarkMode ? 'bg-white/7' : 'bg-stone-200/70'}`} />
-                      </div>
-                    ))}
-                  </div>
-                ) : null}
-                {conversations.length > 0 && historySearch.trim() && conversations.filter(item => item.items.some(entry => entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) || entry.response.toLowerCase().includes(historySearch.toLowerCase())) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
-              </div>
-            ) : null}
-
-            {activeTab === 'memory' ? (
-              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
-                <section className={sectionCardClass}>
-                  <div className="flex items-center justify-between gap-3 mb-3">
-                    <div>
-                      <h3 className="font-medium">Documents (RAG)</h3>
-                      <p className={`text-sm ${subtleTextClass} mt-1`}>Upload text files to be retrieved and injected into chat context automatically. Requires an OpenAI key.</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input ref={ragFileInputRef} type="file" accept=".txt,.md,.csv,.json" className="hidden" onChange={e => { const f = e.target.files?.[0]; if (f) void uploadRagDocument(f); }} />
-                      <button onClick={() => ragFileInputRef.current?.click()} disabled={ragUploading} className={responsivePrimaryButtonClass}>
-                        <Upload className="w-4 h-4" />
-                        {ragUploading ? 'Uploading...' : 'Upload file'}
-                      </button>
-                    </div>
-                  </div>
-                  {ragUploadError ? <p className={`text-sm mb-3 ${isDarkMode ? 'text-red-400' : 'text-red-600'}`}>{ragUploadError}</p> : null}
-                  {ragDocuments.length > 0 ? (
-                    <div className="flex flex-col gap-2">
-                      {ragDocuments.map(doc => (
-                        <div key={doc.name} className={`${elevatedCardClass} flex items-center justify-between gap-3`}>
-                          <div className="min-w-0">
-                            <div className="text-sm font-medium truncate">{doc.name}</div>
-                            <div className={`text-xs ${subtleTextClass}`}>{doc.chunks} chunk{doc.chunks === 1 ? '' : 's'} · {new Date(doc.createdAt).toLocaleDateString()}</div>
-                          </div>
-                          <button
-                            onClick={() => void deleteRagDocument(doc.name)}
-                            disabled={ragDeleting === doc.name}
-                            className={`shrink-0 ${secondaryButtonClass}`}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className={`text-sm ${subtleTextClass}`}>No documents uploaded yet. Upload .txt, .md, .csv, or .json files.</p>
-                  )}
-                </section>
-
-                <div className={`${sectionCardClass} flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between`}>
-                  <div>
-                    <h3 className="font-medium">Memory backup</h3>
-                    <p className={`text-sm ${subtleTextClass} mt-1`}>Download a backup or restore one to replace the current user's saved facts, URLs, settings, and recent history.</p>
-                  </div>
-                  <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-                    <input
-                      ref={importMemoryInputRef}
-                      type="file"
-                      accept="application/json"
-                      className="hidden"
-                      onChange={event => {
-                        const file = event.target.files?.[0];
-                        if (file) {
-                          void prepareMemoryRestore(file);
-                        }
-                      }}
-                    />
-                    <button onClick={() => importMemoryInputRef.current?.click()} disabled={isImportingMemory} className={responsiveSecondaryButtonClass}>
-                      <Upload className="w-4 h-4" />
-                      {isImportingMemory ? 'Restoring...' : 'Restore backup'}
-                    </button>
-                    <button onClick={() => void exportMemoryBackup()} disabled={isExportingMemory} className={responsivePrimaryButtonClass}>
-                      <Download className="w-4 h-4" />
-                      {isExportingMemory ? 'Exporting...' : 'Backup memory now'}
-                    </button>
-                  </div>
-                </div>
-
-                {memoryRestorePreview ? (
-                  <div className={`${sectionCardClass} space-y-4`}>
-                    <div>
-                      <h3 className="font-medium">Restore preview</h3>
-                      <p className={`text-sm ${subtleTextClass} mt-1`}>Review this backup before restoring it. Confirming will replace the current signed-in user's saved backup data.</p>
-                    </div>
-
-                    <div className="grid sm:grid-cols-2 xl:grid-cols-4 gap-3 text-sm">
-                      <div className={elevatedCardClass}>
-                        <div className={subtleTextClass}>Facts</div>
-                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.facts}</div>
-                      </div>
-                      <div className={elevatedCardClass}>
-                        <div className={subtleTextClass}>Files</div>
-                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.files}</div>
-                      </div>
-                      <div className={elevatedCardClass}>
-                        <div className={subtleTextClass}>URLs</div>
-                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.urls}</div>
-                      </div>
-                      <div className={elevatedCardClass}>
-                        <div className={subtleTextClass}>History</div>
-                        <div className="mt-1 text-xl font-semibold">{memoryRestorePreview.history}</div>
-                      </div>
-                    </div>
-
-                    <div className={`grid gap-2 text-sm ${subtleTextClass} md:grid-cols-2`}>
-                      <div>File: {memoryRestorePreview.fileName}</div>
-                      <div>Exported at: {memoryRestorePreview.exportedAt ? new Date(memoryRestorePreview.exportedAt).toLocaleString() : 'unknown'}</div>
-                      <div>Includes runtime settings: {memoryRestorePreview.includesSettings ? 'yes' : 'no'}</div>
-                      <div>Includes system prompt: {memoryRestorePreview.includesSystemPrompt ? 'yes' : 'no'}</div>
-                    </div>
-
-                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                      <button onClick={() => void importMemoryBackup()} disabled={isImportingMemory} className={responsivePrimaryButtonClass}>
-                        <Upload className="w-4 h-4" />
-                        {isImportingMemory ? 'Restoring...' : 'Confirm restore'}
-                      </button>
-                      <button onClick={resetMemoryRestoreSelection} disabled={isImportingMemory} className={responsiveSecondaryButtonClass}>
-                        Cancel
-                      </button>
-                    </div>
-                  </div>
-                ) : null}
-
-                <div className="grid gap-4 xl:grid-cols-3">
-                  <section className={sectionCardClass}>
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="font-medium">Facts</h3>
-                      <span className={`text-xs ${subtleTextClass}`}>{facts.length} stored</span>
-                    </div>
-                    <form onSubmit={addFact} className="mb-4 flex flex-col gap-2 sm:flex-row">
-                      <input value={newFact} onChange={event => setNewFact(event.target.value)} placeholder="User prefers concise technical responses" className={`flex-1 ${inputClass}`} />
-                      <button className={responsivePrimaryButtonClass}>Add</button>
-                      <button type="button" onClick={() => factImportRef.current?.click()} className={responsiveSecondaryButtonClass} title="Import facts from a .txt or .md file (one fact per line)">
-                        <Upload className="w-4 h-4" />
-                        Import
-                      </button>
-                    </form>
-                    <input ref={factImportRef} type="file" accept=".txt,.md" className="hidden" onChange={event => void importFactsFromFile(event.target.files)} />
-                    {facts.length > 4 ? (
-                      <div className="mb-3 relative">
-                        <Search className={`absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 ${subtleTextClass}`} />
-                        <input value={factsSearch} onChange={event => setFactsSearch(event.target.value)} placeholder="Filter facts…" className={`w-full pl-7 text-sm ${inputClass}`} />
-                      </div>
-                    ) : null}
-                    <div className="space-y-2">
-                      {facts.filter(item => !factsSearch.trim() || item.content.toLowerCase().includes(factsSearch.toLowerCase())).map(item => (
-                        <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
-                          <div className="text-sm">{item.content}</div>
-                          <button onClick={() => void deleteFact(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      ))}
-                      {facts.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved facts yet.</div> : null}
-                      {facts.length > 0 && factsSearch.trim() && facts.filter(item => item.content.toLowerCase().includes(factsSearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No facts match your filter.</div> : null}
-                    </div>
-                  </section>
-
-                  {customAgents.filter(agent => agent.memoryMode === 'isolated').map(agent => (
-                    <section key={agent.id} className={sectionCardClass}>
-                      <button
-                        type="button"
-                        className="mb-3 flex w-full items-center justify-between gap-3 text-left"
-                        onClick={() => toggleAgentMemory(agent.id)}
-                      >
-                        <div>
-                          <h3 className="font-medium">{agent.title} — isolated memory</h3>
-                          <p className={`mt-0.5 text-xs ${subtleTextClass}`}>/{agent.command}</p>
-                        </div>
-                        <span className={`text-xs ${subtleTextClass}`}>{expandedAgentMemory[agent.id] ? '▲' : '▼'}</span>
-                      </button>
-                      {expandedAgentMemory[agent.id] ? (
-                        <div className="space-y-2">
-                          {(agentFacts[agent.id] || []).map(item => (
-                            <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
-                              <div className="text-sm">{item.content}</div>
-                              <button onClick={() => void deleteAgentFact(agent.id, item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
-                            </div>
-                          ))}
-                          {(agentFacts[agent.id] || []).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No isolated facts yet for this agent.</div> : null}
-                          {(agentFacts[agent.id] || []).length > 0 ? (
-                            <button
-                              type="button"
-                              onClick={() => void clearAgentFacts(agent.id)}
-                              className={responsiveDestructiveButtonClass}
-                            >
-                              <Trash2 className="w-4 h-4" /> Clear all agent facts
-                            </button>
-                          ) : null}
-                        </div>
-                      ) : null}
-                    </section>
-                  ))}
-
-                  <section className={sectionCardClass}>
-                    <div className="mb-3 flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="font-medium">Files</h3>
-                        <p className={`mt-1 text-sm ${subtleTextClass}`}>Upload text, PDF, or image files. Botty extracts text and includes it alongside your saved facts.</p>
-                      </div>
-                      <span className={`text-xs ${subtleTextClass}`}>{memoryFiles.length} stored</span>
-                    </div>
-                    <input
-                      ref={factFileInputRef}
-                      type="file"
-                      multiple
-                      accept=".txt,.md,.csv,.json,.pdf,image/*,.log,.yaml,.yml,.xml"
-                      className="hidden"
-                      onChange={event => {
-                        void addFactFiles(event.target.files);
-                      }}
-                    />
-                    <button type="button" onClick={() => factFileInputRef.current?.click()} className={`mb-4 ${responsivePrimaryButtonClass}`}>
-                      Add files
-                    </button>
-                    <div className="space-y-2">
-                      {memoryFiles.map(item => (
-                        <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
-                          <div className="min-w-0">
-                            <div className="truncate text-sm font-medium">{item.name}</div>
-                            <div className={`mt-1 text-xs ${subtleTextClass}`}>
-                              {[item.type || 'text', typeof item.size === 'number' ? formatAttachmentSize(item.size) : null].filter(Boolean).join(' · ')}
-                            </div>
-                          </div>
-                          <button onClick={() => void deleteMemoryFile(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      ))}
-                      {memoryFiles.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved files yet.</div> : null}
-                    </div>
-                  </section>
-
-                  <section className={sectionCardClass}>
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="font-medium">Saved URLs</h3>
-                      <span className={`text-xs ${subtleTextClass}`}>{memoryUrls.length} stored</span>
-                    </div>
-                    <form onSubmit={addUrl} className="mb-4 flex flex-col gap-2 sm:flex-row">
-                      <input value={newUrl} onChange={event => setNewUrl(event.target.value)} placeholder="https://docs.anthropic.com/" className={`flex-1 ${inputClass}`} />
-                      <button className={responsivePrimaryButtonClass}>Add</button>
-                    </form>
-                    <div className="space-y-2">
-                      {memoryUrls.map(item => (
-                        <div key={item.id} className={`${elevatedCardClass} flex items-start justify-between gap-3`}>
-                          <div>
-                            <div className="text-sm font-medium">{item.title || item.url}</div>
-                            <div className={`mt-1 text-xs ${subtleTextClass}`}>{item.url}</div>
-                          </div>
-                          <button onClick={() => void deleteUrl(item.id)} className={`${subtleTextClass} hover:text-red-600`}><Trash2 className="w-4 h-4" /></button>
-                        </div>
-                      ))}
-                      {memoryUrls.length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No saved URLs yet.</div> : null}
-                    </div>
-                  </section>
-                </div>
-              </div>
-            ) : null}
-
-            {activeTab === 'settings' ? (
-              <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
-                <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <KeyRound className="w-4 h-4" />
-                    <h3 className="font-medium">Provider keys</h3>
-                  </div>
-                  <div className={`mb-4 rounded-[0.9rem] border px-4 py-3 text-sm ${isDarkMode ? 'border-emerald-400/20 bg-emerald-500/8 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
-                    <strong>Free options:</strong> Local (Ollama) needs no key — just a running model. Google Gemini Flash has a generous free tier (1,500 requests/day) via <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="underline">aistudio.google.com</a>.
-                  </div>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    {['anthropic', 'google', 'openai'].map(providerName => {
-                      const saved = apiKeys.find(k => k.provider === providerName);
-                      return (
-                      <div key={providerName} className={`${elevatedCardClass} flex flex-col gap-3`}>
-                        <div className="text-sm font-medium capitalize mb-2">{providerName}</div>
-                        <input
-                          value={keyInputs[providerName] || ''}
-                          onChange={event => setKeyInputs(prev => ({ ...prev, [providerName]: event.target.value }))}
-                          placeholder={saved ? saved.hint : `${providerName.toUpperCase()}_API_KEY`}
-                          className={textInputClass}
-                        />
-                        <button onClick={() => void saveKey(providerName)} className={responsivePrimaryButtonClass} disabled={savingKey === providerName}>
-                          {savingKey === providerName ? 'Saving...' : saved ? 'Replace key' : 'Save key'}
-                        </button>
-                      </div>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Globe className="w-4 h-4" />
-                    <h3 className="font-medium">Web search</h3>
-                  </div>
-                  <p className={`mb-3 text-sm ${subtleTextClass}`}>
-                    Botty can search the web before answering when the Search toggle is on in the composer.
-                    Powered by <a href="https://tavily.com" target="_blank" rel="noopener noreferrer" className="underline">Tavily</a> — free tier: 1,000 searches/month.
-                    Get a key at <a href="https://app.tavily.com" target="_blank" rel="noopener noreferrer" className="underline">app.tavily.com</a>.
-                  </p>
-                  <div className={`${elevatedCardClass} flex flex-col gap-3`}>
-                    <div className="text-sm font-medium">Tavily API key</div>
-                    <input
-                      value={keyInputs['tavily'] || ''}
-                      onChange={event => setKeyInputs(prev => ({ ...prev, tavily: event.target.value }))}
-                      placeholder={apiKeys.find(k => k.provider === 'tavily')?.hint ?? 'tvly-...'}
-                      className={textInputClass}
-                    />
-                    <button onClick={() => void saveKey('tavily')} className={responsivePrimaryButtonClass} disabled={savingKey === 'tavily'}>
-                      {savingKey === 'tavily' ? 'Saving...' : apiKeys.find(k => k.provider === 'tavily') ? 'Replace key' : 'Save key'}
-                    </button>
-                  </div>
-                  <div className={`mt-3 rounded-[0.9rem] border px-4 py-3 text-sm ${tavilyConfigured ? (isDarkMode ? 'border-emerald-400/20 bg-emerald-500/8 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800') : (isDarkMode ? 'border-white/8 text-stone-400' : 'border-stone-200 text-stone-500')}`}>
-                    {tavilyConfigured
-                      ? <>Key configured. Use the <Globe className="inline w-3.5 h-3.5 mx-0.5 -mt-0.5" /> Search button in the composer to enable per-message.</>
-                      : <>No key saved. Enter your Tavily key above.</>
-                    }
-                  </div>
-                </section>
-
-                <section className={sectionCardClass}>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <MemoryStick className="w-4 h-4" />
-                      <h3 className="font-medium">Local models (Ollama)</h3>
-                    </div>
-                    <button onClick={() => void loadOllamaModels()} className={`${secondaryButtonClass} flex items-center gap-1.5`} disabled={ollamaModelsLoading}>
-                      <RefreshCw className={`w-3.5 h-3.5 ${ollamaModelsLoading ? 'animate-spin' : ''}`} />
-                      {ollamaModelsLoading ? 'Loading…' : 'Refresh'}
-                    </button>
-                  </div>
-
-                  {ollamaModelsError ? (
-                    <div className={`mb-3 rounded-[0.9rem] border px-4 py-3 text-sm ${isDarkMode ? 'border-red-400/20 bg-red-500/8 text-red-300' : 'border-red-200 bg-red-50 text-red-700'}`}>
-                      {ollamaModelsError}
-                    </div>
-                  ) : null}
-
-                  {ollamaModels.length > 0 ? (
-                    <div className="grid gap-2 mb-4">
-                      {ollamaModels.map(m => (
-                        <div key={m.name} className={`${elevatedCardClass} flex items-center justify-between gap-3`}>
-                          <div>
-                            <div className="text-sm font-medium font-mono">{m.name}</div>
-                            <div className={`text-xs mt-0.5 ${subtleTextClass}`}>
-                              {m.details?.parameter_size ?? ''}{m.details?.family ? ` · ${m.details.family}` : ''}{m.size ? ` · ${(m.size / 1e9).toFixed(1)} GB` : ''}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => void deleteOllamaModel(m.name)}
-                            disabled={ollamaDeleting === m.name}
-                            className={`${subtleTextClass} hover:text-red-600 disabled:opacity-40`}
-                            title="Delete model"
-                          >
-                            {ollamaDeleting === m.name ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : !ollamaModelsLoading && !ollamaModelsError ? (
-                    <div className={`mb-4 text-sm ${subtleTextClass}`}>No models installed. Pull one below.</div>
-                  ) : null}
-
-                  <div className={`${elevatedCardClass} flex flex-col gap-3`}>
-                    <div className="text-sm font-medium">Pull a model</div>
-                    <div className="flex gap-2">
-                      <input
-                        value={ollamaPullName}
-                        onChange={e => setOllamaPullName(e.target.value)}
-                        onKeyDown={e => { if (e.key === 'Enter' && !ollamaPulling) void pullOllamaModel(); }}
-                        placeholder="e.g. llama3.2:3b or nomic-embed-text"
-                        className={`${textInputClass} flex-1`}
-                        disabled={ollamaPulling}
-                      />
-                      <button onClick={() => void pullOllamaModel()} className={responsivePrimaryButtonClass} disabled={ollamaPulling || !ollamaPullName.trim()}>
-                        {ollamaPulling ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
-                      </button>
-                    </div>
-                    {ollamaPullLog ? (
-                      <div className={`text-xs font-mono ${subtleTextClass}`}>{ollamaPullLog}</div>
-                    ) : null}
-                  </div>
-                </section>
-
-                <section className={`${sectionCardClass} space-y-4`}>
-                  <div className="flex items-center gap-2">
-                    <Settings className="w-4 h-4" />
-                    <h3 className="font-medium">Runtime settings</h3>
-                  </div>
-
-                  <div>
-                    <label htmlFor="local-llm-url" className={sectionLabelClass}>Local LLM URL</label>
-                    <input id="local-llm-url" value={localUrl} onChange={event => setLocalUrl(event.target.value)} className={textInputClass} />
-                  </div>
-
-                  <div>
-                    <label htmlFor="history-retention-days" className={sectionLabelClass}>History retention (days)</label>
-                    <input
-                      id="history-retention-days"
-                      type="number"
-                      min="1"
-                      max="3650"
-                      value={historyRetentionDays}
-                      onChange={event => setHistoryRetentionDays(event.target.value)}
-                      placeholder="No limit"
-                      className={textInputClass}
-                    />
-                    <p className={`mt-1 text-xs ${subtleTextClass}`}>History older than this many days is pruned when you save settings. Leave blank to keep everything.</p>
-                  </div>
-
-                  <div>
-                    <label htmlFor="system-prompt" className={sectionLabelClass}>System prompt</label>
-                    <textarea id="system-prompt" value={systemPrompt} onChange={event => setSystemPrompt(event.target.value)} onKeyDown={handleSystemPromptKeyDown} rows={6} className={textareaClass} />
-                  </div>
-
-                </section>
-
-                <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Globe className="w-4 h-4" />
-                    <h3 className="font-medium">Google integration</h3>
-                  </div>
-                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Connect your Google account to give Botty access to Calendar and Gmail. Create an OAuth 2.0 Client ID at <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" className="underline">console.cloud.google.com</a>, enable the Calendar and Gmail APIs, and add <code className="font-mono text-xs">{window.location.origin}/api/google/callback</code> as an authorised redirect URI.</p>
-
-                  {googleNotice ? (
-                    <div className={`mb-3 px-3 py-2 rounded-lg text-sm ${googleNotice.includes('success') || googleNotice.includes('saved') ? (isDarkMode ? 'bg-emerald-500/10 border border-emerald-400/30 text-emerald-200' : 'bg-emerald-50 border border-emerald-200 text-emerald-800') : (isDarkMode ? 'bg-amber-500/10 border border-amber-400/30 text-amber-200' : 'bg-amber-50 border border-amber-200 text-amber-800')}`}>
-                      {googleNotice}
-                    </div>
-                  ) : null}
-
-                  {/* Connection status */}
-                  <div className={`${elevatedCardClass} flex items-center justify-between gap-3 mb-3`}>
-                    <div className="flex items-center gap-2 min-w-0">
-                      {googleStatus?.connected ? (
-                        <Link className="w-4 h-4 text-emerald-500 shrink-0" />
-                      ) : (
-                        <Link2Off className={`w-4 h-4 shrink-0 ${subtleTextClass}`} />
-                      )}
-                      <div className="min-w-0">
-                        <div className="text-sm font-medium">
-                          {googleStatus?.connected ? 'Connected' : googleStatus?.credentialsConfigured ? 'Not connected' : 'Not configured'}
-                        </div>
-                        {googleStatus?.email ? (
-                          <div className={`text-xs truncate ${subtleTextClass}`}>{googleStatus.email}</div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {googleStatus?.credentialsConfigured && !googleStatus.connected ? (
-                        <button type="button" onClick={startGoogleOAuth} className={responsivePrimaryButtonClass}>
-                          <Link className="w-4 h-4" />
-                          Connect
-                        </button>
-                      ) : null}
-                      {googleStatus?.connected ? (
-                        <>
-                          <button type="button" onClick={startGoogleOAuth} className={responsiveSecondaryButtonClass} title="Re-authorise to refresh permissions">
-                            <RefreshCw className="w-4 h-4" />
-                            Re-authorise
-                          </button>
-                          <button type="button" onClick={() => void disconnectGoogle()} className={`${responsiveSecondaryButtonClass} text-red-500 hover:text-red-600`}>
-                            <Link2Off className="w-4 h-4" />
-                            Disconnect
-                          </button>
-                        </>
-                      ) : null}
-                      <button type="button" onClick={() => void loadGoogleStatus()} className={responsiveSecondaryButtonClass} title="Refresh status">
-                        <RefreshCw className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Credentials input (always visible so user can update them) */}
-                  <div className={`${elevatedCardClass} space-y-3`}>
-                    <div className="text-sm font-medium">{googleStatus?.credentialsConfigured ? 'Update OAuth credentials' : 'Enter OAuth credentials'}</div>
-                    <div>
-                      <label className={`block text-xs mb-1 ${subtleTextClass}`}>Client ID</label>
-                      <input
-                        type="text"
-                        value={googleClientIdInput}
-                        onChange={e => setGoogleClientIdInput(e.target.value)}
-                        placeholder="123456789-abc...apps.googleusercontent.com"
-                        className={textInputClass}
-                        autoComplete="off"
-                      />
-                    </div>
-                    <div>
-                      <label className={`block text-xs mb-1 ${subtleTextClass}`}>Client Secret</label>
-                      <input
-                        type="password"
-                        value={googleClientSecretInput}
-                        onChange={e => setGoogleClientSecretInput(e.target.value)}
-                        placeholder="GOCSPX-..."
-                        className={textInputClass}
-                        autoComplete="new-password"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => void saveGoogleCredentials()}
-                      disabled={!googleClientIdInput.trim() || !googleClientSecretInput.trim() || googleCredentialsSaving}
-                      className={responsivePrimaryButtonClass}
-                    >
-                      {googleCredentialsSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                      Save credentials
-                    </button>
-                  </div>
-
-                  {/* Feature list */}
-                  {googleStatus?.connected ? (
-                    <div className={`mt-3 px-3 py-2 rounded-lg text-xs ${subtleTextClass} space-y-1`}>
-                      <div className="flex items-center gap-2"><Calendar className="w-3.5 h-3.5" /> List and create Google Calendar events</div>
-                      <div className="flex items-center gap-2"><Mail className="w-3.5 h-3.5" /> Read and send Gmail messages</div>
-                      <div className="opacity-70 mt-1">Ask the AI assistant to "show my calendar events" or "send an email to …" and it will use these tools.</div>
-                    </div>
-                  ) : null}
-                </section>
-
-                <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Bookmark className="w-4 h-4" />
-                    <h3 className="font-medium">Prompt templates</h3>
-                  </div>
-                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Save prompts you use frequently. Click a template in the composer to instantly fill the input field.</p>
-
-                  {promptTemplates.length > 0 ? (
-                    <div className="space-y-2 mb-4">
-                      {promptTemplates.map(t => (
-                        <div key={t.id} className={`${elevatedCardClass} flex items-start gap-3`}>
-                          <div className="flex-1 min-w-0">
-                            <div className="text-sm font-medium">{t.title}</div>
-                            <div className={`text-xs mt-1 whitespace-pre-wrap break-words ${subtleTextClass}`}>{t.text}</div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => void deletePromptTemplate(t.id)}
-                            className={`shrink-0 ${subtleTextClass} hover:text-red-600`}
-                            title="Delete template"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className={`mb-4 text-sm ${subtleTextClass}`}>No templates saved yet.</div>
-                  )}
-
-                  <div className={`${elevatedCardClass} flex flex-col gap-3`}>
-                    <div className="text-sm font-medium">Add template</div>
-                    <input
-                      value={newTemplateTitle}
-                      onChange={e => setNewTemplateTitle(e.target.value)}
-                      placeholder="Template name, e.g. Code review checklist"
-                      className={textInputClass}
-                    />
-                    <textarea
-                      value={newTemplateText}
-                      onChange={e => setNewTemplateText(e.target.value)}
-                      rows={3}
-                      placeholder="Template text, e.g. Review this code for bugs, performance issues, and security risks. List findings with severity."
-                      className={textareaClass}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => void savePromptTemplate(newTemplateTitle, newTemplateText)}
-                      disabled={!newTemplateTitle.trim() || !newTemplateText.trim()}
-                      className={responsivePrimaryButtonClass}
-                    >
-                      <Plus className="w-4 h-4" />
-                      Save template
-                    </button>
-                  </div>
-                </section>
-
-                <section className={`${sectionCardClass} space-y-4`}>
-
-                  <div className={`grid gap-4 lg:grid-cols-2 ${elevatedCardClass}`}>
-                    <div className="lg:col-span-2">
-                      <div className="flex items-center gap-2 mb-1">
-                        <Bot className="w-4 h-4" />
-                        <h4 className="font-medium">Telegram bot</h4>
-                      </div>
-                      <p className={`text-sm ${subtleTextClass}`}>Save the bot token here and Botty will start or reload Telegram polling without editing environment files.</p>
-                    </div>
-
-                    <div className={`lg:col-span-2 rounded-[1rem] border px-4 py-3 ${telegramStatusToneClass}`}>
-                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                          <div className="text-sm font-medium">{telegramStatusLabel}</div>
-                          <div className="text-xs mt-1 opacity-90">{telegramStatusDetails}</div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => void refreshTelegramStatus()}
-                          className={responsiveSecondaryButtonClass}
-                          disabled={loadingTelegramStatus}
-                        >
-                          <RefreshCw className={`w-4 h-4 ${loadingTelegramStatus ? 'animate-spin' : ''}`} />
-                          Refresh
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void sendTelegramTest()}
-                          className={responsiveSecondaryButtonClass}
-                          disabled={sendingTelegramTest}
-                          title="Send a test message to all configured chat IDs"
-                        >
-                          <Send className={`w-4 h-4 ${sendingTelegramTest ? 'opacity-50' : ''}`} />
-                          Test
-                        </button>
-                      </div>
-                    </div>
-
-                    {telegramTestResult ? (
-                      <div className={`lg:col-span-2 rounded-[1rem] border px-4 py-3 text-sm ${telegramTestResult.ok ? (isDarkMode ? 'border-emerald-400/30 bg-emerald-500/10 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800') : (isDarkMode ? 'border-red-400/30 bg-red-500/10 text-red-200' : 'border-red-200 bg-red-50 text-red-800')}`}>
-                        {telegramTestResult.message}
-                      </div>
-                    ) : null}
-
-                    <div className="lg:col-span-2">
-                      <label htmlFor="telegram-bot-token" className={sectionLabelClass}>Bot token</label>
-                      <input
-                        id="telegram-bot-token"
-                        type="password"
-                        value={telegramBotToken}
-                        onChange={event => setTelegramBotToken(event.target.value)}
-                        placeholder="1234567890:AA..."
-                        className={textInputClass}
-                      />
-                    </div>
-
-                    <label className={`flex items-start gap-3 rounded-[1rem] px-1 py-1 text-sm sm:items-center ${isDarkMode ? 'text-stone-300' : 'text-stone-700'}`}>
-                      <input type="checkbox" checked={telegramBotEnabled} onChange={event => setTelegramBotEnabled(event.target.checked)} />
-                      <span>Enable Telegram bot polling</span>
-                    </label>
-
-                    <div>
-                      <label htmlFor="telegram-allowed-chat-ids" className={sectionLabelClass}>Allowed chat IDs</label>
-                      <input
-                        id="telegram-allowed-chat-ids"
-                        value={telegramAllowedChatIds}
-                        onChange={event => setTelegramAllowedChatIds(event.target.value)}
-                        placeholder="123456789,987654321"
-                        className={textInputClass}
-                      />
-                    </div>
-
-                    <div>
-                      <label className={sectionLabelClass}>Daily digest</label>
-                      <label className={`flex items-center gap-2 text-sm mt-1 cursor-pointer`}>
-                        <input
-                          type="checkbox"
-                          checked={telegramDigestEnabled}
-                          onChange={e => setTelegramDigestEnabled(e.target.checked)}
-                        />
-                        <span>Send a daily summary via Telegram</span>
-                      </label>
-                      {telegramDigestEnabled ? (
-                        <div className="mt-2 flex items-center gap-2">
-                          <label htmlFor="telegram-digest-hour" className={`text-xs ${mutedTextClass}`}>UTC hour (0–23):</label>
-                          <input
-                            id="telegram-digest-hour"
-                            type="number"
-                            min="0"
-                            max="23"
-                            value={telegramDigestHour}
-                            onChange={e => setTelegramDigestHour(e.target.value)}
-                            className={`${textInputClass} w-20`}
-                          />
-                        </div>
-                      ) : null}
-                    </div>
-
-                  </div>
-
-                  <label className={`flex items-start gap-3 rounded-[1rem] ${elevatedCardClass} text-sm sm:items-center`}>
-                    <input type="checkbox" checked={useMemory} onChange={event => setUseMemory(event.target.checked)} />
-                    <span>Include saved memory in prompt construction</span>
-                  </label>
-
-                  <label className={`flex items-start gap-3 rounded-[1rem] ${elevatedCardClass} text-sm sm:items-center`}>
-                    <input type="checkbox" checked={autoMemory} onChange={event => setAutoMemory(event.target.checked)} />
-                    <span>Learn durable facts about me automatically from successful chats</span>
-                  </label>
-                </section>
-
-                <section className={sectionCardClass}>
-                  <div className="flex items-center justify-between gap-2 mb-3">
-                    <div className="flex items-center gap-2">
-                      <Sparkles className="w-4 h-4" />
-                      <h3 className="font-medium">Skills</h3>
-                    </div>
-                    <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
-                      {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
-                    </button>
-                  </div>
-                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Activate via <code className="font-mono text-xs">/command</code> in the composer. Creating a skill sets it as the active chat mode.</p>
-                  <form onSubmit={createCustomSkill} className="grid gap-3 md:grid-cols-2 mb-4">
-                    <input value={newSkillTitle} onChange={event => patchNewSkill({ title: event.target.value })} placeholder="Skill title, e.g. Architecture Critic" className={textInputClass} />
-                    <input value={newSkillCommand} onChange={event => patchNewSkill({ command: event.target.value })} placeholder="Slash command, e.g. architecture" className={textInputClass} />
-                    <div className="md:col-span-2">
-                      <input value={newSkillDescription} onChange={event => patchNewSkill({ description: event.target.value })} placeholder="Short description, e.g. critiques designs and tradeoffs" className={textInputClass} />
-                    </div>
-                    <div className="md:col-span-2">
-                      <textarea value={newSkillSystemPrompt} onChange={event => patchNewSkill({ systemPrompt: event.target.value })} rows={3} placeholder="System prompt: define the expertise, decision rules, and tone for this skill" className={textareaClass} />
-                    </div>
-                    <div className="md:col-span-2 flex">
-                      <button type="submit" disabled={creatingFunction === 'skill'} className={responsivePrimaryButtonClass}>
-                        {creatingFunction === 'skill' ? 'Adding...' : 'Add skill'}
-                      </button>
-                    </div>
-                  </form>
-                  <div className="grid gap-3 xl:grid-cols-2">
-                    {skillPresets.map(item => {
-                      const isActive = activePresetId === item.id;
-                      return (
-                        <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-3`}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-medium">{item.title}</div>
-                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
-                            </div>
-                            <div className={`shrink-0 rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
-                              {isActive ? 'Active' : `/${item.command}`}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => void activateFunctionPreset(item)}
-                            disabled={applyingFunctionId === item.id}
-                            className={responsivePrimaryButtonClass}
-                          >
-                            {applyingFunctionId === item.id ? 'Applying...' : 'Use in current chat'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <section className={sectionCardClass}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <Bot className="w-4 h-4" />
-                    <h3 className="font-medium">Agents</h3>
-                  </div>
-                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Activate via <code className="font-mono text-xs">/command</code>. Agents own longer tasks and can have isolated memory.</p>
-                  <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2 mb-4">
-                    <input value={newBotTitle} onChange={event => patchNewBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
-                    <input value={newBotCommand} onChange={event => patchNewBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
-                    <div className="md:col-span-2">
-                      <input value={newBotDescription} onChange={event => patchNewBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
-                    </div>
-                    <select value={newBotExecutorType} onChange={event => patchNewBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
-                      <option value="internal-llm">Internal Botty agent</option>
-                      <option value="remote-http">Remote HTTP agent</option>
-                    </select>
-                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
-                    {newBotExecutorType === 'internal-llm' ? (
-                      <>
-                        <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
-                          const nextProvider = event.target.value;
-                          if (!nextProvider) { patchNewBot({ provider: '', model: '' }); return; }
-                          if (nextProvider === 'auto') { patchNewBot({ provider: isAutoRouteProvider(newBotProvider) ? newBotProvider : 'auto', model: '' }); return; }
-                          patchNewBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, '') });
-                        }} className={textInputClass}>
-                          <option value="">Inherit chat provider</option>
-                          {PROVIDERS.map(option => (
-                            <option key={option.value} value={option.value}>{option.label}</option>
-                          ))}
-                        </select>
-                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
-                          <option value="shared">Shared memory</option>
-                          <option value="isolated">Isolated agent memory</option>
-                          <option value="none">No memory</option>
-                        </select>
-                      </>
-                    ) : (
-                      <>
-                        <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
-                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
-                          <option value="shared">Shared memory</option>
-                          <option value="isolated">Isolated agent memory</option>
-                          <option value="none">No memory</option>
-                        </select>
-                      </>
-                    )}
-                    <div className="md:col-span-2">
-                      <select value={newBotProvider && isAutoRouteProvider(newBotProvider) ? newBotProvider : newBotModel} onChange={event => {
-                        if (!newBotProvider) { patchNewBot({ model: event.target.value }); return; }
-                        if (isAutoRouteProvider(newBotProvider)) { patchNewBot({ provider: event.target.value }); return; }
-                        patchNewBot({ model: event.target.value });
-                      }} disabled={!newBotProvider || newBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!newBotProvider || newBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
-                        {!newBotProvider ? <option value="">Inherit provider default</option> : null}
-                        {newBotProvider && isAutoRouteProvider(newBotProvider)
-                          ? AUTO_ROUTE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)
-                          : null}
-                        {newBotProvider && !isAutoRouteProvider(newBotProvider) ? getSelectableModels(newBotProvider, newBotModel, true).map(option => (
-                          <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, newBotProvider)}</option>
-                        )) : null}
-                      </select>
-                    </div>
-                    <div className="md:col-span-2">
-                      <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={3} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
-                    </div>
-                    <div>
-                      <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
-                    </div>
-                    <div className="md:col-span-2 flex">
-                      <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
-                        {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
-                      </button>
-                    </div>
-                  </form>
-
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h4 className="text-sm font-medium">Built-in agents</h4>
-                    <span className={`text-xs ${subtleTextClass}`}>{builtInAgents.length} available</span>
-                  </div>
-                  <div className="grid gap-3 xl:grid-cols-2 mb-4">
-                    {builtInAgents.map(item => {
-                      const isActive = activePresetId === item.id;
-                      return (
-                        <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-3`}>
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-medium">{item.title}</div>
-                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
-                            </div>
-                            <div className={`shrink-0 rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
-                              {isActive ? 'Active' : `/${item.command}`}
-                            </div>
-                          </div>
-                          <button
-                            onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
-                            disabled={applyingFunctionId === item.id}
-                            className={responsivePrimaryButtonClass}
-                          >
-                            {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
-                          </button>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  <div className="mb-3 flex items-center justify-between gap-3">
-                    <h4 className="text-sm font-medium">Custom agents</h4>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => importAgentInputRef.current?.click()} className={`text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}>Import</button>
-                      <input ref={importAgentInputRef} type="file" accept=".json,application/json" onChange={event => void importAgentsFromFile(event.target.files)} className="hidden" />
-                      {customAgentsPresets.length > 0 ? (
-                        <button type="button" onClick={exportAgents} className={`text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}>Export all</button>
-                      ) : null}
-                      <span className={`text-xs ${subtleTextClass}`}>{customAgentsPresets.length} created</span>
-                    </div>
-                  </div>
-                  {customAgentsPresets.length > 0 ? (
-                    <div className="grid gap-3 xl:grid-cols-2">
-                      {customAgentsPresets.map(item => {
-                        const isActive = activePresetId === item.id;
-                        const isEditing = editingBotId === item.id;
-                        const isSaving = savingBotId === item.id;
-                        const isDeleting = deletingBotId === item.id;
-                        const isConfirmingDelete = confirmingDeleteBotId === item.id;
-                        return (
-                          <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
-                            <div className="flex items-start justify-between gap-3">
-                              <div>
-                                <div className="text-sm font-medium">{item.title}</div>
-                                <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
-                              </div>
-                              <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
-                                {isActive ? 'Active' : 'Custom agent'}
-                              </div>
-                            </div>
-                            {isEditing ? (
-                              <div className="grid gap-3 md:grid-cols-2">
-                                <input value={editingBotTitle} onChange={event => patchEditingBot({ title: event.target.value })} placeholder="Agent title" className={textInputClass} />
-                                <input value={editingBotCommand} onChange={event => patchEditingBot({ command: event.target.value })} placeholder="Slash command" className={textInputClass} />
-                                <div className="md:col-span-2">
-                                  <input value={editingBotDescription} onChange={event => patchEditingBot({ description: event.target.value })} placeholder="Specialist summary" className={textInputClass} />
-                                </div>
-                                <select value={editingBotExecutorType} onChange={event => patchEditingBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
-                                  <option value="internal-llm">Internal Botty agent</option>
-                                  <option value="remote-http">Remote HTTP agent</option>
-                                </select>
-                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Remote endpoint" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
-                                {editingBotExecutorType === 'internal-llm' ? (
-                                  <>
-                                    <select value={editingBotProvider ? getProviderSelectValue(editingBotProvider) : ''} onChange={event => {
-                                      const nextProvider = event.target.value;
-                                      if (!nextProvider) { patchEditingBot({ provider: '', model: '' }); return; }
-                                      if (nextProvider === 'auto') { patchEditingBot({ provider: isAutoRouteProvider(editingBotProvider) ? editingBotProvider : 'auto', model: '' }); return; }
-                                      patchEditingBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, '', editingBotModel) });
-                                    }} className={textInputClass}>
-                                      <option value="">Inherit chat provider</option>
-                                      {PROVIDERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                                    </select>
-                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
-                                      <option value="shared">Shared memory</option>
-                                      <option value="isolated">Isolated agent memory</option>
-                                      <option value="none">No memory</option>
-                                    </select>
-                                  </>
-                                ) : (
-                                  <>
-                                    <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
-                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
-                                      <option value="shared">Shared memory</option>
-                                      <option value="isolated">Isolated agent memory</option>
-                                      <option value="none">No memory</option>
-                                    </select>
-                                  </>
-                                )}
-                                <div className="md:col-span-2">
-                                  <select value={editingBotProvider && isAutoRouteProvider(editingBotProvider) ? editingBotProvider : editingBotModel} onChange={event => {
-                                    if (!editingBotProvider) { patchEditingBot({ model: event.target.value }); return; }
-                                    if (isAutoRouteProvider(editingBotProvider)) { patchEditingBot({ provider: event.target.value }); return; }
-                                    patchEditingBot({ model: event.target.value });
-                                  }} disabled={!editingBotProvider || editingBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!editingBotProvider || editingBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
-                                    {!editingBotProvider ? <option value="">Inherit provider default</option> : null}
-                                    {editingBotProvider && isAutoRouteProvider(editingBotProvider)
-                                      ? AUTO_ROUTE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)
-                                      : null}
-                                    {editingBotProvider && !isAutoRouteProvider(editingBotProvider) ? getSelectableModels(editingBotProvider, editingBotModel, true).map(option => (
-                                      <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, editingBotProvider)}</option>
-                                    )) : null}
-                                  </select>
-                                </div>
-                                <div className="md:col-span-2">
-                                  <textarea value={editingBotSystemPrompt} onChange={event => patchEditingBot({ systemPrompt: event.target.value })} rows={3} placeholder="System prompt" className={textareaClass} />
-                                </div>
-                                <div>
-                                  <input type="number" min="1" max="100" value={editingBotMaxTurns} onChange={event => patchEditingBot({ maxTurns: event.target.value })} placeholder="Max turns" className={textInputClass} />
-                                </div>
-                                <div className="md:col-span-2">
-                                  <div className="flex flex-col gap-2">
-                                    <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional)</div>
-                                    {editingBotTools.map((tool, idx) => (
-                                      <div key={idx} className="flex gap-2 items-start">
-                                        <input value={tool.name} onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, name: event.target.value } : t) })} placeholder="Tool name" className={textInputClass} />
-                                        <input value={tool.description} onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, description: event.target.value } : t) })} placeholder="What this tool does" className={textInputClass} />
-                                        <button type="button" onClick={() => patchEditingBot({ tools: editingBotTools.filter((_, i) => i !== idx) })} className={`shrink-0 ${secondaryButtonClass}`} aria-label="Remove tool">
-                                          <X className="w-4 h-4" />
-                                        </button>
-                                      </div>
-                                    ))}
-                                    <button type="button" onClick={() => patchEditingBot({ tools: [...editingBotTools, { name: '', description: '' }] })} className={secondaryButtonClass}>
-                                      <Plus className="w-4 h-4" /> Add tool
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                                  <button type="button" onClick={() => void saveEditedCustomBot(item.id)} disabled={isSaving} className={responsivePrimaryButtonClass}>
-                                    <Save className="w-4 h-4" />
-                                    {isSaving ? 'Saving...' : 'Save changes'}
-                                  </button>
-                                  <button type="button" onClick={stopEditingCustomBot} disabled={isSaving} className={responsiveSecondaryButtonClass}>Cancel</button>
-                                  <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isSaving || isDeleting} className={responsiveDestructiveButtonClass}>
-                                    <Trash2 className="w-4 h-4" />
-                                    {isDeleting ? 'Deleting...' : 'Delete agent'}
-                                  </button>
-                                </div>
-                              </div>
-                            ) : (
-                              <>
-                                <div className={`text-xs ${subtleTextClass} flex flex-wrap gap-x-3 gap-y-1`}>
-                                  {item.provider ? <span>{formatProviderLabel(item.provider)}{item.model ? ` · ${formatModelDisplay(item.model, item.provider)}` : ''}</span> : null}
-                                  <span>Memory: {item.memoryMode || 'shared'}</span>
-                                  {getAgentExecutorLabel(item) !== 'Internal Botty agent' ? <span>{getAgentExecutorLabel(item)}</span> : null}
-                                  {getAgentEndpoint(item) ? <span className="truncate max-w-[200px]">Endpoint: {getAgentEndpoint(item)}</span> : null}
-                                </div>
-                                {isConfirmingDelete ? (
-                                  <div className={`rounded-[1rem] border px-3 py-3 text-sm ${isDarkMode ? 'border-red-900/60 bg-red-950/20 text-red-200' : 'border-red-200 bg-red-50 text-red-800'}`}>
-                                    Delete this custom agent?{isActive ? ' It is currently active, so Botty will clear the active agent mode after deletion.' : ''}
-                                  </div>
-                                ) : null}
-                                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                                  <button onClick={() => void activateFunctionPreset(item, { startNewChat: true })} disabled={applyingFunctionId === item.id || isConfirmingDelete} className={responsivePrimaryButtonClass}>
-                                    {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
-                                  </button>
-                                  <button onClick={() => void activateFunctionPreset(item)} disabled={applyingFunctionId === item.id || isConfirmingDelete} className={responsiveSecondaryButtonClass}>
-                                    {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
-                                  </button>
-                                  <button type="button" onClick={() => startEditingCustomBot(item)} disabled={isDeleting || isConfirmingDelete} className={responsiveSecondaryButtonClass}>Edit agent</button>
-                                  {isConfirmingDelete ? (
-                                    <>
-                                      <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
-                                        <Trash2 className="w-4 h-4" />
-                                        {isDeleting ? 'Deleting...' : 'Confirm delete'}
-                                      </button>
-                                      <button type="button" onClick={cancelDeleteCustomBot} disabled={isDeleting} className={responsiveSecondaryButtonClass}>Cancel delete</button>
-                                    </>
-                                  ) : (
-                                    <button type="button" onClick={() => requestDeleteCustomBot(item.id)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
-                                      <Trash2 className="w-4 h-4" />
-                                      Delete agent
-                                    </button>
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className={`text-sm ${subtleTextClass}`}>No custom agents yet.</div>
-                  )}
-                  <div className="mt-4 pt-4 border-t border-current/10">
-                    <button onClick={() => void saveSettings()} disabled={savingSettings} className={responsivePrimaryButtonClass}>
-                      <Save className="w-4 h-4" />
-                      {savingSettings ? 'Saving...' : 'Save settings'}
-                    </button>
-                  </div>
-                </section>
-              </div>
-            ) : null}
+            {activeTab === 'settings' ? <SettingsPanel /> : null}
           </main>
         </div>
       </div>
     </div>
+    </AppContext.Provider>
   );
 }
 
