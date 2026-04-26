@@ -254,16 +254,19 @@ async function runRemoteHttpAgent(params: {
   if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
     throw new Error('Remote agent endpoint must use http or https');
   }
-  // Block SSRF via private/loopback IP ranges
-  const hostname = parsedUrl.hostname;
-  const privateRangePattern = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1$|\[::1\]$|localhost$)/i;
-  if (privateRangePattern.test(hostname)) {
-    throw new Error('Remote agent endpoint must not target a private or loopback address');
+  // Block SSRF via private/loopback IP ranges — except for explicitly local-agent type
+  if (agent.executorType !== 'local-agent') {
+    const hostname = parsedUrl.hostname;
+    const privateRangePattern = /^(127\.|10\.|172\.(1[6-9]|2\d|3[01])\.|192\.168\.|::1$|\[::1\]$|localhost$)/i;
+    if (privateRangePattern.test(hostname)) {
+      throw new Error('Remote agent endpoint must not target a private or loopback address');
+    }
   }
 
-  // Apply a hard 15-second timeout for remote agents
+  // Timeout: 60s for local agents (heavy compute), 15s for remote
+  const timeoutMs = agent.executorType === 'local-agent' ? 60_000 : 15_000;
   const timeoutController = new AbortController();
-  const timeoutId = setTimeout(() => timeoutController.abort(), 15_000);
+  const timeoutId = setTimeout(() => timeoutController.abort(), timeoutMs);
   const combinedSignal = signal
     ? AbortSignal.any([signal, timeoutController.signal])
     : timeoutController.signal;
@@ -455,7 +458,7 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
     tokensUsed = 0;
     provider = 'system';
     model = 'completion-signal';
-  } else if (activeAgent?.executorType === 'remote-http') {
+  } else if (activeAgent?.executorType === 'remote-http' || activeAgent?.executorType === 'local-agent') {
     const remoteResult = await runRemoteHttpAgent({
       agent: activeAgent,
       prompt: promptForModel,
@@ -694,8 +697,8 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   let apiKey = '';
   const visionImages = extractVisionImages(attachments);
 
-  if (activeAgent?.executorType === 'remote-http') {
-    // Remote HTTP agents don't support streaming — run normally and deliver as single chunk
+  if (activeAgent?.executorType === 'remote-http' || activeAgent?.executorType === 'local-agent') {
+    // Remote/local agents don't support streaming — run normally and deliver as single chunk
     const remoteResult = await runRemoteHttpAgent({
       agent: activeAgent,
       prompt: promptForModel,

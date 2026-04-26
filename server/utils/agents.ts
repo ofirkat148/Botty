@@ -55,6 +55,9 @@ export function normalizeAgentDefinition(value: AgentCandidate): AgentDefinition
   if (executorType === 'remote-http' && !endpoint) {
     return null;
   }
+  if (executorType === 'local-agent' && !endpoint) {
+    return null;
+  }
 
   return {
     id: String(candidate?.id || randomUUID()),

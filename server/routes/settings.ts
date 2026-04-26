@@ -364,6 +364,34 @@ async function getOllamaBaseUrl(uid: string): Promise<string> {
 }
 
 // GET /api/settings/ollama-models — list locally available Ollama models
+// GET /api/settings/local-agents/scan
+// Probes localhost ports 7001–7099 for Botty-compatible local agent adapters.
+// Adapters signal readiness by returning { status: 'ok', botty: { title, command, description, systemPrompt, port } }
+// from their GET /health endpoint.
+router.get('/local-agents/scan', async (_req: Request, res: Response) => {
+  const PORTS = Array.from({ length: 99 }, (_, i) => 7001 + i);
+  const discovered: Array<Record<string, unknown>> = [];
+
+  await Promise.all(PORTS.map(async (port) => {
+    try {
+      const response = await fetch(`http://localhost:${port}/health`, {
+        signal: AbortSignal.timeout(600),
+      });
+      if (!response.ok) return;
+      const data = await response.json().catch(() => null) as Record<string, unknown> | null;
+      if (!data?.botty || typeof data.botty !== 'object') return;
+      const manifest = data.botty as Record<string, unknown>;
+      if (typeof manifest.title === 'string' && typeof manifest.command === 'string') {
+        discovered.push({ port, ...manifest });
+      }
+    } catch {
+      // port not responding — skip
+    }
+  }));
+
+  res.json({ agents: discovered });
+});
+
 router.get('/ollama-models', async (req: Request, res: Response) => {
   try {
     const base = await getOllamaBaseUrl(req.userId!);
@@ -659,12 +687,12 @@ router.post('/functions', async (req: Request, res: Response) => {
         model: normalized.model,
         memoryMode: normalized.memoryMode,
         executorType,
-        endpoint: executorType === 'remote-http' ? endpoint : null,
+        endpoint: (executorType === 'remote-http' || executorType === 'local-agent') ? endpoint : null,
         config,
       });
 
       if (!createdAgent) {
-        return res.status(400).json({ error: executorType === 'remote-http' ? 'Remote agents require a valid endpoint.' : 'Invalid agent definition.' });
+        return res.status(400).json({ error: (executorType === 'remote-http' || executorType === 'local-agent') ? 'Local/remote agents require a valid endpoint.' : 'Invalid agent definition.' });
       }
 
       return res.json({ success: true, item: createdAgent });
@@ -767,12 +795,12 @@ router.put('/functions/agents/:agentId', async (req: Request, res: Response) => 
       model: executorType === 'internal-llm' ? normalized.model : null,
       memoryMode: normalized.memoryMode,
       executorType,
-      endpoint: executorType === 'remote-http' ? endpoint : null,
+      endpoint: (executorType === 'remote-http' || executorType === 'local-agent') ? endpoint : null,
       config,
     });
 
     if (!updatedAgent) {
-      return res.status(400).json({ error: executorType === 'remote-http' ? 'Remote agents require a valid endpoint.' : 'Invalid agent definition.' });
+      return res.status(400).json({ error: (executorType === 'remote-http' || executorType === 'local-agent') ? 'Local/remote agents require a valid endpoint.' : 'Invalid agent definition.' });
     }
 
     if (existingRow?.systemPrompt === existingAgent.systemPrompt && updatedAgent.systemPrompt !== existingAgent.systemPrompt) {

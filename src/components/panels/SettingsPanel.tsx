@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   Archive,
   ArchiveRestore,
@@ -245,7 +246,7 @@ export default function SettingsPanel() {
     saveSystemPromptOnly, createCustomSkill, createCustomBot,
     startEditingCustomBot, stopEditingCustomBot,
     requestDeleteCustomBot, cancelDeleteCustomBot,
-    exportAgents, importAgentsFromFile, saveEditedCustomBot, deleteCustomBot,
+    exportAgents, importAgentsFromFile, saveEditedCustomBot, deleteCustomBot, scanLocalAgents, createLocalAgent,
     activateSlashSkill, clearAllHistory, deleteConversation,
     archiveConversation, unarchiveConversation, shareConversation, revokeShare,
     createProject, updateProject, deleteProject,
@@ -274,6 +275,36 @@ export default function SettingsPanel() {
     ArtifactBlock, MarkdownMessage,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } = useAppContext() as Record<string, any>;
+
+  const [localAgentScanning, setLocalAgentScanning] = useState(false);
+  const [localAgentScanResults, setLocalAgentScanResults] = useState<Array<{ title: string; command: string; description: string; systemPrompt: string; port: number }>>([]);
+  const [localAgentScanError, setLocalAgentScanError] = useState('');
+  const [addingLocalAgentPort, setAddingLocalAgentPort] = useState<number | null>(null);
+
+  async function handleScanLocalAgents() {
+    setLocalAgentScanning(true);
+    setLocalAgentScanError('');
+    setLocalAgentScanResults([]);
+    try {
+      const results = await scanLocalAgents();
+      setLocalAgentScanResults(results as Array<{ title: string; command: string; description: string; systemPrompt: string; port: number }>);
+      if (results.length === 0) setLocalAgentScanError('No local agents found on ports 7001–7099.');
+    } catch {
+      setLocalAgentScanError('Scan failed. Make sure your local adapters are running.');
+    } finally {
+      setLocalAgentScanning(false);
+    }
+  }
+
+  async function handleAddLocalAgent(manifest: { title: string; command: string; description: string; systemPrompt: string; port: number }) {
+    setAddingLocalAgentPort(manifest.port);
+    try {
+      await createLocalAgent(manifest);
+      setLocalAgentScanResults(prev => prev.filter(r => r.port !== manifest.port));
+    } finally {
+      setAddingLocalAgentPort(null);
+    }
+  }
 
   return (
               <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
@@ -762,6 +793,44 @@ export default function SettingsPanel() {
                     <h3 className="font-medium">Agents</h3>
                   </div>
                   <p className={`mb-4 text-sm ${subtleTextClass}`}>Activate via <code className="font-mono text-xs">/command</code>. Agents own longer tasks and can have isolated memory.</p>
+
+                  {/* Local agent discovery */}
+                  <div className={`${elevatedCardClass} mb-4`}>
+                    <div className="flex items-center justify-between gap-3 mb-2">
+                      <div>
+                        <div className="text-sm font-medium">Discover local agents</div>
+                        <div className={`text-xs mt-0.5 ${subtleTextClass}`}>Scans ports 7001–7099 for adapters exposing a <code className="font-mono">/health</code> endpoint with a Botty manifest.</div>
+                      </div>
+                      <button type="button" onClick={() => void handleScanLocalAgents()} disabled={localAgentScanning} className={`${responsiveSecondaryButtonClass} shrink-0 flex items-center gap-1.5`}>
+                        <RefreshCw className={`w-3.5 h-3.5 ${localAgentScanning ? 'animate-spin' : ''}`} />
+                        {localAgentScanning ? 'Scanning…' : 'Scan'}
+                      </button>
+                    </div>
+                    {localAgentScanError ? (
+                      <div className={`text-xs mt-1 ${subtleTextClass}`}>{localAgentScanError}</div>
+                    ) : null}
+                    {localAgentScanResults.length > 0 ? (
+                      <div className="grid gap-2 mt-3">
+                        {localAgentScanResults.map(agent => (
+                          <div key={agent.port} className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2 ${isDarkMode ? 'bg-white/5 border border-white/10' : 'bg-stone-50 border border-stone-200'}`}>
+                            <div className="min-w-0">
+                              <div className="text-sm font-medium">{agent.title}</div>
+                              <div className={`text-xs truncate ${subtleTextClass}`}>:{agent.port} — {agent.description}</div>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleAddLocalAgent(agent)}
+                              disabled={addingLocalAgentPort === agent.port}
+                              className={`${responsivePrimaryButtonClass} shrink-0`}
+                            >
+                              {addingLocalAgentPort === agent.port ? 'Adding…' : 'Add'}
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+
                   <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2 mb-4">
                     <input value={newBotTitle} onChange={event => patchNewBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
                     <input value={newBotCommand} onChange={event => patchNewBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
@@ -771,8 +840,9 @@ export default function SettingsPanel() {
                     <select value={newBotExecutorType} onChange={event => patchNewBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                       <option value="internal-llm">Internal Botty agent</option>
                       <option value="remote-http">Remote HTTP agent</option>
+                      <option value="local-agent">Local agent (localhost)</option>
                     </select>
-                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
+                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Endpoint, e.g. http://localhost:7001/botty" className={textInputClass} disabled={newBotExecutorType === 'internal-llm'} />
                     {newBotExecutorType === 'internal-llm' ? (
                       <>
                         <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
@@ -900,8 +970,9 @@ export default function SettingsPanel() {
                                 <select value={editingBotExecutorType} onChange={event => patchEditingBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
                                   <option value="internal-llm">Internal Botty agent</option>
                                   <option value="remote-http">Remote HTTP agent</option>
+                                  <option value="local-agent">Local agent (localhost)</option>
                                 </select>
-                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Remote endpoint" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
+                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Endpoint, e.g. http://localhost:7001/botty" className={textInputClass} disabled={editingBotExecutorType === 'internal-llm'} />
                                 {editingBotExecutorType === 'internal-llm' ? (
                                   <>
                                     <select value={editingBotProvider ? getProviderSelectValue(editingBotProvider) : ''} onChange={event => {

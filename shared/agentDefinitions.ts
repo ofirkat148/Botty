@@ -1,6 +1,6 @@
 import { BOT_PRESETS, type FunctionPreset } from './functionPresets.js';
 
-export type AgentExecutorType = 'internal-llm' | 'remote-http';
+export type AgentExecutorType = 'internal-llm' | 'remote-http' | 'local-agent';
 
 /** A callable tool an agent can advertise to the LLM or a remote endpoint. */
 export type ToolDefinition = {
@@ -34,7 +34,7 @@ export const BUILT_IN_AGENT_DEFINITIONS: AgentDefinition[] = BOT_PRESETS.map((pr
 }));
 
 export function isAgentExecutorType(value: unknown): value is AgentExecutorType {
-  return value === 'internal-llm' || value === 'remote-http';
+  return value === 'internal-llm' || value === 'remote-http' || value === 'local-agent';
 }
 
 export function isAgentDefinition(value: FunctionPreset | AgentDefinition): value is AgentDefinition {

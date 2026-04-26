@@ -784,8 +784,31 @@ function AppShell() {
 
 
 
+  async function scanLocalAgents(): Promise<Array<Record<string, unknown>>> {
+    const data = await apiGet<{ agents: Array<Record<string, unknown>> }>('/api/settings/local-agents/scan');
+    return data.agents;
+  }
+
+  async function createLocalAgent(manifest: { title: string; command: string; description: string; systemPrompt: string; port: number }): Promise<void> {
+    await apiSend('/api/settings/functions', 'POST', {
+      type: 'agent',
+      title: manifest.title,
+      command: manifest.command,
+      description: manifest.description,
+      systemPrompt: manifest.systemPrompt,
+      executorType: 'local-agent',
+      endpoint: `http://localhost:${manifest.port}/botty`,
+      memoryMode: 'shared',
+    });
+    await refreshAll();
+  }
+
   function getAgentExecutorType(agent: FunctionPreset | AgentDefinition): AgentExecutorType {
-    return 'executorType' in agent && agent.executorType === 'remote-http' ? 'remote-http' : 'internal-llm';
+    if ('executorType' in agent) {
+      if (agent.executorType === 'remote-http') return 'remote-http';
+      if (agent.executorType === 'local-agent') return 'local-agent';
+    }
+    return 'internal-llm';
   }
 
   function getAgentEndpoint(agent: FunctionPreset | AgentDefinition) {
@@ -793,7 +816,10 @@ function AppShell() {
   }
 
   function getAgentExecutorLabel(agent: FunctionPreset | AgentDefinition) {
-    return getAgentExecutorType(agent) === 'remote-http' ? 'Remote HTTP agent' : 'Internal Botty agent';
+    const t = getAgentExecutorType(agent);
+    if (t === 'remote-http') return 'Remote HTTP agent';
+    if (t === 'local-agent') return 'Local agent';
+    return 'Internal Botty agent';
   }
 
   function formatProviderLabel(value?: string) {
@@ -2272,7 +2298,7 @@ function AppShell() {
         detail: [
           item.provider ? `Provider: ${item.provider}` : 'Provider: auto',
           `Memory: ${item.memoryMode || 'shared'}`,
-          'executorType' in item && item.executorType === 'remote-http' ? 'Executor: remote' : null,
+          'executorType' in item && item.executorType === 'remote-http' ? 'Executor: remote' : 'executorType' in item && item.executorType === 'local-agent' ? 'Executor: local' : null,
         ].filter(Boolean).join(' · '),
         badge: activePresetId === item.id ? 'Active' : item.builtIn ? 'Built-in agent' : 'Custom agent',
         keywords: [
@@ -2379,8 +2405,8 @@ function AppShell() {
       return;
     }
 
-    if (newBotExecutorType === 'remote-http' && !endpointValue) {
-      setNotice('Remote agents require an endpoint URL.');
+    if ((newBotExecutorType === 'remote-http' || newBotExecutorType === 'local-agent') && !endpointValue) {
+      setNotice('Local/remote agents require an endpoint URL.');
       return;
     }
 
@@ -2397,7 +2423,7 @@ function AppShell() {
         model: newBotExecutorType === 'internal-llm' ? (modelValue || null) : null,
         memoryMode: newBotMemoryMode,
         executorType: newBotExecutorType,
-        endpoint: newBotExecutorType === 'remote-http' ? endpointValue : null,
+        endpoint: (newBotExecutorType === 'remote-http' || newBotExecutorType === 'local-agent') ? endpointValue : null,
         systemPrompt: systemPromptValue,
         tools: newBotTools.length > 0 ? newBotTools : null,
         maxTurns: maxTurnsValue,
@@ -3615,6 +3641,7 @@ function AppShell() {
     loadOllamaModels, pullOllamaModel, deleteOllamaModel,
     saveKey, saveSettings, toggleSandboxModeFromMenu,
     exportMemoryBackup, resetMemoryRestoreSelection, prepareMemoryRestore, importMemoryBackup,
+    scanLocalAgents, createLocalAgent,
     getAgentExecutorType, getAgentEndpoint, getAgentExecutorLabel,
     formatProviderLabel, formatRoutingModeLabel, formatProviderSourceLabel,
     getProviderStatusTone, formatProviderReadinessLabel,
