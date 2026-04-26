@@ -1,18 +1,69 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-  <rect width="512" height="512" rx="128" fill="#1a1d20"/>
-  <!-- antenna -->
-  <rect x="244" y="52" width="24" height="64" rx="12" fill="#a8a29e"/>
-  <circle cx="256" cy="44" r="20" fill="#a8a29e"/>
-  <!-- head -->
-  <rect x="96" y="116" width="320" height="248" rx="56" fill="#27272a"/>
-  <!-- eyes -->
-  <rect x="152" y="188" width="72" height="72" rx="20" fill="#22c55e"/>
-  <rect x="288" y="188" width="72" height="72" rx="20" fill="#22c55e"/>
-  <!-- mouth -->
-  <rect x="168" y="296" width="176" height="28" rx="14" fill="#3f3f46"/>
-  <!-- ears / sides -->
-  <rect x="76" y="180" width="24" height="80" rx="12" fill="#3f3f46"/>
-  <rect x="412" y="180" width="24" height="80" rx="12" fill="#3f3f46"/>
-  <!-- body hint -->
-  <rect x="176" y="380" width="160" height="60" rx="20" fill="#27272a"/>
+  <!-- background rounded square with gradient -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#18191c"/>
+      <stop offset="100%" stop-color="#0d0f11"/>
+    </linearGradient>
+    <linearGradient id="eyeGlow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#4ade80"/>
+      <stop offset="100%" stop-color="#16a34a"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#bg)"/>
+
+  <!-- antenna stem -->
+  <rect x="246" y="54" width="20" height="60" rx="10" fill="#52525b"/>
+  <!-- antenna ball -->
+  <circle cx="256" cy="46" r="18" fill="#a1a1aa"/>
+  <!-- antenna ball highlight -->
+  <circle cx="250" cy="40" r="6" fill="#d4d4d8" opacity="0.6"/>
+
+  <!-- head body -->
+  <rect x="88" y="110" width="336" height="268" rx="60" fill="#1c1d21"/>
+  <!-- subtle inner border -->
+  <rect x="92" y="114" width="328" height="260" rx="57" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.07"/>
+
+  <!-- ear left -->
+  <rect x="66" y="178" width="26" height="88" rx="13" fill="#2a2b30"/>
+  <!-- ear right -->
+  <rect x="420" y="178" width="26" height="88" rx="13" fill="#2a2b30"/>
+
+  <!-- eye left — glowing green square -->
+  <rect x="148" y="186" width="80" height="80" rx="22" fill="url(#eyeGlow)" filter="url(#glow)"/>
+  <!-- eye left pupil -->
+  <rect x="168" y="206" width="40" height="40" rx="10" fill="#052e16" opacity="0.55"/>
+  <!-- eye left shine -->
+  <circle cx="163" cy="201" r="8" fill="#bbf7d0" opacity="0.55"/>
+
+  <!-- eye right — glowing green square -->
+  <rect x="284" y="186" width="80" height="80" rx="22" fill="url(#eyeGlow)" filter="url(#glow)"/>
+  <!-- eye right pupil -->
+  <rect x="304" y="206" width="40" height="40" rx="10" fill="#052e16" opacity="0.55"/>
+  <!-- eye right shine -->
+  <circle cx="299" cy="201" r="8" fill="#bbf7d0" opacity="0.55"/>
+
+  <!-- mouth — segmented bar -->
+  <rect x="162" y="300" width="188" height="26" rx="13" fill="#2e2f35"/>
+  <!-- mouth active segments -->
+  <rect x="166" y="304" width="36" height="18" rx="7" fill="#4ade80" opacity="0.8"/>
+  <rect x="210" y="304" width="36" height="18" rx="7" fill="#4ade80" opacity="0.55"/>
+  <rect x="254" y="304" width="36" height="18" rx="7" fill="#4ade80" opacity="0.35"/>
+  <rect x="298" y="304" width="36" height="18" rx="7" fill="#2e2f35" opacity="0.4"/>
+
+  <!-- neck -->
+  <rect x="228" y="374" width="56" height="36" rx="10" fill="#1c1d21"/>
+
+  <!-- body base -->
+  <rect x="152" y="404" width="208" height="68" rx="28" fill="#1c1d21"/>
+  <!-- body inner accent -->
+  <rect x="160" y="412" width="192" height="52" rx="22" fill="none" stroke="#ffffff" stroke-width="1.5" opacity="0.06"/>
+  <!-- chest dot lights -->
+  <circle cx="210" cy="438" r="10" fill="#4ade80" opacity="0.7" filter="url(#glow)"/>
+  <circle cx="256" cy="438" r="10" fill="#4ade80" opacity="0.45"/>
+  <circle cx="302" cy="438" r="10" fill="#4ade80" opacity="0.25"/>
 </svg>
