@@ -791,7 +791,7 @@ function AppShell() {
 
   async function createLocalAgent(manifest: { title: string; command: string; description: string; systemPrompt: string; port: number }): Promise<void> {
     await apiSend('/api/settings/functions', 'POST', {
-      type: 'agent',
+      kind: 'agent',
       title: manifest.title,
       command: manifest.command,
       description: manifest.description,
