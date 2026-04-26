@@ -477,8 +477,6 @@ type SlashMenuItem = {
 
 const TABS = [
   { value: 'chat', label: 'Chat', Icon: MessageSquare },
-  { value: 'skills', label: 'Skills', Icon: Sparkles },
-  { value: 'agents', label: 'Agents', Icon: Bot },
   { value: 'history', label: 'History', Icon: History },
   { value: 'memory', label: 'Memory', Icon: MemoryStick },
   { value: 'settings', label: 'Settings', Icon: Settings },
@@ -835,14 +833,7 @@ function AppShell() {
     return null;
   }, [messages]);
 
-  const conversationStats = useMemo(() => {
-    const nonCompact = messages.filter(m => !m.isCompact);
-    if (nonCompact.length === 0) return null;
-    const allText = nonCompact.map(m => m.content).join(' ');
-    const words = allText.trim().split(/\s+/).filter(Boolean).length;
-    const exchanges = nonCompact.filter(m => m.role === 'user').length;
-    return { words, exchanges };
-  }, [messages]);
+
 
   function getAgentExecutorType(agent: FunctionPreset | AgentDefinition): AgentExecutorType {
     return 'executorType' in agent && agent.executorType === 'remote-http' ? 'remote-http' : 'internal-llm';
@@ -3698,8 +3689,6 @@ function AppShell() {
                   <h2 className="text-xl font-semibold sm:text-2xl">{activeTabLabel}</h2>
                   <p className={`text-sm ${subtleTextClass}`}>
                     {activeTab === 'chat' ? 'Send prompts through Claude or any configured local provider.' : null}
-                    {activeTab === 'skills' ? 'Run Botty skills with slash commands or activate them from the menu.' : null}
-                    {activeTab === 'agents' ? 'Launch specialized agents that can own longer tasks across the session.' : null}
                     {activeTab === 'history' ? 'Reload or delete stored conversations.' : null}
                     {activeTab === 'memory' ? 'Manage facts and URLs that feed the prompt context.' : null}
                     {activeTab === 'settings' ? 'Save keys and runtime preferences used by the local server.' : null}
@@ -4359,7 +4348,7 @@ function AppShell() {
               </div>
             ) : null}
 
-            {activeTab === 'skills' ? (
+            {false ? (
               <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
                 <section className={sectionCardClass}>
                   <div className="flex items-center justify-between gap-2 mb-3">
@@ -4427,7 +4416,7 @@ function AppShell() {
               </div>
             ) : null}
 
-            {activeTab === 'agents' ? (
+            {false ? (
               <div className="space-y-4 flex-1 min-h-0 overflow-auto pb-4">
                 <section className={sectionCardClass}>
                   <div className="flex items-center gap-2 mb-3">
@@ -4793,23 +4782,13 @@ function AppShell() {
                       <p className={`mt-1 text-sm ${subtleTextClass}`}>Track today&apos;s token usage by provider and model, plus the last 7 days of activity.</p>
                     </div>
 
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <div className={elevatedCardClass}>
-                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Tokens today</div>
-                        <div className="mt-2 text-2xl font-semibold">{dailyTokens.toLocaleString()}</div>
-                      </div>
-                      <div className={elevatedCardClass}>
-                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Agent memory facts</div>
-                        <div className="mt-2 text-2xl font-semibold">{agentFactCounts.total}</div>
-                      </div>
-                      <div className={elevatedCardClass}>
-                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Active providers</div>
-                        <div className="mt-2 text-2xl font-semibold">{dailyProviderUsage.length}</div>
-                      </div>
-                      <div className={elevatedCardClass}>
-                        <div className={`text-xs uppercase tracking-[0.2em] ${subtleTextClass}`}>Active models</div>
-                        <div className="mt-2 text-2xl font-semibold">{sortedModelUsage.length}</div>
-                      </div>
+                    <div className="flex items-center gap-4 flex-wrap">
+                      <span className={`text-sm ${subtleTextClass}`}>
+                        ~{dailyTokens.toLocaleString()} tokens today
+                      </span>
+                      <span className={`text-sm ${subtleTextClass}`}>
+                        {agentFactCounts.total} memory facts
+                      </span>
                     </div>
                   </div>
                 </section>
@@ -5746,7 +5725,332 @@ function AppShell() {
                     <input type="checkbox" checked={autoMemory} onChange={event => setAutoMemory(event.target.checked)} />
                     <span>Learn durable facts about me automatically from successful chats</span>
                   </label>
+                </section>
 
+                <section className={sectionCardClass}>
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      <h3 className="font-medium">Skills</h3>
+                    </div>
+                    <button onClick={() => void clearFunctionPreset()} disabled={applyingFunctionId === 'clear'} className={secondaryButtonClass}>
+                      {applyingFunctionId === 'clear' ? 'Clearing...' : 'Clear mode'}
+                    </button>
+                  </div>
+                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Activate via <code className="font-mono text-xs">/command</code> in the composer. Creating a skill sets it as the active chat mode.</p>
+                  <form onSubmit={createCustomSkill} className="grid gap-3 md:grid-cols-2 mb-4">
+                    <input value={newSkillTitle} onChange={event => patchNewSkill({ title: event.target.value })} placeholder="Skill title, e.g. Architecture Critic" className={textInputClass} />
+                    <input value={newSkillCommand} onChange={event => patchNewSkill({ command: event.target.value })} placeholder="Slash command, e.g. architecture" className={textInputClass} />
+                    <div className="md:col-span-2">
+                      <input value={newSkillDescription} onChange={event => patchNewSkill({ description: event.target.value })} placeholder="Short description, e.g. critiques designs and tradeoffs" className={textInputClass} />
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newSkillSystemPrompt} onChange={event => patchNewSkill({ systemPrompt: event.target.value })} rows={3} placeholder="System prompt: define the expertise, decision rules, and tone for this skill" className={textareaClass} />
+                    </div>
+                    <div className="md:col-span-2 flex">
+                      <button type="submit" disabled={creatingFunction === 'skill'} className={responsivePrimaryButtonClass}>
+                        {creatingFunction === 'skill' ? 'Adding...' : 'Add skill'}
+                      </button>
+                    </div>
+                  </form>
+                  <div className="grid gap-3 xl:grid-cols-2">
+                    {skillPresets.map(item => {
+                      const isActive = activePresetId === item.id;
+                      return (
+                        <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-3`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">{item.title}</div>
+                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                            </div>
+                            <div className={`shrink-0 rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
+                              {isActive ? 'Active' : `/${item.command}`}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => void activateFunctionPreset(item)}
+                            disabled={applyingFunctionId === item.id}
+                            className={responsivePrimaryButtonClass}
+                          >
+                            {applyingFunctionId === item.id ? 'Applying...' : 'Use in current chat'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+
+                <section className={sectionCardClass}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <Bot className="w-4 h-4" />
+                    <h3 className="font-medium">Agents</h3>
+                  </div>
+                  <p className={`mb-4 text-sm ${subtleTextClass}`}>Activate via <code className="font-mono text-xs">/command</code>. Agents own longer tasks and can have isolated memory.</p>
+                  <form onSubmit={createCustomBot} className="grid gap-3 md:grid-cols-2 mb-4">
+                    <input value={newBotTitle} onChange={event => patchNewBot({ title: event.target.value })} placeholder="Agent title, e.g. Security Reviewer" className={textInputClass} />
+                    <input value={newBotCommand} onChange={event => patchNewBot({ command: event.target.value })} placeholder="Slash command, e.g. security-review" className={textInputClass} />
+                    <div className="md:col-span-2">
+                      <input value={newBotDescription} onChange={event => patchNewBot({ description: event.target.value })} placeholder="Specialist summary, e.g. reviews code and architecture for security risk" className={textInputClass} />
+                    </div>
+                    <select value={newBotExecutorType} onChange={event => patchNewBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
+                      <option value="internal-llm">Internal Botty agent</option>
+                      <option value="remote-http">Remote HTTP agent</option>
+                    </select>
+                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Remote endpoint, e.g. http://127.0.0.1:8787/agent" className={textInputClass} disabled={newBotExecutorType !== 'remote-http'} />
+                    {newBotExecutorType === 'internal-llm' ? (
+                      <>
+                        <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
+                          const nextProvider = event.target.value;
+                          if (!nextProvider) { patchNewBot({ provider: '', model: '' }); return; }
+                          if (nextProvider === 'auto') { patchNewBot({ provider: isAutoRouteProvider(newBotProvider) ? newBotProvider : 'auto', model: '' }); return; }
+                          patchNewBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, '') });
+                        }} className={textInputClass}>
+                          <option value="">Inherit chat provider</option>
+                          {PROVIDERS.map(option => (
+                            <option key={option.value} value={option.value}>{option.label}</option>
+                          ))}
+                        </select>
+                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
+                          <option value="shared">Shared memory</option>
+                          <option value="isolated">Isolated agent memory</option>
+                          <option value="none">No memory</option>
+                        </select>
+                      </>
+                    ) : (
+                      <>
+                        <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
+                        <select value={newBotMemoryMode} onChange={event => patchNewBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
+                          <option value="shared">Shared memory</option>
+                          <option value="isolated">Isolated agent memory</option>
+                          <option value="none">No memory</option>
+                        </select>
+                      </>
+                    )}
+                    <div className="md:col-span-2">
+                      <select value={newBotProvider && isAutoRouteProvider(newBotProvider) ? newBotProvider : newBotModel} onChange={event => {
+                        if (!newBotProvider) { patchNewBot({ model: event.target.value }); return; }
+                        if (isAutoRouteProvider(newBotProvider)) { patchNewBot({ provider: event.target.value }); return; }
+                        patchNewBot({ model: event.target.value });
+                      }} disabled={!newBotProvider || newBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!newBotProvider || newBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
+                        {!newBotProvider ? <option value="">Inherit provider default</option> : null}
+                        {newBotProvider && isAutoRouteProvider(newBotProvider)
+                          ? AUTO_ROUTE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)
+                          : null}
+                        {newBotProvider && !isAutoRouteProvider(newBotProvider) ? getSelectableModels(newBotProvider, newBotModel, true).map(option => (
+                          <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, newBotProvider)}</option>
+                        )) : null}
+                      </select>
+                    </div>
+                    <div className="md:col-span-2">
+                      <textarea value={newBotSystemPrompt} onChange={event => patchNewBot({ systemPrompt: event.target.value })} rows={3} placeholder="System prompt: define the specialist role, operating rules, and decision standards" className={textareaClass} />
+                    </div>
+                    <div>
+                      <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
+                    </div>
+                    <div className="md:col-span-2 flex">
+                      <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
+                        {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
+                      </button>
+                    </div>
+                  </form>
+
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-medium">Built-in agents</h4>
+                    <span className={`text-xs ${subtleTextClass}`}>{builtInAgents.length} available</span>
+                  </div>
+                  <div className="grid gap-3 xl:grid-cols-2 mb-4">
+                    {builtInAgents.map(item => {
+                      const isActive = activePresetId === item.id;
+                      return (
+                        <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-3`}>
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="text-sm font-medium">{item.title}</div>
+                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                            </div>
+                            <div className={`shrink-0 rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
+                              {isActive ? 'Active' : `/${item.command}`}
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => void activateFunctionPreset(item, { startNewChat: true })}
+                            disabled={applyingFunctionId === item.id}
+                            className={responsivePrimaryButtonClass}
+                          >
+                            {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mb-3 flex items-center justify-between gap-3">
+                    <h4 className="text-sm font-medium">Custom agents</h4>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => importAgentInputRef.current?.click()} className={`text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}>Import</button>
+                      <input ref={importAgentInputRef} type="file" accept=".json,application/json" onChange={event => void importAgentsFromFile(event.target.files)} className="hidden" />
+                      {customAgentsPresets.length > 0 ? (
+                        <button type="button" onClick={exportAgents} className={`text-xs ${subtleTextClass} hover:text-stone-700 dark:hover:text-stone-300`}>Export all</button>
+                      ) : null}
+                      <span className={`text-xs ${subtleTextClass}`}>{customAgentsPresets.length} created</span>
+                    </div>
+                  </div>
+                  {customAgentsPresets.length > 0 ? (
+                    <div className="grid gap-3 xl:grid-cols-2">
+                      {customAgentsPresets.map(item => {
+                        const isActive = activePresetId === item.id;
+                        const isEditing = editingBotId === item.id;
+                        const isSaving = savingBotId === item.id;
+                        const isDeleting = deletingBotId === item.id;
+                        const isConfirmingDelete = confirmingDeleteBotId === item.id;
+                        return (
+                          <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-4`}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <div className="text-sm font-medium">{item.title}</div>
+                                <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                              </div>
+                              <div className={`rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
+                                {isActive ? 'Active' : 'Custom agent'}
+                              </div>
+                            </div>
+                            {isEditing ? (
+                              <div className="grid gap-3 md:grid-cols-2">
+                                <input value={editingBotTitle} onChange={event => patchEditingBot({ title: event.target.value })} placeholder="Agent title" className={textInputClass} />
+                                <input value={editingBotCommand} onChange={event => patchEditingBot({ command: event.target.value })} placeholder="Slash command" className={textInputClass} />
+                                <div className="md:col-span-2">
+                                  <input value={editingBotDescription} onChange={event => patchEditingBot({ description: event.target.value })} placeholder="Specialist summary" className={textInputClass} />
+                                </div>
+                                <select value={editingBotExecutorType} onChange={event => patchEditingBot({ executorType: event.target.value as AgentExecutorType })} className={textInputClass}>
+                                  <option value="internal-llm">Internal Botty agent</option>
+                                  <option value="remote-http">Remote HTTP agent</option>
+                                </select>
+                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Remote endpoint" className={textInputClass} disabled={editingBotExecutorType !== 'remote-http'} />
+                                {editingBotExecutorType === 'internal-llm' ? (
+                                  <>
+                                    <select value={editingBotProvider ? getProviderSelectValue(editingBotProvider) : ''} onChange={event => {
+                                      const nextProvider = event.target.value;
+                                      if (!nextProvider) { patchEditingBot({ provider: '', model: '' }); return; }
+                                      if (nextProvider === 'auto') { patchEditingBot({ provider: isAutoRouteProvider(editingBotProvider) ? editingBotProvider : 'auto', model: '' }); return; }
+                                      patchEditingBot({ provider: nextProvider, model: getPreferredSelectableModel(nextProvider, '', editingBotModel) });
+                                    }} className={textInputClass}>
+                                      <option value="">Inherit chat provider</option>
+                                      {PROVIDERS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                                    </select>
+                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
+                                      <option value="shared">Shared memory</option>
+                                      <option value="isolated">Isolated agent memory</option>
+                                      <option value="none">No memory</option>
+                                    </select>
+                                  </>
+                                ) : (
+                                  <>
+                                    <div className={`${textInputClass} flex items-center ${subtleTextClass}`}>Routing handled by the remote endpoint</div>
+                                    <select value={editingBotMemoryMode} onChange={event => patchEditingBot({ memoryMode: event.target.value as 'shared' | 'isolated' | 'none' })} className={textInputClass}>
+                                      <option value="shared">Shared memory</option>
+                                      <option value="isolated">Isolated agent memory</option>
+                                      <option value="none">No memory</option>
+                                    </select>
+                                  </>
+                                )}
+                                <div className="md:col-span-2">
+                                  <select value={editingBotProvider && isAutoRouteProvider(editingBotProvider) ? editingBotProvider : editingBotModel} onChange={event => {
+                                    if (!editingBotProvider) { patchEditingBot({ model: event.target.value }); return; }
+                                    if (isAutoRouteProvider(editingBotProvider)) { patchEditingBot({ provider: event.target.value }); return; }
+                                    patchEditingBot({ model: event.target.value });
+                                  }} disabled={!editingBotProvider || editingBotExecutorType !== 'internal-llm'} className={`${textInputClass} ${!editingBotProvider || editingBotExecutorType !== 'internal-llm' ? (isDarkMode ? 'disabled:bg-[#111927] disabled:text-stone-600' : 'disabled:bg-stone-100 disabled:text-stone-400') : ''}`}>
+                                    {!editingBotProvider ? <option value="">Inherit provider default</option> : null}
+                                    {editingBotProvider && isAutoRouteProvider(editingBotProvider)
+                                      ? AUTO_ROUTE_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)
+                                      : null}
+                                    {editingBotProvider && !isAutoRouteProvider(editingBotProvider) ? getSelectableModels(editingBotProvider, editingBotModel, true).map(option => (
+                                      <option key={option || '__default__'} value={option}>{formatModelOptionLabel(option, editingBotProvider)}</option>
+                                    )) : null}
+                                  </select>
+                                </div>
+                                <div className="md:col-span-2">
+                                  <textarea value={editingBotSystemPrompt} onChange={event => patchEditingBot({ systemPrompt: event.target.value })} rows={3} placeholder="System prompt" className={textareaClass} />
+                                </div>
+                                <div>
+                                  <input type="number" min="1" max="100" value={editingBotMaxTurns} onChange={event => patchEditingBot({ maxTurns: event.target.value })} placeholder="Max turns" className={textInputClass} />
+                                </div>
+                                <div className="md:col-span-2">
+                                  <div className="flex flex-col gap-2">
+                                    <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional)</div>
+                                    {editingBotTools.map((tool, idx) => (
+                                      <div key={idx} className="flex gap-2 items-start">
+                                        <input value={tool.name} onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, name: event.target.value } : t) })} placeholder="Tool name" className={textInputClass} />
+                                        <input value={tool.description} onChange={event => patchEditingBot({ tools: editingBotTools.map((t, i) => i === idx ? { ...t, description: event.target.value } : t) })} placeholder="What this tool does" className={textInputClass} />
+                                        <button type="button" onClick={() => patchEditingBot({ tools: editingBotTools.filter((_, i) => i !== idx) })} className={`shrink-0 ${secondaryButtonClass}`} aria-label="Remove tool">
+                                          <X className="w-4 h-4" />
+                                        </button>
+                                      </div>
+                                    ))}
+                                    <button type="button" onClick={() => patchEditingBot({ tools: [...editingBotTools, { name: '', description: '' }] })} className={secondaryButtonClass}>
+                                      <Plus className="w-4 h-4" /> Add tool
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="md:col-span-2 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                  <button type="button" onClick={() => void saveEditedCustomBot(item.id)} disabled={isSaving} className={responsivePrimaryButtonClass}>
+                                    <Save className="w-4 h-4" />
+                                    {isSaving ? 'Saving...' : 'Save changes'}
+                                  </button>
+                                  <button type="button" onClick={stopEditingCustomBot} disabled={isSaving} className={responsiveSecondaryButtonClass}>Cancel</button>
+                                  <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isSaving || isDeleting} className={responsiveDestructiveButtonClass}>
+                                    <Trash2 className="w-4 h-4" />
+                                    {isDeleting ? 'Deleting...' : 'Delete agent'}
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <div className={`text-xs ${subtleTextClass} flex flex-wrap gap-x-3 gap-y-1`}>
+                                  {item.provider ? <span>{formatProviderLabel(item.provider)}{item.model ? ` · ${formatModelDisplay(item.model, item.provider)}` : ''}</span> : null}
+                                  <span>Memory: {item.memoryMode || 'shared'}</span>
+                                  {getAgentExecutorLabel(item) !== 'Internal Botty agent' ? <span>{getAgentExecutorLabel(item)}</span> : null}
+                                  {getAgentEndpoint(item) ? <span className="truncate max-w-[200px]">Endpoint: {getAgentEndpoint(item)}</span> : null}
+                                </div>
+                                {isConfirmingDelete ? (
+                                  <div className={`rounded-[1rem] border px-3 py-3 text-sm ${isDarkMode ? 'border-red-900/60 bg-red-950/20 text-red-200' : 'border-red-200 bg-red-50 text-red-800'}`}>
+                                    Delete this custom agent?{isActive ? ' It is currently active, so Botty will clear the active agent mode after deletion.' : ''}
+                                  </div>
+                                ) : null}
+                                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                  <button onClick={() => void activateFunctionPreset(item, { startNewChat: true })} disabled={applyingFunctionId === item.id || isConfirmingDelete} className={responsivePrimaryButtonClass}>
+                                    {applyingFunctionId === item.id ? 'Starting...' : 'Start agent chat'}
+                                  </button>
+                                  <button onClick={() => void activateFunctionPreset(item)} disabled={applyingFunctionId === item.id || isConfirmingDelete} className={responsiveSecondaryButtonClass}>
+                                    {applyingFunctionId === item.id ? 'Starting...' : 'Use in current chat'}
+                                  </button>
+                                  <button type="button" onClick={() => startEditingCustomBot(item)} disabled={isDeleting || isConfirmingDelete} className={responsiveSecondaryButtonClass}>Edit agent</button>
+                                  {isConfirmingDelete ? (
+                                    <>
+                                      <button type="button" onClick={() => void deleteCustomBot(item)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
+                                        <Trash2 className="w-4 h-4" />
+                                        {isDeleting ? 'Deleting...' : 'Confirm delete'}
+                                      </button>
+                                      <button type="button" onClick={cancelDeleteCustomBot} disabled={isDeleting} className={responsiveSecondaryButtonClass}>Cancel delete</button>
+                                    </>
+                                  ) : (
+                                    <button type="button" onClick={() => requestDeleteCustomBot(item.id)} disabled={isDeleting} className={responsiveDestructiveButtonClass}>
+                                      <Trash2 className="w-4 h-4" />
+                                      Delete agent
+                                    </button>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className={`text-sm ${subtleTextClass}`}>No custom agents yet.</div>
+                  )}
+                </section>
+
+                <section className={sectionCardClass}>
                   <button onClick={() => void saveSettings()} disabled={savingSettings} className={responsivePrimaryButtonClass}>
                     <Save className="w-4 h-4" />
                     {savingSettings ? 'Saving...' : 'Save settings'}

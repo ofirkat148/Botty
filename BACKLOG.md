@@ -1,6 +1,22 @@
 # Botty Backlog
 
-_Last updated: 14 April 2026. Prioritized by impact/risk. All items complete._
+_Last updated: 26 April 2026._
+
+## Done (see history below)
+
+All prior 33 items complete. Most recent shipped: markdown rendering, message search, session system prompt, scheduled backups, Telegram /remember + /summary, routing explainer, Pin fact / memory suggestions, SQLite FTS5 RAG, proactive Telegram daily digest.
+
+---
+
+## Next Wave — Niche-focused features
+
+Priority order: deepens Telegram moat, human-readable memory moat, or zero-infra story. Rejects anything that doesn't.
+
+| # | Item | Why |
+|---|------|-----|
+| 1 | **Surface RAG in chat UI** | Backend FTS5 RAG exists but there's no UI to attach a document and see citations inline. "Chat with your files" — a key differentiator since we work offline without OpenAI embeddings. |
+| 2 | **Voice input (mic → transcript → send)** | Web Speech API — zero deps, zero infra. Deepens Telegram parity: you can already voice-message Telegram bots; the web UI should match. |
+| 3 | **Conversation folders / visual project grouping** | Projects exist in DB but conversations aren't visually grouped in the sidebar. Drag-to-folder or click-to-filter by project color-coded in sidebar. |
 
 ## P0 — Cost & Infrastructure
 
