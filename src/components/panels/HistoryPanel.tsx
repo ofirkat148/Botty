@@ -425,17 +425,172 @@ export default function HistoryPanel() {
                   )}
                 </section>
 
-                {conversations.filter(item =>
-                  !historySearch.trim() || item.items.some(entry =>
-                    entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
-                    entry.response.toLowerCase().includes(historySearch.toLowerCase())
-                  ) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())
-                ).filter(item => !activeProjectFilter || item.items.some(e => e.projectId === activeProjectFilter))
-                .sort((a, b) => {
-                  const aPinned = pinnedConversations.has(a.id) ? 0 : 1;
-                  const bPinned = pinnedConversations.has(b.id) ? 0 : 1;
-                  return aPinned - bPinned;
-                }).map(item => (
+                {(() => {
+                  const filtered = conversations.filter(item =>
+                    !historySearch.trim() || item.items.some(entry =>
+                      entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) ||
+                      entry.response.toLowerCase().includes(historySearch.toLowerCase())
+                    ) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())
+                  ).filter(item => !activeProjectFilter || item.items.some(e => e.projectId === activeProjectFilter))
+                  .sort((a, b) => {
+                    const aPinned = pinnedConversations.has(a.id) ? 0 : 1;
+                    const bPinned = pinnedConversations.has(b.id) ? 0 : 1;
+                    return aPinned - bPinned;
+                  });
+
+                  // Grouped view: project headers + cards when no filter/search and projects exist
+                  if (!activeProjectFilter && !historySearch.trim() && projects.length > 0) {
+                    type ConvGroup = typeof filtered[0];
+                    const groups: Array<{ project: typeof projects[0] | null; items: ConvGroup[] }> = [];
+                    for (const proj of projects) {
+                      const projItems = filtered.filter(c => c.items.some(e => e.projectId === proj.id));
+                      if (projItems.length > 0) groups.push({ project: proj, items: projItems });
+                    }
+                    const unassigned = filtered.filter(c => !c.items.some(e => e.projectId));
+                    if (unassigned.length > 0) groups.push({ project: null, items: unassigned });
+                    if (groups.length === 0) return null;
+                    return <>{groups.map(({ project, items: groupItems }) => (
+                      <div key={project?.id ?? '__unassigned__'} className="mb-1">
+                        <div className="flex items-center gap-2 px-1 pb-1.5 pt-3">
+                          {project ? (
+                            <>
+                              <span className={`w-2 h-2 rounded-full shrink-0 ${getProjectDotClass(project.color)}`} />
+                              <button
+                                type="button"
+                                onClick={() => setActiveProjectFilter(project.id)}
+                                className={`text-xs font-semibold uppercase tracking-wide hover:underline ${getProjectBadgeClass(project.color, isDarkMode)}`}
+                              >
+                                {project.name}
+                              </button>
+                              <span className={`text-xs ${subtleTextClass}`}>· {groupItems.length}</span>
+                            </>
+                          ) : (
+                            <span className={`text-xs font-semibold uppercase tracking-wide ${subtleTextClass}`}>
+                              Unassigned · {groupItems.length}
+                            </span>
+                          )}
+                        </div>
+                        {groupItems.map(item => (
+                    <div key={item.id} data-pinned={pinnedConversations.has(item.id) ? 'true' : undefined} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between ${pinnedConversations.has(item.id) ? (isDarkMode ? 'ring-1 ring-amber-400/30' : 'ring-1 ring-amber-400/60') : ''}`}>
+                      <div className="min-w-0 flex-1">
+                        {editingLabelId === item.id ? (
+                          <form onSubmit={event => { event.preventDefault(); void saveConversationLabel(item.id, labelDraft); }} className="mb-2 flex gap-2">
+                            <input
+                              autoFocus
+                              value={labelDraft}
+                              onChange={event => setLabelDraft(event.target.value)}
+                              placeholder="Rename this conversation…"
+                              className={`flex-1 text-sm ${inputClass}`}
+                            />
+                            <button type="submit" className={responsivePrimaryButtonClass}>Save</button>
+                            <button type="button" onClick={() => setEditingLabelId('')} className={responsiveSecondaryButtonClass}>Cancel</button>
+                          </form>
+                        ) : (
+                          <button type="button" onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); }} className="w-full text-left">
+                            <div className="text-sm font-medium line-clamp-2">
+                              {conversationLabels[item.id] || item.items[0].prompt}
+                            </div>
+                            {conversationLabels[item.id] ? (
+                              <div className={`mt-0.5 text-xs line-clamp-1 ${subtleTextClass}`}>{item.items[0].prompt}</div>
+                            ) : null}
+                          </button>
+                        )}
+                        <div className={`mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs ${subtleTextClass}`}>
+                          <span>{(() => { const t = item.items.reduce((s, e) => s + (e.tokensUsed || 0), 0); return t > 0 ? `${t.toLocaleString()} tokens total` : 'Tokens: unknown'; })()}</span>
+                          <span>{new Date(item.items[0].timestamp).toLocaleString()}</span>
+                          <span>{item.items.length} message pair{item.items.length === 1 ? '' : 's'}</span>
+                          {(() => { const pid = item.items.find(e => e.projectId)?.projectId; const proj = pid ? projects.find(p => p.id === pid) : null; return proj ? <span className={`flex items-center gap-1 font-medium ${getProjectBadgeClass(proj.color, isDarkMode)}`}><span className={`w-1.5 h-1.5 rounded-full ${getProjectDotClass(proj.color)}`} />{proj.name}</span> : null; })()}
+                        </div>
+                        {assigningConvId === item.id && projects.length > 0 ? (
+                          <div className={`mt-2 flex flex-wrap gap-2`}>
+                            <span className={`text-xs ${subtleTextClass}`}>Move to:</span>
+                            {projects.map(proj => (
+                              <button key={proj.id} type="button" onClick={() => void assignConversationToProject(item.id, proj.id)} className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14 text-stone-200' : 'bg-stone-100 hover:bg-stone-200 text-stone-700'}`}>
+                                <span className={`w-2 h-2 rounded-full shrink-0 ${getProjectDotClass(proj.color)}`} />{proj.name}
+                              </button>
+                            ))}
+                            {item.items.some(e => e.projectId) ? <button type="button" onClick={() => void assignConversationToProject(item.id, null)} className={`rounded-full px-2.5 py-1 text-xs text-red-500`}>Remove from project</button> : null}
+                            <button type="button" onClick={() => setAssigningConvId('')} className={`rounded-full px-2.5 py-1 text-xs ${subtleTextClass}`}>Cancel</button>
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className="flex w-full flex-col gap-2 self-start sm:w-auto sm:flex-row lg:self-center">
+                        <button onClick={() => loadConversation(item.id)} className={responsiveSecondaryButtonClass}>Open</button>
+                        <button onClick={() => exportConversation(item)} className={responsiveSecondaryButtonClass} title="Export as Markdown">
+                          <Download className="w-4 h-4" />
+                        </button>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setOpenConvMenuId(id => id === item.id ? '' : item.id)}
+                            className={responsiveSecondaryButtonClass}
+                            title="More actions"
+                          >
+                            <MoreHorizontal className="w-4 h-4" />
+                          </button>
+                          {openConvMenuId === item.id ? (
+                            <div className={`absolute right-0 top-full z-20 mt-1 min-w-[160px] rounded-xl border py-1 shadow-lg ${isDarkMode ? 'border-white/10 bg-stone-900 text-stone-200' : 'border-stone-200 bg-white text-stone-700'}`}>
+                              {!showArchivedHistory ? (
+                                <button type="button" onClick={() => { setEditingLabelId(item.id); setLabelDraft(conversationLabels[item.id] || ''); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                  <Pencil className="w-3.5 h-3.5" /> Rename
+                                </button>
+                              ) : null}
+                              {!showArchivedHistory ? (
+                                <button type="button" onClick={() => { void togglePinConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'} ${pinnedConversations.has(item.id) ? (isDarkMode ? 'text-amber-300' : 'text-amber-600') : ''}`}>
+                                  <Pin className="w-3.5 h-3.5" /> {pinnedConversations.has(item.id) ? 'Unpin' : 'Pin'}
+                                </button>
+                              ) : null}
+                              {!showArchivedHistory ? (
+                                <button type="button" onClick={() => { void shareConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                  <Share2 className="w-3.5 h-3.5" /> Share
+                                </button>
+                              ) : null}
+                              {!showArchivedHistory && projects.length > 0 ? (
+                                <button type="button" onClick={() => { setAssigningConvId(id => id === item.id ? '' : item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                  <Layers className="w-3.5 h-3.5" /> Assign project
+                                </button>
+                              ) : null}
+                              <button type="button" onClick={() => { exportConversationCSV(item); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                <span className="w-3.5 text-xs font-medium">CSV</span> Export CSV
+                              </button>
+                              {showArchivedHistory ? (
+                                <button type="button" onClick={() => { void unarchiveConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                  <ArchiveRestore className="w-3.5 h-3.5" /> Restore
+                                </button>
+                              ) : (
+                                <button type="button" onClick={() => { void archiveConversation(item.id); setOpenConvMenuId(''); }} className={`flex w-full items-center gap-2 px-3 py-2 text-sm hover:${isDarkMode ? 'bg-white/8' : 'bg-stone-50'}`}>
+                                  <Archive className="w-3.5 h-3.5" /> Archive
+                                </button>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                        <button onClick={() => void deleteConversation(item.id)} className={responsiveDestructiveButtonClass}>
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      {sharingConvId === item.id && shareLink ? (
+                        <div className={`mt-2 rounded-xl border px-3 py-2.5 text-sm flex items-center gap-2 ${isDarkMode ? 'border-sky-400/20 bg-sky-500/8' : 'border-sky-200 bg-sky-50'}`}>
+                          {shareLink === 'error' ? (
+                            <span className="text-red-500">Failed to create share link.</span>
+                          ) : (
+                            <>
+                              <a href={shareLink} target="_blank" rel="noopener noreferrer" className={`flex-1 truncate font-mono text-xs ${isDarkMode ? 'text-sky-300' : 'text-sky-700'}`}>{shareLink}</a>
+                              <button onClick={() => void navigator.clipboard.writeText(shareLink)} className={`shrink-0 rounded-lg px-2 py-1 text-xs ${isDarkMode ? 'bg-white/8 hover:bg-white/14' : 'bg-stone-100 hover:bg-stone-200'}`} title="Copy link"><Copy className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => void revokeShare(item.id)} className={`shrink-0 rounded-lg px-2 py-1 text-xs text-red-500`} title="Revoke share">Revoke</button>
+                              <button onClick={() => { setSharingConvId(''); setShareLink(''); }} className={`shrink-0 ${subtleTextClass}`} title="Dismiss"><X className="w-3.5 h-3.5" /></button>
+                            </>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                        ))}
+                      </div>
+                    ))}</>;
+                  }
+
+                  // Flat list: filter active, searching, or no projects
+                  return <>{filtered.map(item => (
                   <div key={item.id} data-pinned={pinnedConversations.has(item.id) ? 'true' : undefined} className={`${sectionCardClass} flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between ${pinnedConversations.has(item.id) ? (isDarkMode ? 'ring-1 ring-amber-400/30' : 'ring-1 ring-amber-400/60') : ''}`}>
                     <div className="min-w-0 flex-1">
                       {editingLabelId === item.id ? (
@@ -549,7 +704,8 @@ export default function HistoryPanel() {
                       </div>
                     ) : null}
                   </div>
-                ))}
+
+                  ))}
                 {conversations.length === 0 && !historyLoading ? <div className={`text-sm ${subtleTextClass}`}>No saved history yet.</div> : null}
                 {historyLoading ? (
                   <div className="flex flex-col gap-2 animate-pulse">
@@ -561,7 +717,9 @@ export default function HistoryPanel() {
                     ))}
                   </div>
                 ) : null}
-                {conversations.length > 0 && historySearch.trim() && conversations.filter(item => item.items.some(entry => entry.prompt.toLowerCase().includes(historySearch.toLowerCase()) || entry.response.toLowerCase().includes(historySearch.toLowerCase())) || (conversationLabels[item.id] || '').toLowerCase().includes(historySearch.toLowerCase())).length === 0 ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
+                {filtered.length === 0 && historySearch.trim() ? <div className={`text-sm ${subtleTextClass}`}>No conversations match your search.</div> : null}
+                </>;
+                })()}
               </div>
   );
 }

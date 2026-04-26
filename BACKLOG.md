@@ -15,7 +15,7 @@ All prior 33 items complete. Most recent shipped: markdown rendering, message se
 | 1 | ✅ **React Error Boundary** | Done: `src/utils/ErrorBoundary.tsx` wraps the full app in `src/main.tsx`. Shows user-friendly fallback + Reload button on render crash. |
 | 2 | ✅ **History loading skeletons** | Done: `historyLoading` state in `App.tsx`; 5 animated pulse skeleton rows shown in History tab while data fetches on load or archive toggle. |
 | 3 | ✅ **Memory guardrail hardening** | Done: `isGarbageFact()` in `server/utils/llm.ts` now also rejects template variables `{{...}}`, bare URLs, truncated facts ending in `...`, markdown headers (`## `), and purely numeric strings. |
-| 4 | **Split `src/App.tsx` into components** | File is ~5700 lines. Suggested splits: `ChatPanel`, `HistoryPanel`, `MemoryPanel`, `SettingsPanel`, `ComposerBar` — each as a standalone file under `src/components/`. Low-risk parts first; share state via context or props. |
+| 4 | ✅ **Split `src/App.tsx` into components** | Done: `ChatPanel`, `HistoryPanel`, `MemoryPanel`, `SettingsPanel` extracted under `src/components/panels/`; shared state via `AppContext`. App.tsx reduced 5714 → ~3900 lines. |
 | 5 | **Upgrade major dependencies** | `express` v4 → v5 (routing changes), `typescript` v5 → v6 (strict mode changes), `vite` v6 → v8 (config API changes), `jsonwebtoken` v8 → v9 (async API), `lucide-react` v0 → v1 (icon renames), `@vitejs/plugin-react` v5 → v6. Each needs its own PR + test pass. |
 
 ## Next Wave — Niche-focused features
@@ -24,9 +24,9 @@ Priority order: deepens Telegram moat, human-readable memory moat, or zero-infra
 
 | # | Item | Why |
 |---|------|-----|
-| 1 | **Surface RAG in chat UI** | Backend FTS5 RAG exists but there's no UI to attach a document and see citations inline. "Chat with your files" — a key differentiator since we work offline without OpenAI embeddings. |
-| 2 | **Voice input (mic → transcript → send)** | Web Speech API — zero deps, zero infra. Deepens Telegram parity: you can already voice-message Telegram bots; the web UI should match. |
-| 3 | **Conversation folders / visual project grouping** | Projects exist in DB but conversations aren't visually grouped in the sidebar. Drag-to-folder or click-to-filter by project color-coded in sidebar. |
+| 1 | ✅ **Surface RAG in chat UI** | Done: RAG doc picker chip in composer; citations rendered inline in assistant messages with `[source]` links. |
+| 2 | ✅ **Voice input (mic → transcript → send)** | Done: Mic button in `ChatPanel`; Web Speech API, interim transcript shown live above composer; auto-sends on silence. |
+| 3 | ✅ **Conversation folders / visual project grouping** | Done: `HistoryPanel` groups conversations under colour-coded project headers when no filter/search active; clicking a header activates the project filter. Shared helpers in `src/utils/projectColors.ts`. |
 
 ## P0 — Cost & Infrastructure
 
