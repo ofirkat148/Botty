@@ -1,4 +1,6 @@
 import { FormEvent, useEffect, useEffectEvent, useMemo, useRef, useReducer, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import {
   Archive,
   ArchiveRestore,
@@ -9,6 +11,7 @@ import {
   ChevronRight,
   Copy,
   Download,
+  FileText,
   GitBranch,
   Globe,
   History,
@@ -76,6 +79,11 @@ import {
 import { parseArtifacts, hasArtifacts } from './utils/artifacts';
 
 // ---------------------------------------------------------------------------
+// Artifact language set (shared by ArtifactBlock and MarkdownMessage)
+// ---------------------------------------------------------------------------
+const ARTIFACT_LANG_SET = new Set(['html', 'tsx', 'jsx', 'svg', 'vue', 'svelte']);
+
+// ---------------------------------------------------------------------------
 // ArtifactBlock — sandboxed iframe preview of HTML/TSX/SVG code blocks
 // ---------------------------------------------------------------------------
 function ArtifactBlock({ lang, code, isDark }: { lang: string; code: string; isDark: boolean }) {
@@ -120,6 +128,81 @@ function ArtifactBlock({ lang, code, isDark }: { lang: string; code: string; isD
         />
       ) : null}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// MarkdownMessage — renders assistant message content as formatted markdown
+// ---------------------------------------------------------------------------
+function MarkdownMessage({ content, isDark }: { content: string; isDark: boolean }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        pre({ children }) {
+          // Make pre transparent; code component handles the block wrapper
+          return <>{children}</>;
+        },
+        code({ children, className }) {
+          const match = /language-(\w+)/.exec(className || '');
+          const lang = match?.[1]?.toLowerCase() ?? '';
+          const code = String(children ?? '').replace(/\n$/, '');
+          if (match) {
+            if (ARTIFACT_LANG_SET.has(lang)) {
+              return <ArtifactBlock lang={lang} code={code} isDark={isDark} />;
+            }
+            return (
+              <pre className={`my-3 overflow-x-auto rounded-xl border p-3 text-xs leading-5 font-mono ${isDark ? 'bg-[#0f1113] border-white/10 text-stone-300' : 'bg-stone-50 border-stone-200 text-stone-800'}`}>
+                <code className="font-mono">{code}</code>
+              </pre>
+            );
+          }
+          return (
+            <code className={`rounded px-1 py-0.5 text-[0.85em] font-mono ${isDark ? 'bg-white/10 text-rose-200' : 'bg-stone-100 text-rose-700'}`}>
+              {children}
+            </code>
+          );
+        },
+        p({ children }) { return <p className="mb-3 last:mb-0">{children}</p>; },
+        ul({ children }) { return <ul className="mb-3 ml-4 list-disc space-y-1">{children}</ul>; },
+        ol({ children }) { return <ol className="mb-3 ml-4 list-decimal space-y-1">{children}</ol>; },
+        li({ children }) { return <li className="leading-6">{children}</li>; },
+        h1({ children }) { return <h1 className="mb-3 mt-4 text-lg font-bold first:mt-0">{children}</h1>; },
+        h2({ children }) { return <h2 className="mb-2 mt-4 text-base font-semibold first:mt-0">{children}</h2>; },
+        h3({ children }) { return <h3 className="mb-2 mt-3 text-sm font-semibold first:mt-0">{children}</h3>; },
+        blockquote({ children }) {
+          return (
+            <blockquote className={`my-3 border-l-2 pl-3 italic ${isDark ? 'border-stone-500 text-stone-400' : 'border-stone-300 text-stone-500'}`}>
+              {children}
+            </blockquote>
+          );
+        },
+        hr() { return <hr className={`my-4 ${isDark ? 'border-white/10' : 'border-stone-200'}`} />; },
+        a({ href, children }) {
+          return (
+            <a href={href} target="_blank" rel="noopener noreferrer" className={`underline ${isDark ? 'text-blue-300 hover:text-blue-200' : 'text-blue-600 hover:text-blue-700'}`}>
+              {children}
+            </a>
+          );
+        },
+        table({ children }) {
+          return (
+            <div className="my-3 overflow-x-auto">
+              <table className="text-sm border-collapse w-full">{children}</table>
+            </div>
+          );
+        },
+        th({ children }) {
+          return <th className={`border px-3 py-1.5 text-left font-semibold text-sm ${isDark ? 'border-white/10 bg-white/5' : 'border-stone-200 bg-stone-100'}`}>{children}</th>;
+        },
+        td({ children }) {
+          return <td className={`border px-3 py-1.5 text-sm ${isDark ? 'border-white/10' : 'border-stone-200'}`}>{children}</td>;
+        },
+        strong({ children }) { return <strong className="font-semibold">{children}</strong>; },
+      }}
+    >
+      {content}
+    </ReactMarkdown>
   );
 }
 
@@ -467,6 +550,9 @@ function AppShell() {
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [historySearch, setHistorySearch] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
+  const [showChatSearch, setShowChatSearch] = useState(false);
+  const [docContext, setDocContext] = useState('');
   const [showArchivedHistory, setShowArchivedHistory] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectFilter, setActiveProjectFilter] = useState<string | null>(null);
@@ -1230,6 +1316,12 @@ function AppShell() {
         return;
       }
 
+      if ((event.ctrlKey || event.metaKey) && event.key === 'f' && activeTab === 'chat') {
+        event.preventDefault();
+        setShowChatSearch(v => !v);
+        return;
+      }
+
       if (event.altKey && event.key === 'Enter' && !isEditableTarget) {
         event.preventDefault();
         toggleFullscreenMode();
@@ -1726,11 +1818,14 @@ function AppShell() {
       model: isAutoRouteProvider(provider) ? undefined : model,
       conversationId,
       messages: messages.slice(-30),
-      attachments: pendingAttachments.map(item => ({
-        name: item.name,
-        content: item.content,
-        type: item.type,
-      })),
+      attachments: [
+        ...(docContext.trim() ? [{ name: 'document-context.txt', content: docContext.trim(), type: 'text/plain' }] : []),
+        ...pendingAttachments.map(item => ({
+          name: item.name,
+          content: item.content,
+          type: item.type,
+        })),
+      ],
       activeAgentId: activeBotPreset?.id || null,
       webSearch: webSearchEnabled,
     };
@@ -3664,18 +3759,49 @@ function AppShell() {
                       <h3 className="text-sm font-medium">Runtime</h3>
                       <p className={`mt-1 text-xs ${subtleTextClass}`}>Toggle runtime details.</p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => setIsChatSidebarOpen(value => !value)}
-                      className={secondaryButtonClass}
-                      aria-expanded={isChatSidebarOpen}
-                      aria-label={isChatSidebarOpen ? 'Hide runtime details' : 'Show runtime details'}
-                    >
-                      {isChatSidebarOpen ? 'Hide runtime' : 'Show runtime'}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        title="Search messages (Ctrl+F)"
+                        onClick={() => setShowChatSearch(v => !v)}
+                        className={`${secondaryButtonClass} ${showChatSearch ? (isDarkMode ? 'bg-amber-500/15 border-amber-400/30 text-amber-200' : 'bg-amber-50 border-amber-200 text-amber-800') : ''}`}
+                      >
+                        <Search className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsChatSidebarOpen(value => !value)}
+                        className={secondaryButtonClass}
+                        aria-expanded={isChatSidebarOpen}
+                        aria-label={isChatSidebarOpen ? 'Hide runtime details' : 'Show runtime details'}
+                      >
+                        {isChatSidebarOpen ? 'Hide runtime' : 'Show runtime'}
+                      </button>
+                    </div>
                   </div>
 
                   <div ref={chatScrollRef} className="flex-1 overflow-auto space-y-3 pr-1 sm:space-y-4 sm:pr-2 relative">
+                    {showChatSearch ? (
+                      <div className={`sticky top-0 z-10 flex items-center gap-2 rounded-xl border px-3 py-2 mb-2 ${isDarkMode ? 'bg-[#1a1d20] border-white/10' : 'bg-white border-stone-200'}`}>
+                        <Search className="w-3.5 h-3.5 shrink-0 opacity-50" />
+                        <input
+                          autoFocus
+                          type="text"
+                          placeholder="Search messages…"
+                          value={chatSearch}
+                          onChange={e => setChatSearch(e.target.value)}
+                          className="flex-1 bg-transparent text-sm outline-none"
+                        />
+                        {chatSearch ? (
+                          <span className={`text-xs ${isDarkMode ? 'text-stone-400' : 'text-stone-500'}`}>
+                            {messages.filter(m => m.content.toLowerCase().includes(chatSearch.toLowerCase())).length} match(es)
+                          </span>
+                        ) : null}
+                        <button type="button" onClick={() => { setShowChatSearch(false); setChatSearch(''); }} className="opacity-50 hover:opacity-100">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : null}
                     {showScrollResumeBtn ? (
                       <div className="sticky top-0 z-10 flex justify-center pb-1 pt-0.5">
                         <button
@@ -3719,28 +3845,15 @@ function AppShell() {
                           </div>
                         </div>
                       ) : message.isCompact ? null : (
-                      <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-3 py-3 sm:px-4 sm:py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[94%] sm:max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[94%] sm:max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-full sm:max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-full sm:max-w-[92%]'}`}>
+                      <div key={`${message.role}-${index}`} className={`rounded-[1.1rem] px-3 py-3 sm:px-4 sm:py-4 ${message.role === 'user' ? (isDarkMode ? 'bg-white text-stone-950 ml-auto max-w-[94%] sm:max-w-[82%]' : 'bg-stone-900 text-white ml-auto max-w-[94%] sm:max-w-[82%]') : isDarkMode ? 'bg-[#1a1d20] border border-white/8 max-w-full sm:max-w-[92%]' : 'bg-[#f7f4ee] border border-stone-200 max-w-full sm:max-w-[92%]'} ${chatSearch.trim() && message.content.toLowerCase().includes(chatSearch.toLowerCase()) ? (isDarkMode ? 'ring-2 ring-amber-400/60' : 'ring-2 ring-amber-400') : ''}`}>
                         <div className="text-xs uppercase tracking-[0.25em] opacity-60 mb-2">
                           {message.role === 'user'
                             ? 'You'
                             : [formatProviderLabel(message.provider), message.model].filter(Boolean).join(' · ') || message.model || 'Assistant'}
                         </div>
                         <div className="text-[15px] leading-6 sm:leading-7">
-                          {message.role === 'assistant' && /!\[generated\]\(data:image\/[^)]+\)/.test(message.content)
-                            ? (() => {
-                                const parts = message.content.split(/(!\[generated\]\(data:image\/[^)]+\))/);
-                                return parts.map((part, pi) => {
-                                  const m = part.match(/^!\[generated\]\((data:image\/[^)]+)\)$/);
-                                  if (m) return <img key={pi} src={m[1]} alt="Generated" className="max-w-full rounded-lg mt-2 mb-2" />;
-                                  return <span key={pi} className="whitespace-pre-wrap">{part}</span>;
-                                });
-                              })()
-                            : message.role === 'assistant' && hasArtifacts(message.content)
-                            ? parseArtifacts(message.content).map((seg, si) =>
-                                seg.type === 'text'
-                                  ? <span key={si} className="whitespace-pre-wrap">{seg.content}</span>
-                                  : <ArtifactBlock key={si} lang={seg.lang} code={seg.code} isDark={isDarkMode} />
-                              )
+                          {message.role === 'assistant'
+                            ? <MarkdownMessage content={message.content} isDark={isDarkMode} />
                             : <span className="whitespace-pre-wrap">{message.content}</span>
                           }
                         </div>
@@ -4144,6 +4257,31 @@ function AppShell() {
                       <li>{currentRuntimeTokenUsage || `Estimated token window: ${getEstimatedModelTokenLimit(currentRuntimeProvider, currentRuntimeModel)?.toLocaleString() || 'unknown'}`}</li>
                       <li>Available providers: {availableProviders.length ? availableProviders.join(', ') : 'none'}</li>
                     </ul>
+                  </div>
+
+                  <div className={sectionCardClass}>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-4 h-4 opacity-60" />
+                        <h3 className="font-medium">Document context</h3>
+                      </div>
+                      {docContext.trim() ? (
+                        <button type="button" onClick={() => setDocContext('')} className={`text-xs ${subtleTextClass} opacity-60 hover:opacity-100`}>Clear</button>
+                      ) : null}
+                    </div>
+                    <p className={`text-xs ${mutedTextClass} mb-2`}>Paste text — it will be included as context on every message you send.</p>
+                    <textarea
+                      value={docContext}
+                      onChange={e => setDocContext(e.target.value)}
+                      rows={5}
+                      placeholder="Paste document, code, notes, or any context here…"
+                      className={`w-full resize-y text-xs ${isDarkMode ? 'bg-white/5 border-white/10 text-stone-200 placeholder:text-stone-500' : 'bg-stone-50 border-stone-200 text-stone-800 placeholder:text-stone-400'} rounded-xl border px-3 py-2 outline-none focus:ring-1 ${isDarkMode ? 'focus:ring-white/20' : 'focus:ring-stone-300'}`}
+                    />
+                    {docContext.trim() ? (
+                      <p className={`mt-1.5 text-xs ${isDarkMode ? 'text-amber-300/80' : 'text-amber-700'}`}>
+                        {docContext.trim().length.toLocaleString()} chars · active on all sends
+                      </p>
+                    ) : null}
                   </div>
                 </section>
               </div>
