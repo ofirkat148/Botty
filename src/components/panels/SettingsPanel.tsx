@@ -766,9 +766,12 @@ export default function SettingsPanel() {
                       return (
                         <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-3`}>
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-medium">{item.title}</div>
-                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                            <div className="flex items-start gap-2 min-w-0">
+                              <Sparkles className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${isDarkMode ? 'text-violet-400' : 'text-violet-500'}`} />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium">{item.title}</div>
+                                <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                              </div>
                             </div>
                             <div className={`shrink-0 rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
                               {isActive ? 'Active' : `/${item.command}`}
@@ -910,9 +913,12 @@ export default function SettingsPanel() {
                       return (
                         <div key={item.id} className={`${elevatedCardClass} flex flex-col gap-3`}>
                           <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <div className="text-sm font-medium">{item.title}</div>
-                              <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                            <div className="flex items-start gap-2 min-w-0">
+                              <Bot className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${isDarkMode ? 'text-sky-400' : 'text-sky-500'}`} />
+                              <div className="min-w-0">
+                                <div className="text-sm font-medium">{item.title}</div>
+                                <p className={`text-sm ${subtleTextClass} mt-1`}>{item.description}</p>
+                              </div>
                             </div>
                             <div className={`shrink-0 rounded-full px-2 py-1 text-xs ${isActive ? (isDarkMode ? 'bg-emerald-500/15 text-emerald-200 border border-emerald-500/30' : 'bg-emerald-50 text-emerald-700 border border-emerald-200') : (isDarkMode ? 'bg-white/5 text-stone-300 border border-white/10' : 'bg-stone-100 text-stone-600 border border-stone-200')}`}>
                               {isActive ? 'Active' : `/${item.command}`}
