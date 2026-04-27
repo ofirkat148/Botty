@@ -474,11 +474,41 @@ export async function runChatForUser(input: RunChatForUserInput): Promise<RunCha
       signal: input.signal,
     });
 
-    responseText = remoteResult.responseText;
-    tokensUsed = remoteResult.tokensUsed;
-    provider = remoteResult.provider;
-    model = remoteResult.model;
-    apiKey = remoteResult.apiKey;
+    // Synthesize agent data through the LLM: inject raw data as context, answer the user's question
+    let synthDone = false;
+    for (let si = 0; si < routes.length && !synthDone; si++) {
+      const sRoute = routes[si];
+      const sKey = sRoute.provider === 'local' ? '' : await getProviderApiKey(uid, sRoute.provider).catch(() => '');
+      if (sRoute.provider !== 'local' && !sKey) continue;
+      try {
+        const synthPrompt = `[DATA FROM ${activeAgent.title}]\n${remoteResult.responseText}\n[END DATA]\n\n${prompt}`;
+        const result = await callLLM({
+          prompt: synthPrompt,
+          provider: sRoute.provider,
+          model: sRoute.model,
+          apiKey: sKey,
+          systemPrompt,
+          messages,
+          localUrl: runtimeSettings.localUrl,
+          signal: input.signal,
+        });
+        responseText = result.responseText;
+        tokensUsed = result.tokensUsed;
+        provider = sRoute.provider;
+        model = sRoute.model;
+        apiKey = sKey;
+        synthDone = true;
+      } catch {
+        // try next route
+      }
+    }
+    if (!synthDone) {
+      responseText = remoteResult.responseText;
+      tokensUsed = remoteResult.tokensUsed;
+      provider = remoteResult.provider;
+      model = remoteResult.model;
+      apiKey = remoteResult.apiKey;
+    }
   } else {
 
     for (let index = 0; index < routes.length; index += 1) {
@@ -704,7 +734,6 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
   const visionImages = extractVisionImages(attachments);
 
   if (activeAgent?.executorType === 'remote-http' || activeAgent?.executorType === 'local-agent') {
-    // Remote/local agents don't support streaming — run normally and deliver as single chunk
     const remoteResult = await runRemoteHttpAgent({
       agent: activeAgent,
       prompt: promptForModel,
@@ -713,12 +742,48 @@ export async function streamChatForUser(input: StreamChatForUserInput): Promise<
       attachments,
       signal: input.signal,
     });
-    responseText = remoteResult.responseText;
-    tokensUsed = remoteResult.tokensUsed;
-    provider = remoteResult.provider;
-    model = remoteResult.model;
-    apiKey = remoteResult.apiKey;
-    input.onChunk(responseText);
+
+    // Synthesize agent data through the LLM: stream the answer using the raw data as context
+    let synthDone = false;
+    for (let si = 0; si < routes.length && !synthDone; si++) {
+      const sRoute = routes[si];
+      const sKey = sRoute.provider === 'local' ? '' : await getProviderApiKey(uid, sRoute.provider).catch(() => '');
+      if (sRoute.provider !== 'local' && !sKey) continue;
+      try {
+        const synthPrompt = `[DATA FROM ${activeAgent.title}]\n${remoteResult.responseText}\n[END DATA]\n\n${prompt}`;
+        let accumulated = '';
+        const result = await streamCallLLM({
+          prompt: synthPrompt,
+          provider: sRoute.provider,
+          model: sRoute.model,
+          apiKey: sKey,
+          systemPrompt,
+          messages,
+          localUrl: runtimeSettings.localUrl,
+          signal: input.signal,
+          onChunk: (delta) => {
+            accumulated += delta;
+            input.onChunk(delta);
+          },
+        });
+        responseText = accumulated;
+        tokensUsed = result.tokensUsed;
+        provider = sRoute.provider;
+        model = sRoute.model;
+        apiKey = sKey;
+        synthDone = true;
+      } catch {
+        // try next route
+      }
+    }
+    if (!synthDone) {
+      responseText = remoteResult.responseText;
+      tokensUsed = remoteResult.tokensUsed;
+      provider = remoteResult.provider;
+      model = remoteResult.model;
+      apiKey = remoteResult.apiKey;
+      input.onChunk(responseText);
+    }
   } else {
     for (let index = 0; index < routes.length; index += 1) {
       const route = routes[index];
