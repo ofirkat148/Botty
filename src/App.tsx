@@ -798,7 +798,7 @@ function AppShell() {
       description: manifest.description,
       systemPrompt: manifest.systemPrompt,
       executorType: 'local-agent',
-      endpoint: `http://localhost:${manifest.port}/botty`,
+      endpoint: `http://localhost:${manifest.port}/`,
       memoryMode: 'shared',
     });
     await refreshAll();

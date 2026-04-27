@@ -847,7 +847,7 @@ export default function SettingsPanel() {
                       <option value="remote-http">Remote HTTP agent</option>
                       <option value="local-agent">Local agent (localhost)</option>
                     </select>
-                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Endpoint, e.g. http://localhost:7001/botty" className={textInputClass} disabled={newBotExecutorType === 'internal-llm'} />
+                    <input value={newBotEndpoint} onChange={event => patchNewBot({ endpoint: event.target.value })} placeholder="Endpoint, e.g. http://localhost:7001/" className={textInputClass} disabled={newBotExecutorType === 'internal-llm'} />
                     {newBotExecutorType === 'internal-llm' ? (
                       <>
                         <select value={newBotProvider ? getProviderSelectValue(newBotProvider) : ''} onChange={event => {
@@ -980,7 +980,7 @@ export default function SettingsPanel() {
                                   <option value="remote-http">Remote HTTP agent</option>
                                   <option value="local-agent">Local agent (localhost)</option>
                                 </select>
-                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Endpoint, e.g. http://localhost:7001/botty" className={textInputClass} disabled={editingBotExecutorType === 'internal-llm'} />
+                                <input value={editingBotEndpoint} onChange={event => patchEditingBot({ endpoint: event.target.value })} placeholder="Endpoint, e.g. http://localhost:7001/" className={textInputClass} disabled={editingBotExecutorType === 'internal-llm'} />
                                 {editingBotExecutorType === 'internal-llm' ? (
                                   <>
                                     <select value={editingBotProvider ? getProviderSelectValue(editingBotProvider) : ''} onChange={event => {

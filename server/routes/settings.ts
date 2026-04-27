@@ -365,25 +365,29 @@ async function getOllamaBaseUrl(uid: string): Promise<string> {
 
 // GET /api/settings/ollama-models — list locally available Ollama models
 // GET /api/settings/local-agents/scan
-// Probes localhost ports 7001–7099 for Botty-compatible local agent adapters.
-// Adapters signal readiness by returning { status: 'ok', botty: { title, command, description, systemPrompt, port } }
-// from their GET /health endpoint.
+// Probes localhost ports 7001–7099 for A2A-compatible agents.
+// Agents expose their identity via GET /.well-known/agent.json (A2A Agent Card).
 router.get('/local-agents/scan', async (_req: Request, res: Response) => {
   const PORTS = Array.from({ length: 99 }, (_, i) => 7001 + i);
   const discovered: Array<Record<string, unknown>> = [];
 
   await Promise.all(PORTS.map(async (port) => {
     try {
-      const response = await fetch(`http://localhost:${port}/health`, {
+      const response = await fetch(`http://localhost:${port}/.well-known/agent.json`, {
         signal: AbortSignal.timeout(600),
       });
       if (!response.ok) return;
-      const data = await response.json().catch(() => null) as Record<string, unknown> | null;
-      if (!data?.botty || typeof data.botty !== 'object') return;
-      const manifest = data.botty as Record<string, unknown>;
-      if (typeof manifest.title === 'string' && typeof manifest.command === 'string') {
-        discovered.push({ port, ...manifest });
-      }
+      const card = await response.json().catch(() => null) as Record<string, unknown> | null;
+      if (!card || typeof card.name !== 'string') return;
+      const meta = (card.metadata ?? {}) as Record<string, unknown>;
+      discovered.push({
+        port,
+        title: card.name,
+        command: typeof meta.command === 'string' ? meta.command : String(card.name).toLowerCase().replace(/\s+/g, '-'),
+        description: typeof card.description === 'string' ? card.description : '',
+        systemPrompt: typeof meta.systemPrompt === 'string' ? meta.systemPrompt : '',
+        url: `http://localhost:${port}/`,
+      });
     } catch {
       // port not responding — skip
     }

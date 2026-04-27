@@ -271,55 +271,61 @@ async function runRemoteHttpAgent(params: {
     ? AbortSignal.any([signal, timeoutController.signal])
     : timeoutController.signal;
 
+  // A2A task endpoint: strip trailing slash, POST to base URL
+  const taskEndpoint = endpoint.replace(/\/$/, '');
+  const taskId = randomUUID();
+
   try {
-    const response = await fetch(endpoint, {
+    const response = await fetch(taskEndpoint, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       signal: combinedSignal,
       body: JSON.stringify({
-        agent: {
-          id: agent.id,
-          title: agent.title,
-          command: agent.command,
-          description: agent.description,
-          useWhen: agent.useWhen,
-          boundaries: agent.boundaries,
+        jsonrpc: '2.0',
+        id: taskId,
+        method: 'tasks/send',
+        params: {
+          id: taskId,
+          message: {
+            role: 'user',
+            parts: [{ type: 'text', text: prompt }],
+          },
+          metadata: {
+            systemPrompt,
+            messages,
+            attachments,
+          },
         },
-        prompt,
-        systemPrompt,
-        messages,
-        attachments,
-        tools: agent.tools?.length ? agent.tools : null,
-        config: agent.config || null,
       }),
     });
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(body.trim() || `Remote agent request failed with ${response.status}`);
+      throw new Error(body.trim() || `Agent request failed with ${response.status}`);
     }
 
     const payload = await response.json().catch(() => ({} as Record<string, unknown>));
-    const responseText = typeof payload.responseText === 'string'
-      ? payload.responseText.trim()
-      : typeof payload.text === 'string'
-        ? payload.text.trim()
-        : typeof payload.message === 'string'
-          ? payload.message.trim()
-          : '';
 
-    if (!responseText) {
-      throw new Error('Remote agent returned an empty response');
+    // A2A response: result.artifacts[0].parts[0].text
+    let responseText = '';
+    const result = payload.result as Record<string, unknown> | undefined;
+    if (result) {
+      const artifacts = result.artifacts as Array<Record<string, unknown>> | undefined;
+      const parts = artifacts?.[0]?.parts as Array<Record<string, unknown>> | undefined;
+      const part = parts?.[0];
+      if (typeof part?.text === 'string') responseText = part.text.trim();
     }
 
-    const tokensUsed = typeof payload.tokensUsed === 'number' && Number.isFinite(payload.tokensUsed)
-      ? Math.max(0, payload.tokensUsed)
-      : Math.ceil((systemPrompt.length + prompt.length + responseText.length) / 4);
-    const model = typeof payload.model === 'string' && payload.model.trim()
-      ? payload.model.trim()
+    if (!responseText) {
+      throw new Error('Agent returned an empty response');
+    }
+
+    const model = typeof result?.model === 'string' && result.model.trim()
+      ? result.model.trim()
       : agent.model?.trim() || 'external-agent';
+    const tokensUsed = typeof result?.tokensUsed === 'number' && Number.isFinite(result.tokensUsed as number)
+      ? Math.max(0, result.tokensUsed as number)
+      : Math.ceil((systemPrompt.length + prompt.length + responseText.length) / 4);
 
     return {
       responseText,
