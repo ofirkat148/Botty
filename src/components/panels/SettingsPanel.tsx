@@ -212,12 +212,12 @@ export default function SettingsPanel() {
     patchNewBot, resetNewBot,
     newBotTitle, newBotDescription, newBotCommand, newBotProvider, newBotModel,
     newBotMemoryMode, newBotExecutorType, newBotEndpoint, newBotSystemPrompt,
-    newBotTools, newBotMaxTurns,
+    newBotTools, newBotMaxTurns, newBotLlmSynthesize,
     patchEditingBot, resetEditingBot, loadEditingBot,
     editingBotId, editingBotTitle, editingBotDescription, editingBotCommand,
     editingBotUseWhen, editingBotBoundaries, editingBotProvider, editingBotModel,
     editingBotMemoryMode, editingBotExecutorType, editingBotEndpoint, editingBotSystemPrompt,
-    editingBotTools, editingBotMaxTurns,
+    editingBotTools, editingBotMaxTurns, editingBotLlmSynthesize,
     ragFileInputRef, factFileInputRef, factImportRef,
     importMemoryInputRef, importAgentInputRef, attachmentInputRef,
     composerDropRef, composerTextareaRef, speechRecognitionRef,
@@ -898,6 +898,12 @@ export default function SettingsPanel() {
                     <div>
                       <input type="number" min="1" max="100" value={newBotMaxTurns} onChange={event => patchNewBot({ maxTurns: event.target.value })} placeholder="Max turns (optional, e.g. 10)" className={textInputClass} />
                     </div>
+                    {(newBotExecutorType === 'remote-http' || newBotExecutorType === 'local-agent') && (
+                      <div className="md:col-span-2 flex items-center gap-2">
+                        <input id="new-bot-llm-synthesize" type="checkbox" checked={newBotLlmSynthesize} onChange={event => patchNewBot({ llmSynthesize: event.target.checked })} className="w-4 h-4 rounded" />
+                        <label htmlFor="new-bot-llm-synthesize" className={`text-sm ${subtleTextClass} cursor-pointer`}>LLM synthesis — Botty reasons over agent data before replying (uncheck for raw data passthrough)</label>
+                      </div>
+                    )}
                     <div className="md:col-span-2 flex">
                       <button type="submit" disabled={creatingFunction === 'agent'} className={responsivePrimaryButtonClass}>
                         {creatingFunction === 'agent' ? 'Adding...' : 'Add agent'}
@@ -1029,6 +1035,12 @@ export default function SettingsPanel() {
                                 <div>
                                   <input type="number" min="1" max="100" value={editingBotMaxTurns} onChange={event => patchEditingBot({ maxTurns: event.target.value })} placeholder="Max turns" className={textInputClass} />
                                 </div>
+                                {(editingBotExecutorType === 'remote-http' || editingBotExecutorType === 'local-agent') && (
+                                  <div className="md:col-span-2 flex items-center gap-2">
+                                    <input id={`edit-bot-llm-synthesize-${editingBotId}`} type="checkbox" checked={editingBotLlmSynthesize} onChange={event => patchEditingBot({ llmSynthesize: event.target.checked })} className="w-4 h-4 rounded" />
+                                    <label htmlFor={`edit-bot-llm-synthesize-${editingBotId}`} className={`text-sm ${subtleTextClass} cursor-pointer`}>LLM synthesis — Botty reasons over agent data before replying</label>
+                                  </div>
+                                )}
                                 <div className="md:col-span-2">
                                   <div className="flex flex-col gap-2">
                                     <div className={`text-xs ${subtleTextClass}`}>Tool definitions (optional)</div>

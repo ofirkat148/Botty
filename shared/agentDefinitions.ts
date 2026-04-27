@@ -20,6 +20,8 @@ export type AgentDefinition = Omit<FunctionPreset, 'kind'> & {
   tools?: ToolDefinition[] | null;
   /** Maximum conversation turns before a completion signal is emitted. null = unlimited. */
   maxTurns?: number | null;
+  /** When true (default), Botty feeds agent data through its LLM for synthesis. Set false to return raw agent data immediately. */
+  llmSynthesize?: boolean | null;
   config?: Record<string, unknown> | null;
   enabled?: boolean;
 };

@@ -641,6 +641,7 @@ function AppShell() {
   const newBotSystemPrompt = newBot.systemPrompt;
   const newBotTools = newBot.tools;
   const newBotMaxTurns = newBot.maxTurns;
+  const newBotLlmSynthesize = newBot.llmSynthesize;
 
   const { state: editingBot, patch: patchEditingBot, reset: resetEditingBot, load: loadEditingBot } = useBotEditorReducer();
   const editingBotId = editingBot.id;
@@ -657,6 +658,7 @@ function AppShell() {
   const editingBotSystemPrompt = editingBot.systemPrompt;
   const editingBotTools = editingBot.tools;
   const editingBotMaxTurns = editingBot.maxTurns;
+  const editingBotLlmSynthesize = editingBot.llmSynthesize;
   const [savingBotId, setSavingBotId] = useState('');
   const [deletingBotId, setDeletingBotId] = useState('');
   const [confirmingDeleteBotId, setConfirmingDeleteBotId] = useState('');
@@ -2465,6 +2467,7 @@ function AppShell() {
         systemPrompt: systemPromptValue,
         tools: newBotTools.length > 0 ? newBotTools : null,
         maxTurns: maxTurnsValue,
+        llmSynthesize: newBotLlmSynthesize,
       });
       resetNewBot();
       await refreshAll();
@@ -2490,6 +2493,7 @@ function AppShell() {
       systemPrompt: agent.systemPrompt,
       tools: agent.tools || [],
       maxTurns: agent.maxTurns ? String(agent.maxTurns) : '',
+      llmSynthesize: agent.llmSynthesize !== false,
     });
   }
 
@@ -2603,6 +2607,7 @@ function AppShell() {
         systemPrompt: systemPromptValue,
         tools: editingBotTools.length > 0 ? editingBotTools : null,
         maxTurns: maxTurnsValue,
+        llmSynthesize: editingBotLlmSynthesize,
       });
       stopEditingCustomBot();
       await refreshAll();
@@ -3630,12 +3635,12 @@ function AppShell() {
     patchNewBot, resetNewBot,
     newBotTitle, newBotDescription, newBotCommand, newBotProvider, newBotModel,
     newBotMemoryMode, newBotExecutorType, newBotEndpoint, newBotSystemPrompt,
-    newBotTools, newBotMaxTurns,
+    newBotTools, newBotMaxTurns, newBotLlmSynthesize,
     patchEditingBot, resetEditingBot, loadEditingBot,
     editingBotId, editingBotTitle, editingBotDescription, editingBotCommand,
     editingBotUseWhen, editingBotBoundaries, editingBotProvider, editingBotModel,
     editingBotMemoryMode, editingBotExecutorType, editingBotEndpoint, editingBotSystemPrompt,
-    editingBotTools, editingBotMaxTurns,
+    editingBotTools, editingBotMaxTurns, editingBotLlmSynthesize,
     ragFileInputRef, factFileInputRef, factImportRef,
     importMemoryInputRef, importAgentInputRef, attachmentInputRef,
     composerDropRef, composerTextareaRef, speechRecognitionRef,

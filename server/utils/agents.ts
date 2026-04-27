@@ -45,7 +45,9 @@ export function normalizeAgentDefinition(value: AgentCandidate): AgentDefinition
   const tools = extractTools(rawConfig?.tools ?? (candidate as any)?.tools);
   const rawMaxTurns = (rawConfig?.maxTurns ?? (candidate as any)?.maxTurns);
   const maxTurns = typeof rawMaxTurns === 'number' && rawMaxTurns > 0 ? rawMaxTurns : null;
-  const config = rawConfig ? { ...rawConfig, tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined } : (tools.length > 0 || maxTurns ? { tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined } : null);
+  const rawLlmSynthesize = rawConfig?.llmSynthesize ?? (candidate as any)?.llmSynthesize;
+  const llmSynthesize = rawLlmSynthesize === false ? false : true;
+  const config = rawConfig ? { ...rawConfig, tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined, llmSynthesize } : (tools.length > 0 || maxTurns ? { tools: tools.length > 0 ? tools : undefined, maxTurns: maxTurns ?? undefined, llmSynthesize } : { llmSynthesize });
   const enabled = candidate?.enabled !== false;
 
   if (!title || !description || !command || !systemPrompt) {
@@ -77,6 +79,7 @@ export function normalizeAgentDefinition(value: AgentCandidate): AgentDefinition
     config,
     tools: tools.length > 0 ? tools : null,
     maxTurns,
+    llmSynthesize,
     enabled,
     builtIn: candidate?.builtIn === true,
   };

@@ -57,6 +57,7 @@ export type BotFormState = {
   systemPrompt: string;
   tools: ToolDefinition[];
   maxTurns: string;
+  llmSynthesize: boolean;
 };
 
 const initialBotFormState: BotFormState = {
@@ -74,6 +75,7 @@ const initialBotFormState: BotFormState = {
   systemPrompt: '',
   tools: [],
   maxTurns: '',
+  llmSynthesize: true,
 };
 
 type BotFormAction =
