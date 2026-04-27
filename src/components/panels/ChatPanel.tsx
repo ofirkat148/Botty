@@ -272,6 +272,7 @@ export default function ChatPanel() {
     supportsSpeechRecognition,
     ARTIFACT_LANG_SET,
     ArtifactBlock, MarkdownMessage,
+    scrollLockedRef, apiSend,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   } = useAppContext() as Record<string, any>;
 
@@ -492,7 +493,7 @@ export default function ChatPanel() {
                                     setMemorySuggestion({ messageIndex: index, suggestions: [], loading: true, saved: false });
                                     try {
                                       const prevUser = messages.slice(0, index).reverse().find(m => m.role === 'user');
-                                      const data = await apiSend<{ suggestions: string[] }>('/api/memory/suggest', 'POST', {
+                                      const data = await (apiSend as <T>(path: string, method: string, body?: unknown) => Promise<T>)<{ suggestions: string[] }>('/api/memory/suggest', 'POST', {
                                         assistantContent: message.content,
                                         userPrompt: prevUser?.content,
                                       });

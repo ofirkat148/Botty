@@ -4,7 +4,11 @@ import test from 'node:test';
 import { chromium } from 'playwright-core';
 import { baseUrl } from './helpers/live-botty.mjs';
 
-const browserPath = process.env.BOTTY_TEST_BROWSER || '/usr/bin/google-chrome';
+let _chromiumShell = '';
+try { const { chromium: _c } = await import('playwright-core'); _chromiumShell = _c.executablePath('chromium'); } catch { /* no playwright-core */ }
+const browserPath = (process.env.BOTTY_TEST_BROWSER && process.env.BOTTY_TEST_BROWSER !== '1')
+  ? process.env.BOTTY_TEST_BROWSER
+  : (process.env.BOTTY_TEST_BROWSER === '1' ? (_chromiumShell || '/usr/bin/google-chrome') : '/usr/bin/google-chrome');
 
 test('ui can create and run a remote http agent', async () => {
   const requests = [];

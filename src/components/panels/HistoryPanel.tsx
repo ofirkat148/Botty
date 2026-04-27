@@ -70,6 +70,12 @@ import {
 } from '../../utils/chatAttachments';
 import { parseArtifacts, hasArtifacts } from '../../utils/artifacts';
 import { useAppContext } from '../../contexts/AppContext';
+import {
+  PROJECT_COLOR_PRESETS,
+  getProjectActivePill,
+  getProjectDotClass,
+  getProjectBadgeClass,
+} from '../../utils/projectColors';
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
 export default function HistoryPanel() {

@@ -24,7 +24,11 @@ import { describe, test, before } from 'node:test';
 import { chromium } from 'playwright-core';
 import { baseUrl, buildAuthHeaders, fetchJson } from './helpers/live-botty.mjs';
 
-const browserPath = process.env.BOTTY_TEST_BROWSER || '/usr/bin/google-chrome';
+let _chromiumShell = '';
+try { const { chromium: _c } = await import('playwright-core'); _chromiumShell = _c.executablePath('chromium'); } catch { /* no playwright-core */ }
+const browserPath = (process.env.BOTTY_TEST_BROWSER && process.env.BOTTY_TEST_BROWSER !== '1')
+  ? process.env.BOTTY_TEST_BROWSER
+  : (process.env.BOTTY_TEST_BROWSER === '1' ? (_chromiumShell || '/usr/bin/google-chrome') : '/usr/bin/google-chrome');
 
 // ---------------------------------------------------------------------------
 // Helper: seed a history entry via the REST API

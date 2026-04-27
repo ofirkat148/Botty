@@ -17,7 +17,7 @@
     "test:chat-regression": "node --test tests/chat-route.test.mjs",
     "test:dashboard-smoke": "node --test tests/dashboard-smoke.test.mjs",
     "test:function-presets": "node --test tests/function-presets.test.mjs",
-    "test:ui-agents": "node --test tests/ui-agents.test.mjs",
+    "test:ui-agents": "BOTTY_TEST_BROWSER=1 node --test tests/ui-agents.test.mjs",
     "test:security": "node --test tests/security.test.mjs",
     "test:memory": "node --test tests/memory-consolidation.test.mjs",
     "test:provider-fallback": "node --test tests/provider-fallback.test.mjs",
@@ -28,7 +28,7 @@
     "test:shares": "node --test tests/shares.test.mjs",
     "test:projects": "node --test tests/projects.test.mjs",
     "test:routing-unit": "node --test --import tsx/esm tests/routing-unit.test.mjs",
-    "test:ui-features": "node --test tests/ui-features.test.mjs",
+    "test:ui-features": "BOTTY_TEST_BROWSER=1 node --test tests/ui-features.test.mjs",
     "migrate:encrypt-keys": "node ops/migrate-encrypt-keys.mjs",
     "db:push": "drizzle-kit push:pg",
     "db:studio": "drizzle-kit studio"
