@@ -65,28 +65,6 @@ services:
       retries: 10
       start_period: 30s
 
-  backup:
-    image: alpine:3.21
-    restart: unless-stopped
-    depends_on:
-      app:
-        condition: service_healthy
-    volumes:
-      - ./data:/data
-    command:
-      - sh
-      - -c
-      - |
-        mkdir -p /data/backups &&
-        printf '%s\n' '0 3 * * * DB=/data/botty.db; [ -f "$$DB" ] && cp "$$DB" "/data/backups/botty_$$(date +%%Y%%m%%d_%%H%%M%%S).db" && find /data/backups -name "botty_*.db" -mtime +7 -delete && echo "[botty-backup] done $$(date)" >> /proc/1/fd/1 2>&1' > /etc/crontabs/root &&
-        echo "[botty-backup] Scheduled daily at 03:00. Backups -> /data/backups (keep 7 days)." &&
-        crond -f -l 6
-    logging:
-      driver: json-file
-      options:
-        max-size: "5m"
-        max-file: "3"
-
 volumes: {}
 
 secrets:
