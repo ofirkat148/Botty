@@ -7,6 +7,7 @@ const PROVIDER_ENV_KEYS: Record<string, string[]> = {
   anthropic: ['ANTHROPIC_API_KEY'],
   google: ['GEMINI_API_KEY', 'API_KEY', 'GOOGLE_API_KEY'],
   openai: ['OPENAI_API_KEY'],
+  groq: ['GROQ_API_KEY'],
   tavily: ['TAVILY_API_KEY'],
 };
 
@@ -14,6 +15,7 @@ const DEFAULT_MODELS = {
   anthropic: 'claude-3-7-sonnet-latest',
   google: 'gemini-2.5-flash',
   openai: 'gpt-4o-mini',
+  groq: 'llama-3.3-70b-versatile',
   local: 'qwen2.5:3b',
 };
 
@@ -21,6 +23,7 @@ const PROVIDER_MODEL_OPTIONS: Record<string, string[]> = {
   anthropic: ['claude-3-7-sonnet-latest', 'claude-3-5-haiku-latest'],
   google: ['gemini-2.5-flash', 'gemini-2.5-pro'],
   openai: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'],
+  groq: ['llama-3.3-70b-versatile', 'llama3-8b-8192', 'mixtral-8x7b-32768', 'gemma2-9b-it'],
 };
 
 const PREFERRED_LOCAL_MODELS = [
@@ -33,7 +36,7 @@ const PREFERRED_LOCAL_MODELS = [
 ];
 
 const DEFAULT_LOCAL_LLM_URL = 'http://localhost:11434';
-const SUPPORTED_CHAT_PROVIDERS = ['anthropic', 'google', 'openai', 'local'] as const;
+const SUPPORTED_CHAT_PROVIDERS = ['anthropic', 'google', 'openai', 'groq', 'local'] as const;
 
 const COMBINABLE_FACT_PREFIXES = ['Prefers', 'Uses', 'Works on'] as const;
 
@@ -1484,6 +1487,40 @@ export async function callLLM(params: {
     } catch (error) {
       throw normalizeProviderError(provider, error, 'OpenAI request failed');
     }
+  } else if (provider === 'groq') {
+    try {
+      const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`,
+        },
+        signal,
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+            ...messages,
+            { role: 'user', content: prompt },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const body = await response.text();
+        throw new LLMProviderError(
+          provider,
+          summarizeProviderErrorBody(body, `Groq request failed with ${response.status}`),
+          { statusCode: response.status, retryable: isRetryableStatus(response.status) },
+        );
+      }
+
+      const data = await response.json() as any;
+      responseText = data.choices?.[0]?.message?.content || '';
+      tokensUsed = data.usage?.total_tokens || 0;
+    } catch (error) {
+      throw normalizeProviderError(provider, error, 'Groq request failed');
+    }
   } else if (provider === 'local') {
     const candidateUrls = getCandidateLocalLlmUrls(localUrl);
     const attemptedEndpoints: string[] = [];
@@ -1727,6 +1764,33 @@ export async function streamCallLLM(params: {
 
     const { text: fullText, tokensUsed } = await consumeOpenAIStream(response);
     return { tokensUsed: tokensUsed || Math.ceil((systemPrompt.length + prompt.length + fullText.length) / 4) };
+
+  } else if (provider === 'groq') {
+    const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      signal,
+      body: JSON.stringify({
+        model,
+        stream: true,
+        messages: [
+          { role: 'system', content: systemPrompt || 'You are a helpful assistant.' },
+          ...messages,
+          { role: 'user', content: prompt },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new LLMProviderError(provider, summarizeProviderErrorBody(body, `Groq request failed with ${response.status}`), { statusCode: response.status, retryable: isRetryableStatus(response.status) });
+    }
+
+    const { text: groqText, tokensUsed: groqTokens } = await consumeOpenAIStream(response);
+    return { tokensUsed: groqTokens || Math.ceil((systemPrompt.length + prompt.length + groqText.length) / 4) };
 
   } else if (provider === 'local') {
     const candidateUrls = getCandidateLocalLlmUrls(localUrl);

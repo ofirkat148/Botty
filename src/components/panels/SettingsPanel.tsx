@@ -314,10 +314,10 @@ export default function SettingsPanel() {
                     <h3 className="font-medium">Provider keys</h3>
                   </div>
                   <div className={`mb-4 rounded-[0.9rem] border px-4 py-3 text-sm ${isDarkMode ? 'border-emerald-400/20 bg-emerald-500/8 text-emerald-200' : 'border-emerald-200 bg-emerald-50 text-emerald-800'}`}>
-                    <strong>Free options:</strong> Local (Ollama) needs no key — just a running model. Google Gemini Flash has a generous free tier (1,500 requests/day) via <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="underline">aistudio.google.com</a>.
+                    <strong>Free options:</strong> Local (Ollama) needs no key — just a running model. Google Gemini Flash has a generous free tier (1,500 requests/day) via <a href="https://aistudio.google.com" target="_blank" rel="noopener noreferrer" className="underline">aistudio.google.com</a>. <a href="https://console.groq.com" target="_blank" rel="noopener noreferrer" className="underline">Groq</a> is free (14,400 req/day) with fast Llama 3.3 70B.
                   </div>
                   <div className="grid gap-3 md:grid-cols-3">
-                    {['anthropic', 'google', 'openai'].map(providerName => {
+                    {['anthropic', 'google', 'openai', 'groq'].map(providerName => {
                       const saved = apiKeys.find(k => k.provider === providerName);
                       return (
                       <div key={providerName} className={`${elevatedCardClass} flex flex-col gap-3`}>
