@@ -64,7 +64,7 @@ test('ui can create and run a remote http agent', async () => {
 
     const createAgentSection = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Agents', exact: true, level: 3 }) });
     await createAgentSection.locator('select').first().selectOption('remote-http');
-    await page.getByPlaceholder('Endpoint, e.g. http://localhost:7001/botty').fill(endpoint);
+    await page.getByPlaceholder('Endpoint, e.g. http://localhost:7001/').fill(endpoint);
     await page.getByPlaceholder('System prompt: define the specialist role, operating rules, and decision standards').fill('You are a remote UI smoke-test agent.');
     await page.getByRole('button', { name: 'Add agent' }).click();
 
