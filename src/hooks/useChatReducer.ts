@@ -10,6 +10,7 @@ export type ChatMessage = {
   isCompact?: boolean;
   sentAt?: string; // ISO timestamp
   ragSources?: string[];
+  toolSteps?: string[]; // tool names mentioned/invoked in this response
 };
 
 export type ChatState = {
@@ -23,7 +24,7 @@ type ChatAction =
   | { type: 'ADD_USER_MESSAGE'; content: string }
   | { type: 'ADD_ASSISTANT_PLACEHOLDER' }
   | { type: 'APPEND_ASSISTANT_CHUNK'; delta: string }
-  | { type: 'FINALIZE_ASSISTANT'; content: string; model: string; provider: string; routingMode: string | null; tokensUsed: number; conversationId: string; ragSources?: string[] }
+  | { type: 'FINALIZE_ASSISTANT'; content: string; model: string; provider: string; routingMode: string | null; tokensUsed: number; conversationId: string; ragSources?: string[]; toolSteps?: string[] }
   | { type: 'SET_SENDING'; value: boolean }
   | { type: 'SET_ERROR'; message: string }
   | { type: 'CLEAR_ERROR' }
@@ -70,6 +71,7 @@ function chatReducer(state: ChatState, action: ChatAction): ChatState {
           tokensUsed: action.tokensUsed,
           sentAt: new Date().toISOString(),
           ragSources: action.ragSources,
+          toolSteps: action.toolSteps,
         };
       }
       return { ...state, messages: updated, conversationId: action.conversationId };

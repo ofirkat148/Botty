@@ -523,8 +523,9 @@ export default function SettingsPanel() {
                   <div className={`${elevatedCardClass} space-y-3`}>
                     <div className="text-sm font-medium">{googleStatus?.credentialsConfigured ? 'Update OAuth credentials' : 'Enter OAuth credentials'}</div>
                     <div>
-                      <label className={`block text-xs mb-1 ${subtleTextClass}`}>Client ID</label>
+                      <label htmlFor="google-client-id" className={`block text-xs mb-1 ${subtleTextClass}`}>Client ID</label>
                       <input
+                        id="google-client-id"
                         type="text"
                         value={googleClientIdInput}
                         onChange={e => setGoogleClientIdInput(e.target.value)}
@@ -534,8 +535,9 @@ export default function SettingsPanel() {
                       />
                     </div>
                     <div>
-                      <label className={`block text-xs mb-1 ${subtleTextClass}`}>Client Secret</label>
+                      <label htmlFor="google-client-secret" className={`block text-xs mb-1 ${subtleTextClass}`}>Client Secret</label>
                       <input
+                        id="google-client-secret"
                         type="password"
                         value={googleClientSecretInput}
                         onChange={e => setGoogleClientSecretInput(e.target.value)}

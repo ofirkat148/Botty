@@ -684,6 +684,7 @@ function AppShell() {
   const chatAbortControllerRef = useRef<AbortController | null>(null);
   const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const scrollLockedRef = useRef(false);
+  const sidebarSearchRef = useRef<HTMLInputElement | null>(null);
   const [showScrollResumeBtn, setShowScrollResumeBtn] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
 
@@ -1273,6 +1274,14 @@ function AppShell() {
         return;
       }
 
+      if ((event.ctrlKey || event.metaKey) && event.key === 'k') {
+        event.preventDefault();
+        setIsSidebarExpanded(true);
+        setHasSidebarPreference(true);
+        setTimeout(() => sidebarSearchRef.current?.focus(), 50);
+        return;
+      }
+
       if ((event.ctrlKey || event.metaKey) && event.key === 'n' && !isEditableTarget) {
         event.preventDefault();
         startNewChat();
@@ -1508,6 +1517,34 @@ function AppShell() {
     el.addEventListener('scroll', handleScroll, { passive: true });
     return () => el.removeEventListener('scroll', handleScroll);
   }, []);
+
+  /** Extract tool names mentioned in an LLM response. Matches patterns like:
+   *  - **Tool: name** or **Tool: name**
+   *  - [TOOL: name] or [Tool: name]
+   *  - Using tool: name
+   */
+  function parseToolSteps(text: string): string[] {
+    const seen = new Set<string>();
+    const results: string[] = [];
+    const patterns = [
+      /\[(?:TOOL|Tool|tool):\s*([^\]]{1,60})\]/g,
+      /\*\*(?:Tool|TOOL|tool):\s*([^*]{1,60})\*\*/g,
+      /using tool[:\s]+([^\n.]{1,60})/gi,
+      /calling tool[:\s]+([^\n.]{1,60})/gi,
+    ];
+    for (const re of patterns) {
+      let m: RegExpExecArray | null;
+      re.lastIndex = 0;
+      while ((m = re.exec(text)) !== null) {
+        const name = m[1].trim();
+        if (name && !seen.has(name.toLowerCase())) {
+          seen.add(name.toLowerCase());
+          results.push(name);
+        }
+      }
+    }
+    return results;
+  }
 
   async function apiGet<T>(path: string) {
     const response = await fetch(path, { headers: authHeaders });
@@ -1868,6 +1905,7 @@ function AppShell() {
           tokensUsed: meta.tokensUsed,
           conversationId: meta.conversationId,
           ragSources: meta.ragSources || [],
+          toolSteps: parseToolSteps(meta.text),
         });
         setDailyTokens(prev => prev + meta!.tokensUsed);
         if (meta.conversationId && meta.provider && meta.model) {
@@ -3601,8 +3639,8 @@ function AppShell() {
     ragFileInputRef, factFileInputRef, factImportRef,
     importMemoryInputRef, importAgentInputRef, attachmentInputRef,
     composerDropRef, composerTextareaRef, speechRecognitionRef,
-    chatAbortControllerRef, chatScrollRef, scrollLockedRef,
-    apiSend,
+    chatAbortControllerRef, chatScrollRef, scrollLockedRef, sidebarSearchRef,
+    apiSend, parseToolSteps,
     authHeaders, allPresets, skillPresets, agentPresets, usedCommands,
     builtInAgents, customAgentsPresets, activePreset, slashCommands,
     activeBotPreset, conversationTokenWarning, slashMenuItems, groupedSlashItems,
@@ -3687,6 +3725,7 @@ function AppShell() {
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-current/10">
                     {([
+                      ['Ctrl + K', 'Search conversations'],
                       ['Ctrl + N', 'New conversation'],
                       ['Ctrl + \\', 'Toggle sidebar'],
                       ['Ctrl + /', 'Focus composer'],
@@ -3746,12 +3785,13 @@ function AppShell() {
                 <div className={`flex items-center gap-2 rounded-[0.9rem] border px-3 py-2 text-sm ${isDarkMode ? 'border-white/10 bg-white/5 text-stone-300 placeholder:text-stone-500' : 'border-stone-200 bg-white/70 text-stone-700 placeholder:text-stone-400'}`}>
                   <Search className="w-3.5 h-3.5 shrink-0 opacity-60" />
                   <input
+                    ref={sidebarSearchRef}
                     type="text"
                     value={sidebarSearch}
                     onChange={event => setSidebarSearch(event.target.value)}
                     onFocus={() => setSidebarSearchFocused(true)}
                     onBlur={() => setTimeout(() => setSidebarSearchFocused(false), 150)}
-                    placeholder="Search conversations…"
+                    placeholder="Search conversations… (Ctrl+K)"
                     aria-label="Search conversations"
                     className="flex-1 bg-transparent outline-none text-sm min-w-0"
                   />

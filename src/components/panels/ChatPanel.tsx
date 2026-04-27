@@ -431,6 +431,17 @@ export default function ChatPanel() {
                             ))}
                           </div>
                         ) : null}
+                        {message.role === 'assistant' && message.toolSteps?.length ? (
+                          <div className={`mt-2 flex flex-wrap items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs ${isDarkMode ? 'bg-white/5 border border-white/8' : 'bg-stone-100 border border-stone-200'}`}>
+                            <span className={`shrink-0 font-medium ${isDarkMode ? 'text-stone-400' : 'text-stone-500'}`}>Tools used:</span>
+                            {message.toolSteps.map(step => (
+                              <span key={step} className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ${isDarkMode ? 'bg-violet-500/15 text-violet-300 border border-violet-500/20' : 'bg-violet-50 text-violet-700 border border-violet-200'}`}>
+                                <MemoryStick className="w-3 h-3 shrink-0" />
+                                {step}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
                         {message.role === 'user' && !isSending ? (
                           <div className="mt-2 flex justify-start">
                             <button

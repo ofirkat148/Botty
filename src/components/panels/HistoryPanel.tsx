@@ -298,6 +298,32 @@ export default function HistoryPanel() {
                         {agentFactCounts.total} memory facts
                       </span>
                     </div>
+
+                    {usageTrend.length > 1 ? (
+                      <div>
+                        <div className={`mb-1 flex items-center justify-between text-xs ${subtleTextClass}`}>
+                          <span>Last {usageTrend.length} days</span>
+                          <span className="flex gap-3">
+                            <span>min: <strong>{Math.min(...usageTrend.map(e => e.tokens)).toLocaleString()}</strong></span>
+                            <span>max: <strong>{trendPeak.toLocaleString()}</strong></span>
+                          </span>
+                        </div>
+                        <div className="flex items-end gap-0.5 h-10">
+                          {usageTrend.map((entry, i) => {
+                            const pct = trendPeak > 0 ? (entry.tokens / trendPeak) * 100 : 0;
+                            const isToday = i === usageTrend.length - 1;
+                            return (
+                              <div
+                                key={entry.date}
+                                title={`${entry.date}: ${entry.tokens.toLocaleString()} tokens`}
+                                style={{ height: `${Math.max(pct, 4)}%` }}
+                                className={`flex-1 rounded-sm transition-all ${isToday ? (isDarkMode ? 'bg-sky-400' : 'bg-sky-500') : (isDarkMode ? 'bg-white/20' : 'bg-stone-300')}`}
+                              />
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 </section>
 
